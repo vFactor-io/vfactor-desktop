@@ -186,7 +186,7 @@ export function LeftSidebar({
   const selectedProjectSessions =
     selectedProjectChat?.sessions.filter((session) => !archivedSessionIds.has(session.id)) ?? []
   const expandedRowClass =
-    "flex h-8 w-full items-center gap-2 rounded-lg px-1.5 text-left text-[13px] font-medium"
+    "flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[13px] font-medium"
   const expandedRowIdleClass =
     "text-sidebar-foreground/68 hover:bg-[var(--sidebar-item-hover)] hover:text-sidebar-foreground"
   const expandedRowActiveClass =
@@ -631,7 +631,7 @@ export function LeftSidebar({
                 </div>
 
                 {selectedProject ? (
-                  <div className="rounded-xl border border-sidebar-border/55 bg-background/[0.02] p-1">
+                  <div className="space-y-0.5">
                     {selectedProjectSessions.length === 0 ? (
                       <div className="px-2.5 py-3 text-[12px] text-sidebar-foreground/50">
                         No threads in this workspace yet.
@@ -664,13 +664,11 @@ export function LeftSidebar({
                                   : "text-sidebar-foreground/68 hover:bg-[var(--sidebar-item-hover)] hover:text-sidebar-foreground",
                               )}
                             >
-                              <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-                                {isRunningSession ? (
+                              {isRunningSession ? (
+                                <span className="flex h-4 w-4 shrink-0 items-center justify-center">
                                   <span className="size-3 rounded-full border border-sidebar-foreground/18 border-t-sidebar-foreground/62 animate-spin" />
-                                ) : (
-                                  <span className="size-1.5 rounded-full bg-sidebar-foreground/28" />
-                                )}
-                              </span>
+                                </span>
+                              ) : null}
 
                               <button
                                 type="button"

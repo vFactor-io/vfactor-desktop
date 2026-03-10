@@ -1,43 +1,7 @@
+import { useEffect, useState } from "react"
 import { useChat } from "../hooks/useChat"
 import { ChatMessages } from "./ChatMessages"
-import { ChatInput, type ComposerPrompt } from "./ChatInput"
-
-const MOCK_COMPOSER_PROMPT: ComposerPrompt = {
-  id: "mock-composer-prompt",
-  title: "Help me choose the next composer behavior",
-  body: "Pick the interaction you want me to optimize first. This is a temporary preview of the structured question state.",
-  questions: [
-    {
-      id: "composer-mode",
-      label: "Which mode should the composer switch into?",
-      kind: "single_select",
-      required: true,
-      options: [
-        { id: "structured-questions", label: "Structured questions" },
-        { id: "queued-messages", label: "Queued messages" },
-        { id: "plan-view", label: "Plan view above input" },
-      ],
-    },
-    {
-      id: "visible-context",
-      label: "What should stay visible above the input?",
-      kind: "multi_select",
-      required: true,
-      options: [
-        { id: "active-plan", label: "Active plan" },
-        { id: "queued-messages", label: "Queued messages" },
-        { id: "agent-questions", label: "Agent questions" },
-        { id: "draft-preview", label: "Draft preview" },
-      ],
-    },
-    {
-      id: "notes",
-      label: "Anything else you want in this state?",
-      kind: "text",
-      description: "Use this freeform field to describe layout or interaction tweaks.",
-    },
-  ],
-}
+import { ChatInput } from "./ChatInput"
 
 export function ChatContainer() {
   const {
@@ -56,6 +20,12 @@ export function ChatContainer() {
     createSession,
     executeCommand,
   } = useChat()
+  const threadKey = `${selectedProject?.id ?? "no-project"}:${activeSessionId ?? "draft"}`
+  const [showInlineIntro, setShowInlineIntro] = useState(messages.length === 0)
+
+  useEffect(() => {
+    setShowInlineIntro(messages.length === 0)
+  }, [threadKey])
 
   // Handle submit - create session if needed
   const handleSubmitWithSession = async (text: string, options?: { agent?: string }) => {
@@ -100,6 +70,7 @@ export function ChatContainer() {
           status={status}
           selectedProject={selectedProject}
           childSessions={childSessions}
+          showInlineIntro={showInlineIntro}
         />
       </div>
       <div className="flex-shrink-0 flex justify-center">
@@ -114,7 +85,6 @@ export function ChatContainer() {
             selectedHarnessId={selectedHarnessId}
             onSelectHarness={selectHarness}
             status={status}
-            prompt={MOCK_COMPOSER_PROMPT}
           />
         </div>
       </div>

@@ -48,6 +48,7 @@ interface ChatMessagesProps {
   status: "idle" | "streaming" | "error"
   selectedProject?: Project | null
   childSessions?: Map<string, ChildSessionState>
+  showInlineIntro?: boolean
 }
 
 function StaticConversation({
@@ -254,8 +255,8 @@ function ChatEmptyState({ selectedProject }: ChatEmptyStateProps) {
   const hasRecentWork = recentSessions.length > 0
 
   return (
-    <div className="flex min-h-[58vh] items-center justify-center px-4 py-8">
-      <div className="w-full max-w-[860px] space-y-10 text-left">
+    <div className="px-4 pt-6 pb-8">
+      <div className="w-full max-w-[860px] space-y-8 text-left">
         <section className="relative space-y-3 pb-2">
           <div className="group relative h-[182px] overflow-hidden rounded-[2rem] bg-muted">
             {selectedProject ? (
@@ -448,7 +449,13 @@ function ChatEmptyState({ selectedProject }: ChatEmptyStateProps) {
   )
 }
 
-export function ChatMessages({ messages, status, selectedProject: _selectedProject, childSessions }: ChatMessagesProps) {
+export function ChatMessages({
+  messages,
+  status,
+  selectedProject: _selectedProject,
+  childSessions,
+  showInlineIntro = false,
+}: ChatMessagesProps) {
   const hasContent = messages.length > 0
   const groups = groupMessages(messages)
 
@@ -481,6 +488,7 @@ export function ChatMessages({ messages, status, selectedProject: _selectedProje
       <ChatAutoScroll messages={messages} status={status} />
       <ConversationContent className="mx-auto w-full max-w-[803px] px-10 pb-10">
         <>
+          {showInlineIntro ? <ChatEmptyState selectedProject={_selectedProject} /> : null}
           {groups.map((group, groupIndex) => {
             const isLastGroup = groupIndex === groups.length - 1
 
