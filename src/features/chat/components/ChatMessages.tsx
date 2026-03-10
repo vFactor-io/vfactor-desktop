@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react"
 import { useChatStore, type MessageWithParts, type ChildSessionState } from "../store"
 import type { Project } from "@/features/workspace/types"
 import type { RuntimeMessagePart, RuntimeTextPart, RuntimeToolPart } from "../types"
@@ -48,6 +48,31 @@ interface ChatMessagesProps {
   status: "idle" | "streaming" | "error"
   selectedProject?: Project | null
   childSessions?: Map<string, ChildSessionState>
+}
+
+function StaticConversation({
+  children,
+  resetKey,
+}: {
+  children: ReactNode
+  resetKey: string
+}) {
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+
+  useLayoutEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = 0
+    }
+  }, [resetKey])
+
+  return (
+    <div
+      ref={scrollRef}
+      className="h-full overflow-y-auto overscroll-none [scrollbar-color:var(--color-muted-foreground)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-track]:bg-transparent"
+    >
+      {children}
+    </div>
+  )
 }
 
 /**
@@ -120,7 +145,6 @@ function ChatEmptyState({ selectedProject }: ChatEmptyStateProps) {
   const [digestMarkdown, setDigestMarkdown] = useState<string | null>(null)
   const [digestPath, setDigestPath] = useState<string | null>(null)
   const [digestError, setDigestError] = useState<string | null>(null)
-  const [isDigestLoading, setIsDigestLoading] = useState(false)
   const { projects, selectProject, addProject, updateProjectBackground } = useProjectStore()
   const { getProjectChat } = useChatStore()
 
@@ -151,39 +175,34 @@ function ChatEmptyState({ selectedProject }: ChatEmptyStateProps) {
   useEffect(() => {
     let cancelled = false
     let intervalId: ReturnType<typeof setInterval> | null = null
+    const selectedProjectPath = selectedProject?.path ?? null
 
     const loadDigest = async () => {
-      if (!selectedProject?.path) {
+      if (!selectedProjectPath) {
         if (!cancelled) {
           setDigestMarkdown(null)
           setDigestPath(null)
           setDigestError(null)
-          setIsDigestLoading(false)
         }
         return
       }
 
-      setIsDigestLoading(true)
-      setDigestError(null)
+      const nextDigestPath = getAgentDigestPath(selectedProjectPath)
+      setDigestPath(nextDigestPath)
 
       try {
-        const nextDigestPath = getAgentDigestPath(selectedProject.path)
-        const latestDigest = await readLatestAgentDigest(selectedProject.path)
+        const latestDigest = await readLatestAgentDigest(selectedProjectPath)
 
         if (!cancelled) {
           setDigestMarkdown(latestDigest)
           setDigestPath(nextDigestPath)
+          setDigestError(null)
         }
       } catch (error) {
         console.error("[ChatEmptyState] Failed to read agent digest:", error)
         if (!cancelled) {
-          setDigestMarkdown(null)
-          setDigestPath(getAgentDigestPath(selectedProject.path))
+          setDigestPath(nextDigestPath)
           setDigestError(error instanceof Error ? error.message : String(error))
-        }
-      } finally {
-        if (!cancelled) {
-          setIsDigestLoading(false)
         }
       }
     }
@@ -382,11 +401,7 @@ function ChatEmptyState({ selectedProject }: ChatEmptyStateProps) {
           <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
             Recent Summary
           </p>
-          {isDigestLoading ? (
-            <div className="space-y-2 text-[14px] text-muted-foreground">
-              <p>Loading the latest digest...</p>
-            </div>
-          ) : digestMarkdown ? (
+          {digestMarkdown ? (
             <div className="max-w-[68ch] text-[15px] leading-7 text-foreground/90">
               <Streamdown>{digestMarkdown}</Streamdown>
             </div>
@@ -451,47 +466,53 @@ export function ChatMessages({ messages, status, selectedProject: _selectedProje
       )
     : undefined
 
+  if (!hasContent) {
+    return (
+      <StaticConversation resetKey={_selectedProject?.id ?? "empty-chat"}>
+        <div className="mx-auto w-full max-w-[803px] px-10 pb-10">
+          <ChatEmptyState key={_selectedProject?.id ?? "empty-chat"} selectedProject={_selectedProject} />
+        </div>
+      </StaticConversation>
+    )
+  }
+
   return (
     <Conversation className="h-full">
       <ChatAutoScroll messages={messages} status={status} />
       <ConversationContent className="mx-auto w-full max-w-[803px] px-10 pb-10">
-        {!hasContent ? (
-          <ChatEmptyState selectedProject={_selectedProject} />
-        ) : (
-          <>
-            {groups.map((group, groupIndex) => {
-              const isLastGroup = groupIndex === groups.length - 1
+        <>
+          {groups.map((group, groupIndex) => {
+            const isLastGroup = groupIndex === groups.length - 1
 
-              if (group.type === "user") {
-                const text = getMessageText(group.message.parts)
-                // Don't render empty user messages
-                if (!text.trim()) {
-                  return null
-                }
-                return (
-                  <MessageComponent key={group.message.info.id} from="user">
-                    <MessageContent>
-                      <MessageUserContent>{text}</MessageUserContent>
-                    </MessageContent>
-                  </MessageComponent>
-                )
+            if (group.type === "user") {
+              const text = getMessageText(group.message.parts)
+              // Don't render empty user messages
+              if (!text.trim()) {
+                return null
               }
-
-              // Assistant message group - only pass child sessions to the last group
-              const isStreaming = status === "streaming" && isLastGroup
-              const groupKey = group.messages.map((m) => m.info.id).join("-")
-
               return (
-                <AssistantMessageGroup
-                  key={groupKey}
-                  messages={group.messages}
-                  isStreaming={isStreaming}
-                  childSessions={isLastGroup ? childSessionData : undefined}
-                />
+                <MessageComponent key={group.message.info.id} from="user">
+                  <MessageContent>
+                    <MessageUserContent>{text}</MessageUserContent>
+                  </MessageContent>
+                </MessageComponent>
               )
-            })}
-          </>
-        )}
+            }
+
+            // Assistant message group - only pass child sessions to the last group
+            const isStreaming = status === "streaming" && isLastGroup
+            const groupKey = group.messages.map((m) => m.info.id).join("-")
+
+            return (
+              <AssistantMessageGroup
+                key={groupKey}
+                messages={group.messages}
+                isStreaming={isStreaming}
+                childSessions={isLastGroup ? childSessionData : undefined}
+              />
+            )
+          })}
+        </>
       </ConversationContent>
       <ConversationScrollButton />
     </Conversation>
