@@ -32,10 +32,13 @@ export function ChatContainer() {
     let sessionId = activeSessionId
     
     if (!sessionId) {
+      setInput("")
+
       // Create a new session first
       const session = await createSession()
       if (!session) {
         console.error("[ChatContainer] Failed to create session")
+        setInput(text)
         return
       }
       sessionId = session.id

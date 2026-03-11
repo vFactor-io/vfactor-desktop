@@ -27,7 +27,7 @@ interface JsonRpcError {
   }
 }
 
-interface JsonRpcNotification<T = unknown> {
+export interface JsonRpcNotification<T = unknown> {
   jsonrpc?: "2.0"
   method: string
   params?: T
@@ -39,6 +39,21 @@ type PendingRequest = {
 }
 
 type NotificationListener = (notification: JsonRpcNotification) => void
+
+const OPTED_OUT_NOTIFICATION_METHODS = [
+  "codex/event/agent_message_content_delta",
+  "codex/event/agent_message_delta",
+  "codex/event/agent_reasoning_delta",
+  "codex/event/reasoning_content_delta",
+  "codex/event/reasoning_raw_content_delta",
+  "codex/event/exec_command_output_delta",
+  "codex/event/exec_approval_request",
+  "codex/event/exec_command_begin",
+  "codex/event/exec_command_end",
+  "codex/event/exec_output",
+  "codex/event/item_started",
+  "codex/event/item_completed",
+]
 
 function isJsonRpcResponse(
   value: JsonRpcSuccess | JsonRpcError | JsonRpcNotification
@@ -172,7 +187,10 @@ export class CodexRpcClient {
           title: "Nucleus Desktop",
           version: "0.1.0",
         },
-        capabilities: null,
+        capabilities: {
+          experimentalApi: true,
+          optOutNotificationMethods: OPTED_OUT_NOTIFICATION_METHODS,
+        },
       })
       this.notify("initialized")
       return true

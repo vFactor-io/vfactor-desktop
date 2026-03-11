@@ -1,7 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useChatStore, type MessageWithParts, type ChildSessionState } from "../store"
 import type { Project } from "@/features/workspace/types"
-import type { RuntimeMessagePart, RuntimeTextPart, RuntimeToolPart } from "../types"
 import {
   Conversation,
   ConversationContent,
@@ -10,15 +9,12 @@ import {
 import {
   Message as MessageComponent,
   MessageContent,
-  MessageResponse,
-  MessageUserContent,
 } from "./ai-elements/message"
-import { Loader } from "./ai-elements/loader"
 import { Streamdown } from "streamdown"
-import { AgentActivitySDK } from "./agent-activity/AgentActivitySDK"
 import type { ChildSessionData } from "./agent-activity/AgentActivitySubagent"
 import { CaretDown, PencilSimple, Plus } from "@/components/icons"
 import { Button } from "@/features/shared/components/ui/button"
+import { LoadingDots } from "@/features/shared/components/ui/loading-dots"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -42,6 +38,7 @@ import { AGENT_HEADER_BACKGROUNDS } from "@/features/workspace/utils/backgrounds
 import { getAgentDigestPath, readLatestAgentDigest } from "@/features/workspace/utils/digest"
 import { openFolderPicker } from "@/features/workspace/utils/folderDialog"
 import { useStickToBottomContext } from "use-stick-to-bottom"
+import { ChatTimelineItem, InlineSubagentActivity } from "./ChatTimelineItem"
 
 interface ChatMessagesProps {
   messages: MessageWithParts[]
@@ -74,66 +71,6 @@ function StaticConversation({
       {children}
     </div>
   )
-}
-
-/**
- * Extract text from message parts.
- */
-function getMessageText(parts: RuntimeMessagePart[]): string {
-  return parts
-    .filter((p): p is RuntimeTextPart => p.type === "text")
-    .map((p) => p.text)
-    .join("")
-}
-
-/**
- * Get tool parts from message parts.
- */
-function getToolParts(parts: RuntimeMessagePart[]): RuntimeToolPart[] {
-  return parts.filter((p): p is RuntimeToolPart => p.type === "tool")
-}
-
-/**
- * Check if a message has any activity (tool calls, multiple content blocks, etc.)
- */
-function hasActivity(parts: RuntimeMessagePart[]): boolean {
-  return parts.some((p) => p.type === "tool")
-}
-
-/**
- * A group of messages - either a single user message or consecutive assistant messages.
- */
-type MessageGroup =
-  | { type: "user"; message: MessageWithParts }
-  | { type: "assistant"; messages: MessageWithParts[] }
-
-/**
- * Group consecutive assistant messages together.
- * Some harnesses create separate messages for each "step" (tool call),
- * but we want to render them in a single "Show steps" dropdown.
- */
-function groupMessages(messages: MessageWithParts[]): MessageGroup[] {
-  const groups: MessageGroup[] = []
-  let currentAssistantGroup: MessageWithParts[] = []
-
-  const flushAssistantGroup = () => {
-    if (currentAssistantGroup.length > 0) {
-      groups.push({ type: "assistant", messages: currentAssistantGroup })
-      currentAssistantGroup = []
-    }
-  }
-
-  for (const message of messages) {
-    if (message.info.role === "user") {
-      flushAssistantGroup()
-      groups.push({ type: "user", message })
-    } else {
-      currentAssistantGroup.push(message)
-    }
-  }
-
-  flushAssistantGroup()
-  return groups
 }
 
 interface ChatEmptyStateProps {
@@ -457,7 +394,9 @@ export function ChatMessages({
   showInlineIntro = false,
 }: ChatMessagesProps) {
   const hasContent = messages.length > 0
-  const groups = groupMessages(messages)
+  const lastMessage = messages[messages.length - 1]
+  const shouldRenderStreamingPlaceholder =
+    status === "streaming" && (!lastMessage || lastMessage.info.role === "user")
 
   // Convert ChildSessionState to ChildSessionData for the component
   const childSessionData: Map<string, ChildSessionData> | undefined = childSessions 
@@ -472,6 +411,17 @@ export function ChatMessages({
         ])
       )
     : undefined
+  const hasCollabTimelineItem = useMemo(
+    () => messages.some((message) => message.info.itemType === "collabAgentToolCall"),
+    [messages]
+  )
+  const orphanChildSessions = useMemo(() => {
+    if (!childSessionData || childSessionData.size === 0 || hasCollabTimelineItem) {
+      return []
+    }
+
+    return Array.from(childSessionData.values())
+  }, [childSessionData, hasCollabTimelineItem])
 
   if (!hasContent) {
     return (
@@ -489,37 +439,22 @@ export function ChatMessages({
       <ConversationContent className="mx-auto w-full max-w-[803px] px-10 pb-10">
         <>
           {showInlineIntro ? <ChatEmptyState selectedProject={_selectedProject} /> : null}
-          {groups.map((group, groupIndex) => {
-            const isLastGroup = groupIndex === groups.length - 1
-
-            if (group.type === "user") {
-              const text = getMessageText(group.message.parts)
-              // Don't render empty user messages
-              if (!text.trim()) {
-                return null
-              }
-              return (
-                <MessageComponent key={group.message.info.id} from="user">
-                  <MessageContent>
-                    <MessageUserContent>{text}</MessageUserContent>
-                  </MessageContent>
-                </MessageComponent>
-              )
-            }
-
-            // Assistant message group - only pass child sessions to the last group
-            const isStreaming = status === "streaming" && isLastGroup
-            const groupKey = group.messages.map((m) => m.info.id).join("-")
-
-            return (
-              <AssistantMessageGroup
-                key={groupKey}
-                messages={group.messages}
-                isStreaming={isStreaming}
-                childSessions={isLastGroup ? childSessionData : undefined}
-              />
-            )
-          })}
+          {messages.map((message, index) => (
+            <ChatTimelineItem
+              key={message.info.id}
+              message={message}
+              isStreaming={status === "streaming" && index === messages.length - 1}
+              childSessions={childSessionData}
+            />
+          ))}
+          {orphanChildSessions.length > 0 ? (
+            <div className="space-y-3">
+              {orphanChildSessions.map((childSession) => (
+                <InlineSubagentActivity key={childSession.session.id} childSession={childSession} />
+              ))}
+            </div>
+          ) : null}
+          {shouldRenderStreamingPlaceholder ? <StreamingAssistantPlaceholder /> : null}
         </>
       </ConversationContent>
       <ConversationScrollButton />
@@ -561,47 +496,14 @@ function ChatAutoScroll({
   return null
 }
 
-interface AssistantMessageGroupProps {
-  messages: MessageWithParts[]
-  isStreaming: boolean
-  childSessions?: Map<string, ChildSessionData>
-}
-
-/**
- * Renders a group of assistant messages with a single AgentActivity dropdown
- * for all tool calls, plus the final response text.
- */
-function AssistantMessageGroup({ messages, isStreaming, childSessions }: AssistantMessageGroupProps) {
-  // Combine all parts from all messages in the group
-  const allParts = messages.flatMap((m) => m.parts)
-  
-  // Get text from all messages (usually only the last one has final text)
-  const text = getMessageText(allParts)
-  const hasChildSessions = childSessions && childSessions.size > 0
-  const showActivity = hasActivity(allParts) || isStreaming || hasChildSessions
-
-  // Check if the last message in the group is finished
-  const lastMessage = messages[messages.length - 1]
-  const assistantInfo = lastMessage.info
-  const showFinalText = !isStreaming && text && (!showActivity || assistantInfo.finishReason === "end_turn")
-
+function StreamingAssistantPlaceholder() {
   return (
     <MessageComponent from="assistant">
       <MessageContent>
-        {showActivity && (
-          <AgentActivitySDK
-            parts={allParts}
-            isStreaming={isStreaming}
-            childSessions={childSessions}
-            className="mb-6"
-          />
-        )}
-
-        {showFinalText ? (
-          <MessageResponse isStreaming={isStreaming} className="leading-relaxed [&>p]:mb-4">{text}</MessageResponse>
-        ) : (
-          isStreaming && !text && !showActivity && <Loader className="mt-2" />
-        )}
+        <div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+          <LoadingDots />
+          <span>Thinking</span>
+        </div>
       </MessageContent>
     </MessageComponent>
   )

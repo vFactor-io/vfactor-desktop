@@ -14,7 +14,7 @@ import type {
 import { getCodexRpcClient } from "./codexRpcClient"
 
 const TURN_COMPLETION_TIMEOUT_MS = 120_000
-const TURN_POLL_INTERVAL_MS = 150
+const TURN_SYNC_INTERVAL_MS = 250
 
 interface CodexThread {
   id: string
@@ -72,6 +72,7 @@ type CodexThreadItem =
       id: string
       changes: unknown[]
       status: string
+      outputText?: string | null
     }
   | {
       type: "mcpToolCall"
@@ -149,12 +150,41 @@ interface CodexTurnStartResponse {
   }
 }
 
-function toMilliseconds(seconds: number): number {
-  return seconds * 1000
+interface CodexTurnNotification {
+  threadId: string
+  turn: CodexTurn
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+interface CodexItemNotification {
+  threadId: string
+  turnId: string
+  item: CodexThreadItem
+}
+
+interface CodexTextDeltaNotification {
+  threadId: string
+  turnId: string
+  itemId: string
+  delta: string
+}
+
+interface CodexOutputDeltaNotification {
+  threadId: string
+  turnId: string
+  itemId: string
+  delta: string
+}
+
+interface CodexReasoningTextDeltaNotification extends CodexTextDeltaNotification {
+  contentIndex: number
+}
+
+interface CodexReasoningSummaryTextDeltaNotification extends CodexTextDeltaNotification {
+  summaryIndex: number
+}
+
+function toMilliseconds(seconds: number): number {
+  return seconds * 1000
 }
 
 function isTransientTurnReadError(error: unknown): boolean {
@@ -212,7 +242,8 @@ function createAssistantMessage(
   itemId: string,
   createdAt: number,
   parts: RuntimeMessagePart[],
-  finishReason?: RuntimeMessage["finishReason"]
+  finishReason?: RuntimeMessage["finishReason"],
+  metadata?: Pick<RuntimeMessage, "itemType" | "phase">
 ): MessageWithParts {
   return {
     info: {
@@ -221,6 +252,8 @@ function createAssistantMessage(
       role: "assistant",
       createdAt,
       finishReason,
+      itemType: metadata?.itemType,
+      phase: metadata?.phase,
     },
     parts,
   }
@@ -231,7 +264,8 @@ function createToolMessage(
   itemId: string,
   createdAt: number,
   tool: string,
-  state: RuntimeToolState
+  state: RuntimeToolState,
+  itemType: RuntimeMessage["itemType"]
 ): MessageWithParts {
   return createAssistantMessage(sessionId, itemId, createdAt, [
     {
@@ -242,7 +276,222 @@ function createToolMessage(
       tool,
       state,
     } satisfies RuntimeToolPart,
-  ])
+  ], undefined, {
+    itemType,
+  })
+}
+
+function cloneCodexItem(item: CodexThreadItem): CodexThreadItem {
+  switch (item.type) {
+    case "reasoning":
+      return {
+        ...item,
+        summary: [...item.summary],
+        content: [...item.content],
+      }
+
+    case "commandExecution":
+      return {
+        ...item,
+        commandActions: [...item.commandActions],
+      }
+
+    case "fileChange":
+      return {
+        ...item,
+        changes: [...item.changes],
+        outputText: item.outputText ?? null,
+      }
+
+    case "dynamicToolCall":
+      return {
+        ...item,
+        contentItems: item.contentItems ? [...item.contentItems] : item.contentItems,
+      }
+
+    case "collabAgentToolCall":
+      return {
+        ...item,
+        receiverThreadIds: [...item.receiverThreadIds],
+        agentsStates: { ...item.agentsStates },
+      }
+
+    default:
+      return { ...item }
+  }
+}
+
+function createEmptyAgentMessage(itemId: string): Extract<CodexThreadItem, { type: "agentMessage" }> {
+  return {
+    type: "agentMessage",
+    id: itemId,
+    text: "",
+    phase: "final_answer",
+  }
+}
+
+function createEmptyPlan(itemId: string): Extract<CodexThreadItem, { type: "plan" }> {
+  return {
+    type: "plan",
+    id: itemId,
+    text: "",
+  }
+}
+
+function createEmptyReasoning(itemId: string): Extract<CodexThreadItem, { type: "reasoning" }> {
+  return {
+    type: "reasoning",
+    id: itemId,
+    summary: [],
+    content: [],
+  }
+}
+
+function createEmptyCommandExecution(
+  itemId: string
+): Extract<CodexThreadItem, { type: "commandExecution" }> {
+  return {
+    type: "commandExecution",
+    id: itemId,
+    command: "",
+    cwd: "",
+    processId: null,
+    status: "inProgress",
+    aggregatedOutput: "",
+    exitCode: null,
+    durationMs: null,
+    commandActions: [],
+  }
+}
+
+function createEmptyFileChange(itemId: string): Extract<CodexThreadItem, { type: "fileChange" }> {
+  return {
+    type: "fileChange",
+    id: itemId,
+    changes: [],
+    status: "inProgress",
+    outputText: "",
+  }
+}
+
+function upsertTurnItem(
+  order: string[],
+  itemsById: Map<string, CodexThreadItem>,
+  item: CodexThreadItem
+): void {
+  const existing = itemsById.get(item.id)
+  if (!itemsById.has(item.id)) {
+    order.push(item.id)
+  }
+
+  if (existing?.type === "commandExecution" && item.type === "commandExecution") {
+    itemsById.set(item.id, {
+      ...cloneCodexItem(item),
+      aggregatedOutput: item.aggregatedOutput ?? existing.aggregatedOutput,
+    })
+    return
+  }
+
+  if (existing?.type === "fileChange" && item.type === "fileChange") {
+    itemsById.set(item.id, {
+      ...cloneCodexItem(item),
+      outputText: item.outputText ?? existing.outputText ?? null,
+    })
+    return
+  }
+
+  itemsById.set(item.id, cloneCodexItem(item))
+}
+
+function getOrderedTurnItems(
+  order: string[],
+  itemsById: Map<string, CodexThreadItem>
+): CodexThreadItem[] {
+  return order.flatMap((itemId) => {
+    const item = itemsById.get(itemId)
+    return item ? [item] : []
+  })
+}
+
+function ensureAgentMessageItem(
+  order: string[],
+  itemsById: Map<string, CodexThreadItem>,
+  itemId: string
+): Extract<CodexThreadItem, { type: "agentMessage" }> {
+  const existing = itemsById.get(itemId)
+  if (existing?.type === "agentMessage") {
+    return existing
+  }
+
+  const nextItem = createEmptyAgentMessage(itemId)
+  upsertTurnItem(order, itemsById, nextItem)
+  return nextItem
+}
+
+function ensurePlanItem(
+  order: string[],
+  itemsById: Map<string, CodexThreadItem>,
+  itemId: string
+): Extract<CodexThreadItem, { type: "plan" }> {
+  const existing = itemsById.get(itemId)
+  if (existing?.type === "plan") {
+    return existing
+  }
+
+  const nextItem = createEmptyPlan(itemId)
+  upsertTurnItem(order, itemsById, nextItem)
+  return nextItem
+}
+
+function ensureReasoningItem(
+  order: string[],
+  itemsById: Map<string, CodexThreadItem>,
+  itemId: string
+): Extract<CodexThreadItem, { type: "reasoning" }> {
+  const existing = itemsById.get(itemId)
+  if (existing?.type === "reasoning") {
+    return existing
+  }
+
+  const nextItem = createEmptyReasoning(itemId)
+  upsertTurnItem(order, itemsById, nextItem)
+  return nextItem
+}
+
+function ensureCommandExecutionItem(
+  order: string[],
+  itemsById: Map<string, CodexThreadItem>,
+  itemId: string
+): Extract<CodexThreadItem, { type: "commandExecution" }> {
+  const existing = itemsById.get(itemId)
+  if (existing?.type === "commandExecution") {
+    return existing
+  }
+
+  const nextItem = createEmptyCommandExecution(itemId)
+  upsertTurnItem(order, itemsById, nextItem)
+  return nextItem
+}
+
+function ensureFileChangeItem(
+  order: string[],
+  itemsById: Map<string, CodexThreadItem>,
+  itemId: string
+): Extract<CodexThreadItem, { type: "fileChange" }> {
+  const existing = itemsById.get(itemId)
+  if (existing?.type === "fileChange") {
+    return existing
+  }
+
+  const nextItem = createEmptyFileChange(itemId)
+  upsertTurnItem(order, itemsById, nextItem)
+  return nextItem
+}
+
+function appendDelta(current: string[] | undefined, index: number, delta: string): string[] {
+  const next = [...(current ?? [])]
+  next[index] = `${next[index] ?? ""}${delta}`
+  return next
 }
 
 function mapTurnItemsToMessages(turn: CodexTurn, sessionId: string): MessageWithParts[] {
@@ -268,7 +517,11 @@ function mapTurnItemsToMessages(turn: CodexTurn, sessionId: string): MessageWith
                 text: item.text,
               },
             ],
-            item.phase === "final_answer" ? "end_turn" : undefined
+            item.phase === "final_answer" ? "end_turn" : undefined,
+            {
+              itemType: "agentMessage",
+              phase: item.phase,
+            }
           ),
         ]
 
@@ -280,7 +533,9 @@ function mapTurnItemsToMessages(turn: CodexTurn, sessionId: string): MessageWith
               type: "text",
               text: item.text,
             },
-          ]),
+          ], undefined, {
+            itemType: "plan",
+          }),
         ]
 
       case "reasoning":
@@ -288,10 +543,12 @@ function mapTurnItemsToMessages(turn: CodexTurn, sessionId: string): MessageWith
           createAssistantMessage(sessionId, item.id, createdAt, [
             {
               id: `${item.id}:text`,
-              type: "text",
-              text: [...item.summary, ...item.content].join("\n\n"),
-            },
-          ]),
+                type: "text",
+                text: [...item.summary, ...item.content].join("\n\n"),
+              },
+          ], undefined, {
+            itemType: "reasoning",
+          }),
         ]
 
       case "commandExecution":
@@ -299,6 +556,7 @@ function mapTurnItemsToMessages(turn: CodexTurn, sessionId: string): MessageWith
           createToolMessage(sessionId, item.id, createdAt, "command/exec", {
             status: mapCodexStatus(item.status),
             title: item.command,
+            subtitle: item.cwd,
             input: {
               command: item.command,
               cwd: item.cwd,
@@ -310,7 +568,7 @@ function mapTurnItemsToMessages(turn: CodexTurn, sessionId: string): MessageWith
               exitCode: item.exitCode,
               durationMs: item.durationMs,
             },
-          }),
+          }, "commandExecution"),
         ]
 
       case "fileChange":
@@ -323,8 +581,9 @@ function mapTurnItemsToMessages(turn: CodexTurn, sessionId: string): MessageWith
             },
             output: {
               changes: item.changes,
+              outputText: item.outputText ?? null,
             },
-          }),
+          }, "fileChange"),
         ]
 
       case "mcpToolCall":
@@ -337,7 +596,7 @@ function mapTurnItemsToMessages(turn: CodexTurn, sessionId: string): MessageWith
             },
             output: item.result,
             error: item.error,
-          }),
+          }, "mcpToolCall"),
         ]
 
       case "dynamicToolCall":
@@ -353,7 +612,7 @@ function mapTurnItemsToMessages(turn: CodexTurn, sessionId: string): MessageWith
               success: item.success,
               durationMs: item.durationMs,
             },
-          }),
+          }, "dynamicToolCall"),
         ]
 
       case "collabAgentToolCall":
@@ -367,7 +626,7 @@ function mapTurnItemsToMessages(turn: CodexTurn, sessionId: string): MessageWith
               prompt: item.prompt,
             },
             output: item.agentsStates,
-          }),
+          }, "collabAgentToolCall"),
         ]
 
       case "webSearch":
@@ -379,7 +638,7 @@ function mapTurnItemsToMessages(turn: CodexTurn, sessionId: string): MessageWith
               query: item.query,
             },
             output: item.action,
-          }),
+          }, "webSearch"),
         ]
 
       case "imageGeneration":
@@ -391,7 +650,7 @@ function mapTurnItemsToMessages(turn: CodexTurn, sessionId: string): MessageWith
               revisedPrompt: item.revisedPrompt,
             },
             output: item.result,
-          }),
+          }, "imageGeneration"),
         ]
 
       case "imageView":
@@ -403,7 +662,7 @@ function mapTurnItemsToMessages(turn: CodexTurn, sessionId: string): MessageWith
               path: item.path,
             },
             output: null,
-          }),
+          }, "imageView"),
         ]
 
       case "enteredReviewMode":
@@ -412,10 +671,12 @@ function mapTurnItemsToMessages(turn: CodexTurn, sessionId: string): MessageWith
           createAssistantMessage(sessionId, item.id, createdAt, [
             {
               id: `${item.id}:text`,
-              type: "text",
-              text: item.review,
-            },
-          ]),
+                type: "text",
+                text: item.review,
+              },
+          ], undefined, {
+            itemType: item.type,
+          }),
         ]
 
       case "contextCompaction":
@@ -425,7 +686,7 @@ function mapTurnItemsToMessages(turn: CodexTurn, sessionId: string): MessageWith
             title: "Compact context",
             input: {},
             output: null,
-          }),
+          }, "contextCompaction"),
         ]
 
       default:
@@ -499,7 +760,10 @@ export class CodexHarnessAdapter implements HarnessAdapter {
       throw new Error(completedTurn.error.message)
     }
 
-    const turn = completedTurn ?? (await this.readTurn(input.session.id, turnId))
+    const turn =
+      completedTurn && completedTurn.items.length > 0
+        ? completedTurn
+        : (await this.readTurn(input.session.id, turnId)) ?? completedTurn
 
     if (!turn) {
       return { messages: [] }
@@ -549,45 +813,255 @@ export class CodexHarnessAdapter implements HarnessAdapter {
     turnId: string,
     onUpdate?: HarnessTurnInput["onUpdate"]
   ): Promise<CodexTurn | undefined> {
-    return this.pollTurnUntilComplete(threadId, turnId, onUpdate)
-  }
+    return new Promise<CodexTurn>((resolve, reject) => {
+      const itemOrder: string[] = []
+      const itemsById = new Map<string, CodexThreadItem>()
+      let settled = false
+      let emitQueued = false
+      let lastEmittedSnapshot = ""
 
-  private async pollTurnUntilComplete(
-    threadId: string,
-    turnId: string,
-    onUpdate?: HarnessTurnInput["onUpdate"]
-  ): Promise<CodexTurn> {
-    const deadline = Date.now() + TURN_COMPLETION_TIMEOUT_MS
-    let lastSnapshot = ""
+      const emitUpdate = () => {
+        if (!onUpdate || emitQueued || settled) {
+          return
+        }
 
-    while (Date.now() < deadline) {
-      try {
-        const turn = await this.readTurn(threadId, turnId)
+        const items = getOrderedTurnItems(itemOrder, itemsById)
+        const snapshot = JSON.stringify(items)
+        if (snapshot === lastEmittedSnapshot) {
+          return
+        }
+        lastEmittedSnapshot = snapshot
 
-        if (turn) {
-          const snapshot = JSON.stringify(turn.items)
+        emitQueued = true
 
-          if (snapshot !== lastSnapshot) {
-            lastSnapshot = snapshot
-            onUpdate?.({
-              messages: mapTurnItemsToMessages(turn, threadId),
-            })
+        requestAnimationFrame(() => {
+          emitQueued = false
+          if (settled) {
+            return
           }
-        }
 
-        if (turn && turn.status !== "inProgress") {
-          return turn
-        }
-      } catch (error) {
-        if (!isTransientTurnReadError(error)) {
-          throw error
+          onUpdate({
+            messages: mapTurnItemsToMessages(
+              {
+                id: turnId,
+                items,
+                status: "inProgress",
+                error: null,
+              },
+              threadId
+            ),
+          })
+        })
+      }
+
+      const syncTurnFromRead = async (): Promise<void> => {
+        try {
+          const turn = await this.readTurn(threadId, turnId)
+          if (!turn) {
+            return
+          }
+
+          for (const item of turn.items) {
+            upsertTurnItem(itemOrder, itemsById, item)
+          }
+
+          emitUpdate()
+
+          if (turn.status !== "inProgress") {
+            finish(turn)
+          }
+        } catch (error) {
+          if (!isTransientTurnReadError(error)) {
+            fail(error)
+          }
         }
       }
 
-      await sleep(TURN_POLL_INTERVAL_MS)
-    }
+      const finish = (turn: CodexTurn) => {
+        if (settled) {
+          return
+        }
 
-    throw new Error("Timed out waiting for Codex turn completion")
+        settled = true
+        window.clearTimeout(timeoutId)
+        window.clearInterval(syncIntervalId)
+        unsubscribe()
+        resolve(turn)
+      }
+
+      const fail = (error: unknown) => {
+        if (settled) {
+          return
+        }
+
+        settled = true
+        window.clearTimeout(timeoutId)
+        window.clearInterval(syncIntervalId)
+        unsubscribe()
+        reject(error instanceof Error ? error : new Error(String(error)))
+      }
+
+      const timeoutId = window.setTimeout(async () => {
+        try {
+          const fallbackTurn = await this.readTurn(threadId, turnId)
+          if (fallbackTurn && fallbackTurn.status !== "inProgress") {
+            finish(fallbackTurn)
+            return
+          }
+        } catch (error) {
+          if (!isTransientTurnReadError(error)) {
+            fail(error)
+            return
+          }
+        }
+
+        fail(new Error("Timed out waiting for Codex turn completion"))
+      }, TURN_COMPLETION_TIMEOUT_MS)
+
+      const syncIntervalId = window.setInterval(() => {
+        void syncTurnFromRead()
+      }, TURN_SYNC_INTERVAL_MS)
+
+      const unsubscribe = this.rpc.onNotification((notification) => {
+        try {
+          switch (notification.method) {
+            case "item/started": {
+              const params = notification.params as CodexItemNotification | undefined
+              if (!params || params.threadId !== threadId || params.turnId !== turnId) {
+                return
+              }
+
+              upsertTurnItem(itemOrder, itemsById, params.item)
+              emitUpdate()
+              return
+            }
+
+            case "item/completed": {
+              const params = notification.params as CodexItemNotification | undefined
+              if (!params || params.threadId !== threadId || params.turnId !== turnId) {
+                return
+              }
+
+              upsertTurnItem(itemOrder, itemsById, params.item)
+              emitUpdate()
+              return
+            }
+
+            case "item/agentMessage/delta": {
+              const params = notification.params as CodexTextDeltaNotification | undefined
+              if (!params || params.threadId !== threadId || params.turnId !== turnId) {
+                return
+              }
+
+              const item = ensureAgentMessageItem(itemOrder, itemsById, params.itemId)
+              itemsById.set(item.id, {
+                ...item,
+                text: `${item.text}${params.delta}`,
+              })
+              emitUpdate()
+              return
+            }
+
+            case "item/plan/delta": {
+              const params = notification.params as CodexTextDeltaNotification | undefined
+              if (!params || params.threadId !== threadId || params.turnId !== turnId) {
+                return
+              }
+
+              const item = ensurePlanItem(itemOrder, itemsById, params.itemId)
+              itemsById.set(item.id, {
+                ...item,
+                text: `${item.text}${params.delta}`,
+              })
+              emitUpdate()
+              return
+            }
+
+            case "item/reasoning/textDelta": {
+              const params = notification.params as CodexReasoningTextDeltaNotification | undefined
+              if (!params || params.threadId !== threadId || params.turnId !== turnId) {
+                return
+              }
+
+              const item = ensureReasoningItem(itemOrder, itemsById, params.itemId)
+              itemsById.set(item.id, {
+                ...item,
+                content: appendDelta(item.content, params.contentIndex, params.delta),
+              })
+              emitUpdate()
+              return
+            }
+
+            case "item/reasoning/summaryTextDelta": {
+              const params =
+                notification.params as CodexReasoningSummaryTextDeltaNotification | undefined
+              if (!params || params.threadId !== threadId || params.turnId !== turnId) {
+                return
+              }
+
+              const item = ensureReasoningItem(itemOrder, itemsById, params.itemId)
+              itemsById.set(item.id, {
+                ...item,
+                summary: appendDelta(item.summary, params.summaryIndex, params.delta),
+              })
+              emitUpdate()
+              return
+            }
+
+            case "item/commandExecution/outputDelta": {
+              const params = notification.params as CodexOutputDeltaNotification | undefined
+              if (!params || params.threadId !== threadId || params.turnId !== turnId) {
+                return
+              }
+
+              const item = ensureCommandExecutionItem(itemOrder, itemsById, params.itemId)
+              itemsById.set(item.id, {
+                ...item,
+                aggregatedOutput: `${item.aggregatedOutput ?? ""}${params.delta}`,
+              })
+              emitUpdate()
+              return
+            }
+
+            case "item/fileChange/outputDelta": {
+              const params = notification.params as CodexOutputDeltaNotification | undefined
+              if (!params || params.threadId !== threadId || params.turnId !== turnId) {
+                return
+              }
+
+              const item = ensureFileChangeItem(itemOrder, itemsById, params.itemId)
+              itemsById.set(item.id, {
+                ...item,
+                outputText: `${item.outputText ?? ""}${params.delta}`,
+              })
+              emitUpdate()
+              return
+            }
+
+            case "turn/completed": {
+              const params = notification.params as CodexTurnNotification | undefined
+              if (!params || params.threadId !== threadId || params.turn.id !== turnId) {
+                return
+              }
+
+              const completedTurn: CodexTurn = {
+                ...params.turn,
+                items: getOrderedTurnItems(itemOrder, itemsById),
+              }
+              finish(completedTurn)
+              return
+            }
+
+            default:
+              return
+          }
+        } catch (error) {
+          fail(error)
+        }
+      })
+
+      void syncTurnFromRead()
+    })
   }
 
   private async readTurn(threadId: string, turnId: string): Promise<CodexTurn | undefined> {

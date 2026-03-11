@@ -49,6 +49,24 @@ export interface RuntimeMessage {
   role: "user" | "assistant";
   createdAt: number;
   finishReason?: "end_turn" | "stop" | "error";
+  itemType?:
+    | "userMessage"
+    | "agentMessage"
+    | "reasoning"
+    | "plan"
+    | "commandExecution"
+    | "fileChange"
+    | "mcpToolCall"
+    | "dynamicToolCall"
+    | "collabAgentToolCall"
+    | "webSearch"
+    | "imageGeneration"
+    | "imageView"
+    | "enteredReviewMode"
+    | "exitedReviewMode"
+    | "contextCompaction"
+    | "approval";
+  phase?: string | null;
 }
 
 export interface RuntimeTextPart {
@@ -65,6 +83,7 @@ export interface RuntimeToolState {
   output?: unknown;
   error?: unknown;
   title?: string;
+  subtitle?: string;
 }
 
 export interface RuntimeToolPart {

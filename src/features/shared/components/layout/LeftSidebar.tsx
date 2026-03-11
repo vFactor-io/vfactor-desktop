@@ -6,6 +6,7 @@ import {
   FolderSimple,
   FolderSimplePlus,
   GearSix,
+  PencilSimple,
   PlusSquare,
   X,
   Plus,
@@ -433,7 +434,7 @@ export function LeftSidebar({
                     )}
                     aria-label="New thread"
                   >
-                    <Plus size={16} />
+                    <PencilSimple size={16} />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="right">New thread</TooltipContent>
@@ -478,8 +479,8 @@ export function LeftSidebar({
                 <DropdownMenu>
                   <DropdownMenuTrigger
                     className={cn(
-                      "flex w-full items-center gap-3 rounded-2xl px-2.5 py-2 text-left",
-                      "text-sidebar-foreground/76 hover:bg-[var(--sidebar-item-hover)] hover:text-sidebar-foreground",
+                      "group flex w-full cursor-pointer items-center gap-3 rounded-2xl px-2.5 py-2 text-left transition-colors",
+                      "text-sidebar-foreground/76",
                     )}
                   >
                     <img
@@ -489,7 +490,7 @@ export function LeftSidebar({
                     />
                     <span className="min-w-0 flex-1">
                       <span
-                        className="block truncate text-[19px] leading-none tracking-[0.06em]"
+                        className="block truncate text-[19px] leading-none tracking-[0.06em] transition-colors group-hover:text-sidebar-foreground"
                         style={{ fontFamily: "var(--font-pixel)" }}
                       >
                         {selectedProject.name}
@@ -500,7 +501,11 @@ export function LeftSidebar({
                       <CaretDown size={10} className="-mt-0.5" />
                     </span>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent side="bottom" align="start" className="w-[260px]">
+                  <DropdownMenuContent
+                    side="bottom"
+                    align="start"
+                    className="w-[260px] rounded-2xl border border-border/70 bg-card/95 p-2 shadow-lg backdrop-blur-sm"
+                  >
                     {projects.map((project) => {
                       const isActive = project.id === selectedProjectId
 
@@ -529,14 +534,13 @@ export function LeftSidebar({
                         </DropdownMenuItem>
                       )
                     })}
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={handleOpenProject}>
-                      <FolderSimplePlus size={16} />
-                      <span>Open workspace</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setQuickStartOpen(true)}>
-                      <PlusSquare size={16} />
-                      <span>Quick start</span>
+                    <DropdownMenuSeparator className="my-2" />
+                    <DropdownMenuItem
+                      onClick={handleOpenProject}
+                      className="min-h-10 rounded-xl px-3 py-2 text-sm font-medium text-foreground"
+                    >
+                      <Plus size={14} className="text-muted-foreground" />
+                      <span>Add new agent</span>
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -562,7 +566,7 @@ export function LeftSidebar({
                     : "cursor-not-allowed text-sidebar-foreground/32",
                 )}
               >
-                <Plus size={15} className="shrink-0" />
+                <PencilSimple size={15} className="shrink-0" />
                 <span className="truncate">New thread</span>
               </button>
 

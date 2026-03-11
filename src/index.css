@@ -71,6 +71,7 @@
     --terminal-foreground: oklch(0.25 0 0);
     --terminal-cursor: oklch(0.25 0 0);
     --terminal-selection: oklch(0.9 0 0);
+    --chat-file-accent: oklch(0.63 0.15 244);
 }
 
 .dark {
@@ -115,6 +116,7 @@
     --terminal-foreground: oklch(0.708 0 0);
     --terminal-cursor: oklch(0.708 0 0);
     --terminal-selection: oklch(0.269 0 0);
+    --chat-file-accent: oklch(0.78 0.11 244);
 }
 
 @theme inline {
@@ -123,6 +125,7 @@
     --font-pixel: "Geist Pixel", "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     --color-terminal: var(--terminal);
     --color-terminal-foreground: var(--terminal-foreground);
+    --color-chat-file-accent: var(--chat-file-accent);
     --color-main-content: var(--main-content);
     --color-main-content-foreground: var(--main-content-foreground);
     --color-sidebar-ring: var(--sidebar-ring);
