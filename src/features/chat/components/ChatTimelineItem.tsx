@@ -562,14 +562,7 @@ export function ChatTimelineItem({
   const phase = message.info.phase
 
   if (itemType === "reasoning") {
-    return (
-      <TimelineTextBlock
-        eyebrow="Reasoning"
-        text={text}
-        isStreaming={isStreaming}
-        tone="muted"
-      />
-    )
+    return <TimelineTextBlock text={text} isStreaming={isStreaming} />
   }
 
   if (itemType === "plan") {

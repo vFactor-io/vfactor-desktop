@@ -7,7 +7,7 @@ import { useProjectStore } from "@/features/workspace/store"
 import { useChatStore } from "@/features/chat/store"
 
 interface TitleBarProps {
-  activeView?: "chat" | "settings"
+  activeView?: "chat" | "settings" | "skills" | "automations"
   onOpenChat?: () => void
 }
 

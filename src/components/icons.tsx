@@ -11,11 +11,13 @@ import {
   ArrowUp01Icon,
   ArrowUp02Icon,
   Attachment01Icon,
+  BookOpen02Icon,
   BrainIcon,
   BubbleChatIcon,
   Cancel01Icon,
   CheckmarkCircle02Icon,
   CircleIcon,
+  Clock01Icon,
   CodeIcon,
   CodeSquareIcon,
   CommandLineIcon,
@@ -59,6 +61,7 @@ import {
   Ppt01Icon,
   PythonIcon,
   ReactIcon,
+  RefreshIcon,
   Search01Icon,
   Settings02Icon,
   SidebarLeftIcon,
@@ -70,6 +73,7 @@ import {
   Typescript01Icon,
   ViewIcon,
   Xls01Icon,
+  ZapIcon,
 } from "@hugeicons/core-free-icons"
 
 export type IconProps = Omit<HugeiconsProps, "icon"> & {
@@ -97,6 +101,7 @@ export const ArrowUp = createIcon("ArrowUp", ArrowUp01Icon)
 export const ArrowUp02 = createIcon("ArrowUp02", ArrowUp02Icon)
 export const ArrowMoveDownLeft = createIcon("ArrowMoveDownLeft", ArrowMoveDownLeftIcon)
 export const BracketsCurly = createIcon("BracketsCurly", CodeSquareIcon)
+export const BookOpen = createIcon("BookOpen", BookOpen02Icon)
 export const Brain = createIcon("Brain", BrainIcon)
 export const CaretDown = createIcon("CaretDown", ArrowDown01Icon)
 export const CaretLeft = createIcon("CaretLeft", ArrowLeft01Icon)
@@ -107,6 +112,7 @@ export const CheckCircle = createIcon("CheckCircle", CheckmarkCircle02Icon)
 export const ChevronDownIcon = createIcon("ChevronDownIcon", ArrowDown01Icon)
 export const Circle = createIcon("Circle", CircleIcon)
 export const CircleDashed = createIcon("CircleDashed", DashedLineCircleIcon)
+export const Clock = createIcon("Clock", Clock01Icon)
 export const CircleNotch = createIcon("CircleNotch", Loading03Icon)
 export const Command = createIcon("Command", CommandLineIcon)
 export const Compass = createIcon("Compass", Compass01Icon)
@@ -159,6 +165,7 @@ export const PencilSimple = createIcon("PencilSimple", Edit02Icon)
 export const Plus = createIcon("Plus", PlusSignIcon)
 export const PlusSquare = createIcon("PlusSquare", PlusSignSquareIcon)
 export const PushPin = createIcon("PushPin", PinIcon)
+export const Refresh = createIcon("Refresh", RefreshIcon)
 export const Robot = createIcon("Robot", MachineRobotIcon)
 export const Sidebar = createIcon("Sidebar", SidebarLeftIcon)
 export const Square = createIcon("Square", StopIcon)
@@ -168,3 +175,4 @@ export const Stop = createIcon("Stop", StopIcon)
 export const Terminal = createIcon("Terminal", ComputerTerminal02Icon)
 export const Trash = createIcon("Trash", Delete02Icon)
 export const X = createIcon("X", Cancel01Icon)
+export const Zap = createIcon("Zap", ZapIcon)

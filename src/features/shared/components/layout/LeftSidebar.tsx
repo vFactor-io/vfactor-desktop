@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react"
 import {
+  BookOpen,
   CaretDown,
   CaretUp,
-  CircleDashed,
+  Clock,
   FolderSimple,
   FolderSimplePlus,
   GearSix,
@@ -50,10 +51,12 @@ import {
 } from "@/features/settings/config"
 
 interface LeftSidebarProps {
-  activeView?: "chat" | "settings"
+  activeView?: "chat" | "settings" | "skills" | "automations"
   activeSettingsSection?: SettingsSectionId
   onOpenChat?: () => void
+  onOpenAutomations?: () => void
   onOpenSettings?: () => void
+  onOpenSkills?: () => void
   onSelectSettingsSection?: (section: SettingsSectionId) => void
 }
 
@@ -61,7 +64,9 @@ export function LeftSidebar({
   activeView = "chat",
   activeSettingsSection = "general",
   onOpenChat,
+  onOpenAutomations,
   onOpenSettings,
+  onOpenSkills,
   onSelectSettingsSection,
 }: LeftSidebarProps) {
   const [quickStartOpen, setQuickStartOpen] = useState(false)
@@ -187,13 +192,15 @@ export function LeftSidebar({
   const selectedProjectSessions =
     selectedProjectChat?.sessions.filter((session) => !archivedSessionIds.has(session.id)) ?? []
   const expandedRowClass =
-    "flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[13px] font-medium"
+    "flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] font-medium"
   const expandedRowIdleClass =
     "text-sidebar-foreground/68 hover:bg-[var(--sidebar-item-hover)] hover:text-sidebar-foreground"
   const expandedRowActiveClass =
     "bg-[var(--sidebar-item-active)] text-sidebar-accent-foreground"
   const glassSidebarClass =
     "bg-[var(--sidebar-glass)] supports-[backdrop-filter]:bg-[var(--sidebar-glass-strong)]"
+  const sectionLabelClass =
+    "text-[11px] font-medium uppercase tracking-[0.08em] text-sidebar-foreground/48"
 
   const stopResizing = useCallback(() => {
     resizeStateRef.current = null
@@ -269,7 +276,11 @@ export function LeftSidebar({
   }
 
   const handleOpenAutomations = () => {
-    onOpenChat?.()
+    onOpenAutomations?.()
+  }
+
+  const handleOpenSkills = () => {
+    onOpenSkills?.()
   }
 
   const handleSelectWorkspace = async (project: Project) => {
@@ -303,7 +314,7 @@ export function LeftSidebar({
       >
         <div className="flex-1 overflow-y-auto">
           <div
-            className={cn("px-2 pb-2", isCollapsed ? "space-y-1" : "space-y-2")}
+            className={cn("px-2.5 pb-3", isCollapsed ? "space-y-1.5" : "space-y-2.5")}
             style={{ paddingTop: sidebarTopPadding }}
           >
             {isCollapsed ? (
@@ -331,7 +342,7 @@ export function LeftSidebar({
               </button>
             )}
 
-            <nav aria-label="Settings navigation" className="space-y-0.5">
+            <nav aria-label="Settings navigation" className="space-y-1">
               {SETTINGS_SECTIONS.map((section) => {
                 const Icon = section.icon
                 const isActive = activeSettingsSection === section.id
@@ -417,9 +428,9 @@ export function LeftSidebar({
       >
       {/* Scrollable content area */}
       <div className="flex-1 overflow-y-auto">
-        <div className="px-2 pb-2" style={{ paddingTop: sidebarTopPadding }}>
+        <div className="px-2.5 pb-3" style={{ paddingTop: sidebarTopPadding }}>
           {isCollapsed ? (
-            <div className="mb-3 space-y-1">
+            <div className="mb-4 space-y-1.5">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
@@ -464,22 +475,46 @@ export function LeftSidebar({
                   <button
                     type="button"
                     onClick={handleOpenAutomations}
-                    className="flex h-9 w-full items-center justify-center rounded-xl text-sidebar-foreground/68 hover:bg-[var(--sidebar-item-hover)] hover:text-sidebar-foreground"
+                    className={cn(
+                      "flex h-9 w-full items-center justify-center rounded-xl",
+                      activeView === "automations"
+                        ? "bg-[var(--sidebar-item-active)] text-sidebar-accent-foreground"
+                        : "text-sidebar-foreground/68 hover:bg-[var(--sidebar-item-hover)] hover:text-sidebar-foreground",
+                    )}
                     aria-label="Automations"
                   >
-                    <CircleDashed size={16} />
+                    <Clock size={16} />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="right">Automations</TooltipContent>
               </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={handleOpenSkills}
+                    className={cn(
+                      "flex h-9 w-full items-center justify-center rounded-xl",
+                      activeView === "skills"
+                        ? "bg-[var(--sidebar-item-active)] text-sidebar-accent-foreground"
+                        : "text-sidebar-foreground/68 hover:bg-[var(--sidebar-item-hover)] hover:text-sidebar-foreground",
+                    )}
+                    aria-label="Skills"
+                  >
+                    <BookOpen size={16} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right">Skills</TooltipContent>
+              </Tooltip>
             </div>
           ) : (
-            <div className="mb-3 space-y-2">
+            <div className="mb-5 space-y-2">
               {selectedProject ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger
                     className={cn(
-                      "group flex w-full cursor-pointer items-center gap-3 rounded-2xl px-2.5 py-2 text-left transition-colors",
+                      "group flex w-full cursor-pointer items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition-colors",
                       "text-sidebar-foreground/76",
                     )}
                   >
@@ -490,7 +525,7 @@ export function LeftSidebar({
                     />
                     <span className="min-w-0 flex-1">
                       <span
-                        className="block truncate text-[19px] leading-none tracking-[0.06em] transition-colors group-hover:text-sidebar-foreground"
+                        className="block truncate text-[18px] leading-none tracking-[0.05em] transition-colors group-hover:text-sidebar-foreground"
                         style={{ fontFamily: "var(--font-pixel)" }}
                       >
                         {selectedProject.name}
@@ -573,23 +608,38 @@ export function LeftSidebar({
               <button
                 type="button"
                 onClick={handleOpenAutomations}
-                className={cn(expandedRowClass, expandedRowIdleClass)}
+                className={cn(
+                  expandedRowClass,
+                  activeView === "automations" ? expandedRowActiveClass : expandedRowIdleClass,
+                )}
               >
-                <CircleDashed size={15} className="shrink-0" />
+                <Clock size={15} className="shrink-0" />
                 <span className="truncate">Automations</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleOpenSkills}
+                className={cn(
+                  expandedRowClass,
+                  activeView === "skills" ? expandedRowActiveClass : expandedRowIdleClass,
+                )}
+              >
+                <BookOpen size={15} className="shrink-0" />
+                <span className="truncate">Skills</span>
               </button>
             </div>
           )}
 
           {projects.length === 0 ? (
             !isCollapsed && (
-              <div className="px-2.5 py-4 text-sm text-muted-foreground text-center">
+              <div className="rounded-xl border border-sidebar-border/55 bg-background/18 px-3 py-5 text-center text-sm text-muted-foreground">
                 No workspaces yet.
                 <br />
                 <button
                   type="button"
                   onClick={handleOpenProject}
-                  className="text-primary hover:underline mt-1"
+                  className="mt-1.5 text-primary hover:underline"
                 >
                   Add a workspace
                 </button>
@@ -626,18 +676,18 @@ export function LeftSidebar({
               })}
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-6">
               <section className="space-y-1">
-                <div className="flex items-center justify-between px-2.5 pb-0.5">
-                  <span className="text-[12px] font-medium uppercase tracking-[0.08em] text-sidebar-foreground/52">
+                <div className="flex items-center justify-between px-2.5 pb-1">
+                  <span className={sectionLabelClass}>
                     Threads
                   </span>
                 </div>
 
                 {selectedProject ? (
-                  <div className="space-y-0.5">
+                  <div className="space-y-1">
                     {selectedProjectSessions.length === 0 ? (
-                      <div className="px-2.5 py-3 text-[12px] text-sidebar-foreground/50">
+                      <div className="rounded-xl border border-sidebar-border/45 bg-background/14 px-3 py-3 text-[12px] text-sidebar-foreground/50">
                         No threads in this workspace yet.
                       </div>
                     ) : (
@@ -662,7 +712,7 @@ export function LeftSidebar({
                                 }
                               }}
                               className={cn(
-                                "group/session flex h-9 items-center gap-2 rounded-lg px-2.5",
+                                "group/session flex h-9 items-center gap-2.5 rounded-lg px-2.5",
                                 isActiveSession
                                   ? "bg-[var(--sidebar-item-active)] text-sidebar-foreground"
                                   : "text-sidebar-foreground/68 hover:bg-[var(--sidebar-item-hover)] hover:text-sidebar-foreground",
@@ -713,7 +763,7 @@ export function LeftSidebar({
                     )}
                   </div>
                 ) : (
-                  <div className="px-2.5 py-3 text-[12px] text-sidebar-foreground/50">
+                  <div className="rounded-xl border border-sidebar-border/45 bg-background/14 px-3 py-3 text-[12px] text-sidebar-foreground/50">
                     Select a workspace to see its threads.
                   </div>
                 )}
@@ -723,7 +773,7 @@ export function LeftSidebar({
         </div>
       </div>
 
-      <div className="shrink-0 p-2">
+      <div className="shrink-0 border-t border-sidebar-border/50 px-2.5 py-3">
         {isCollapsed ? (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -731,7 +781,7 @@ export function LeftSidebar({
                 type="button"
                 onClick={() => onOpenSettings?.()}
                 className={cn(
-                  "flex w-full items-center justify-center rounded-lg p-2",
+                  "flex h-9 w-full items-center justify-center rounded-lg",
                   activeView === "settings"
                     ? "bg-[var(--sidebar-item-active)] text-sidebar-accent-foreground"
                     : "text-sidebar-foreground/62 hover:bg-[var(--sidebar-item-hover)] hover:text-sidebar-foreground"

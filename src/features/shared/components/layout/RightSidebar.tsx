@@ -8,7 +8,7 @@ import { useRightSidebar } from "./useRightSidebar"
 import type { FileTreeItem } from "@/features/version-control/types"
 
 interface RightSidebarProps {
-  activeView?: "chat" | "settings"
+  activeView?: "chat" | "settings" | "skills" | "automations"
 }
 
 export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
@@ -91,7 +91,7 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
     }
   }, [selectedProject?.path, onFileChange, scheduleRefresh])
 
-  if (isCollapsed || activeView === "settings") {
+  if (isCollapsed || activeView !== "chat") {
     return null
   }
 

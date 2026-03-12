@@ -1,5 +1,6 @@
 import { motion, AnimatePresence } from "framer-motion"
 import { SETTINGS_SECTIONS, type SettingsSectionId } from "@/features/settings/config"
+import { Switch } from "@/features/shared/components/ui/switch"
 import { cn } from "@/lib/utils"
 
 type SettingControl =
@@ -253,21 +254,7 @@ function SettingPill({ value }: { value: string }) {
 }
 
 function SettingToggle({ enabled }: { enabled: boolean }) {
-  return (
-    <div
-      className={cn(
-        "relative inline-flex h-8 w-[52px] items-center rounded-full border border-border/80 p-1 transition-colors",
-        enabled ? "bg-sidebar-primary/90" : "bg-muted",
-      )}
-    >
-      <span
-        className={cn(
-          "block size-6 rounded-full bg-background shadow-sm transition-transform",
-          enabled ? "translate-x-5" : "translate-x-0",
-        )}
-      />
-    </div>
-  )
+  return <Switch checked={enabled} disabled className="opacity-100" />
 }
 
 function SettingSegmented({
