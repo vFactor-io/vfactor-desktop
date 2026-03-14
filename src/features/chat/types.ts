@@ -146,19 +146,65 @@ export interface RuntimePromptQuestion {
   required?: boolean;
 }
 
-export interface RuntimePrompt {
+export interface RuntimePromptBase {
   id: string;
   title: string;
   body?: string;
+}
+
+export interface RuntimeQuestionPrompt extends RuntimePromptBase {
+  kind: "question";
   questions: RuntimePromptQuestion[];
 }
 
-export interface RuntimePromptResponse {
+export interface RuntimeApprovalFileChange {
+  path: string;
+  type: "add" | "update" | "delete" | "change";
+  content?: string;
+  diff?: string;
+}
+
+export interface RuntimeApprovalRequest {
+  kind: "fileChange" | "commandExecution";
+  callId: string;
+  turnId: string;
+  conversationId: string;
+  requestId?: string | number;
+  itemId?: string;
+  changes?: RuntimeApprovalFileChange[];
+  command?: string;
+  commandSegments?: string[];
+  cwd?: string;
+  reason?: string;
+  grantRoot?: string;
+  commandActions?: unknown[];
+}
+
+export interface RuntimeApprovalPrompt extends RuntimePromptBase {
+  kind: "approval";
+  approval: RuntimeApprovalRequest;
+}
+
+export type RuntimePrompt = RuntimeQuestionPrompt | RuntimeApprovalPrompt;
+
+export interface RuntimeQuestionPromptResponse {
+  kind: "question";
   promptId: string;
   answers: Record<string, string | string[]>;
   customAnswers: Record<string, string>;
   text: string;
 }
+
+export interface RuntimeApprovalPromptResponse {
+  kind: "approval";
+  promptId: string;
+  decision: "approve" | "deny";
+  text: string;
+}
+
+export type RuntimePromptResponse =
+  | RuntimeQuestionPromptResponse
+  | RuntimeApprovalPromptResponse;
 
 export interface RuntimePromptState {
   prompt: RuntimePrompt;

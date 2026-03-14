@@ -1,8 +1,10 @@
 import type {
   HarnessId,
+  RuntimeApprovalPrompt,
   RuntimePrompt,
   RuntimePromptOption,
   RuntimePromptQuestion,
+  RuntimeQuestionPrompt,
 } from "../../types"
 
 export type ComposerPlanStepStatus = "pending" | "in_progress" | "completed"
@@ -24,6 +26,10 @@ export type ComposerPromptOption = RuntimePromptOption
 export type ComposerPromptQuestion = RuntimePromptQuestion
 
 export type ComposerPrompt = RuntimePrompt
+
+export type ComposerApprovalPrompt = RuntimeApprovalPrompt
+
+export type ComposerQuestionPrompt = RuntimeQuestionPrompt
 
 export const REASONING_EFFORTS = ["Low", "Medium", "High"] as const
 

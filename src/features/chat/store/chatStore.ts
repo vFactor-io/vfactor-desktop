@@ -13,6 +13,10 @@ import {
   getNormalizedPromptState,
 } from "./promptState"
 import {
+  createRuntimeApprovalResponse,
+  isRuntimeApprovalPrompt,
+} from "../domain/runtimePrompts"
+import {
   createDefaultProjectChat,
   createOptimisticRuntimeSession,
   deriveSessionTitle,
@@ -95,6 +99,17 @@ interface ChatState {
 
 let storeInstance: Store | null = null
 
+function isExpiredApprovalPromptError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false
+  }
+
+  return (
+    error.message.includes("Approval request is no longer pending") ||
+    error.message.includes("Approval server request is missing a request id")
+  )
+}
+
 async function getStore(): Promise<Store> {
   if (!storeInstance) {
     storeInstance = await load(STORE_FILE)
@@ -128,7 +143,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set({
         chatByProject: persisted?.chatByProject ?? {},
         messagesBySession: persisted?.messagesBySession ?? {},
-        activePromptBySession: persisted?.activePromptBySession ?? {},
+        // Prompt requests are only resumable while the in-memory harness adapter
+        // still tracks the corresponding pending request. After a reload they
+        // become stale UI, so we intentionally drop them on startup.
+        activePromptBySession: {},
         isLoading: false,
         isInitialized: true,
       })
@@ -446,6 +464,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return
     }
 
+    if (isRuntimeApprovalPrompt(activePrompt.prompt)) {
+      await get().answerPrompt(
+        sessionId,
+        createRuntimeApprovalResponse(activePrompt.prompt, "deny")
+      )
+      return
+    }
+
     void createDismissedPromptState(activePrompt.prompt)
     get().clearActivePrompt(sessionId)
     await get()._persistState()
@@ -467,11 +493,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const answeredPromptState = createAnsweredPromptState(activePrompt.prompt, response)
 
     set((state) => {
-      const nextPromptState = { ...state.activePromptBySession }
-      delete nextPromptState[sessionId]
-
       return {
-        activePromptBySession: nextPromptState,
+        activePromptBySession: {
+          ...state.activePromptBySession,
+          [sessionId]: answeredPromptState,
+        },
         status: "streaming",
         error: null,
       }
@@ -522,6 +548,26 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
       })
     } catch (error) {
+      console.error("[chatStore] Failed to answer prompt:", error)
+      if (
+        isRuntimeApprovalPrompt(activePrompt.prompt) &&
+        isExpiredApprovalPromptError(error)
+      ) {
+        set((state) => {
+          const nextPromptState = { ...state.activePromptBySession }
+          delete nextPromptState[sessionId]
+
+          return {
+            activePromptBySession: nextPromptState,
+            status: "idle",
+            error: null,
+          }
+        })
+
+        await get()._persistState()
+        return
+      }
+
       set((state) => ({
         activePromptBySession: {
           ...state.activePromptBySession,
@@ -891,12 +937,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   _persistState: async () => {
-    const { chatByProject, messagesBySession, activePromptBySession } = get()
+    const { chatByProject, messagesBySession } = get()
     const store = await getStore()
     await store.set("chatState", {
       chatByProject,
       messagesBySession,
-      activePromptBySession,
+      activePromptBySession: {},
     } satisfies PersistedChatState)
     await store.save()
   },

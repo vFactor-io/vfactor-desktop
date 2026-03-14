@@ -76,6 +76,12 @@
     --terminal-cursor: oklch(0.25 0 0);
     --terminal-selection: oklch(0.9 0 0);
     --chat-file-accent: oklch(0.63 0.15 244);
+    --chat-approval-surface: oklch(0.972 0.02 85);
+    --chat-approval-surface-strong: oklch(0.957 0.028 85);
+    --chat-approval-border: oklch(0.84 0.065 83 / 0.55);
+    --chat-approval-badge: oklch(0.932 0.036 85);
+    --chat-approval-emphasis: oklch(0.72 0.14 78);
+    --chat-approval-emphasis-foreground: oklch(0.26 0.035 70);
     --scrollbar-thumb: oklch(0.62 0 0 / 0.78);
 }
 
@@ -126,6 +132,12 @@
     --terminal-cursor: oklch(0.708 0 0);
     --terminal-selection: oklch(0.269 0 0);
     --chat-file-accent: oklch(0.78 0.11 244);
+    --chat-approval-surface: oklch(0.245 0.02 85);
+    --chat-approval-surface-strong: oklch(0.275 0.025 85);
+    --chat-approval-border: oklch(0.58 0.08 82 / 0.42);
+    --chat-approval-badge: oklch(0.31 0.03 84);
+    --chat-approval-emphasis: oklch(0.77 0.125 80);
+    --chat-approval-emphasis-foreground: oklch(0.23 0.03 72);
     --scrollbar-thumb: oklch(0.44 0 0 / 0.92);
 }
 
@@ -136,6 +148,12 @@
     --color-terminal: var(--terminal);
     --color-terminal-foreground: var(--terminal-foreground);
     --color-chat-file-accent: var(--chat-file-accent);
+    --color-chat-approval-surface: var(--chat-approval-surface);
+    --color-chat-approval-surface-strong: var(--chat-approval-surface-strong);
+    --color-chat-approval-border: var(--chat-approval-border);
+    --color-chat-approval-badge: var(--chat-approval-badge);
+    --color-chat-approval-emphasis: var(--chat-approval-emphasis);
+    --color-chat-approval-emphasis-foreground: var(--chat-approval-emphasis-foreground);
     --color-scrollbar-thumb: var(--scrollbar-thumb);
     --color-main-content: var(--main-content);
     --color-main-content-foreground: var(--main-content-foreground);

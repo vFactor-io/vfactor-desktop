@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react"
 import {
-  BookOpen,
   CaretDown,
   CaretUp,
   Clock,
@@ -51,12 +50,11 @@ import {
 } from "@/features/settings/config"
 
 interface LeftSidebarProps {
-  activeView?: "chat" | "settings" | "skills" | "automations"
+  activeView?: "chat" | "settings" | "automations"
   activeSettingsSection?: SettingsSectionId
   onOpenChat?: () => void
   onOpenAutomations?: () => void
   onOpenSettings?: () => void
-  onOpenSkills?: () => void
   onSelectSettingsSection?: (section: SettingsSectionId) => void
 }
 
@@ -66,7 +64,6 @@ export function LeftSidebar({
   onOpenChat,
   onOpenAutomations,
   onOpenSettings,
-  onOpenSkills,
   onSelectSettingsSection,
 }: LeftSidebarProps) {
   const [quickStartOpen, setQuickStartOpen] = useState(false)
@@ -280,10 +277,6 @@ export function LeftSidebar({
     onOpenAutomations?.()
   }
 
-  const handleOpenSkills = () => {
-    onOpenSkills?.()
-  }
-
   const handleSelectWorkspace = async (project: Project) => {
     setConfirmArchiveSessionId(null)
     onOpenChat?.()
@@ -489,25 +482,6 @@ export function LeftSidebar({
                 </TooltipTrigger>
                 <TooltipContent side="right">Automations</TooltipContent>
               </Tooltip>
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={handleOpenSkills}
-                    className={cn(
-                      "flex h-9 w-full items-center justify-center rounded-xl",
-                      activeView === "skills"
-                        ? "bg-[var(--sidebar-item-active)] text-sidebar-accent-foreground"
-                        : "text-sidebar-foreground/68 hover:bg-[var(--sidebar-item-hover)] hover:text-sidebar-foreground",
-                    )}
-                    aria-label="Skills"
-                  >
-                    <BookOpen size={16} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="right">Skills</TooltipContent>
-              </Tooltip>
             </div>
           ) : (
             <div className="mb-5 space-y-2">
@@ -617,18 +591,6 @@ export function LeftSidebar({
                 <Clock size={15} className="shrink-0" />
                 <span className="truncate">Automations</span>
               </button>
-
-              <button
-                type="button"
-                onClick={handleOpenSkills}
-                className={cn(
-                  expandedRowClass,
-                  activeView === "skills" ? expandedRowActiveClass : expandedRowIdleClass,
-                )}
-              >
-                <BookOpen size={15} className="shrink-0" />
-                <span className="truncate">Skills</span>
-              </button>
             </div>
           )}
 
@@ -688,8 +650,8 @@ export function LeftSidebar({
                 {selectedProject ? (
                   <div className="space-y-1">
                     {selectedProjectSessions.length === 0 ? (
-                      <div className="rounded-xl border border-sidebar-border/45 bg-background/14 px-3 py-3 text-sm text-sidebar-foreground/50">
-                        No threads in this workspace yet.
+                      <div className="px-2.5 py-2 text-sm text-muted-foreground">
+                        No threads yet.
                       </div>
                     ) : (
                       selectedProjectSessions
@@ -717,56 +679,63 @@ export function LeftSidebar({
                                 }
                               }}
                               className={cn(
-                                "group/session relative flex h-9 items-center gap-2.5 rounded-lg pl-2.5 pr-1.5",
+                                "group/session flex h-9 items-center rounded-lg pl-2.5 pr-1.5",
                                 isActiveSession
                                   ? "bg-[var(--sidebar-item-active)] text-sidebar-foreground"
                                   : "text-sidebar-foreground/68 hover:bg-[var(--sidebar-item-hover)] hover:text-sidebar-foreground",
                               )}
                             >
-                              <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-                                {isRunningSession ? (
+                              {isRunningSession ? (
+                                <span className="mr-2.5 flex h-4 w-4 shrink-0 items-center justify-center">
                                   <span className="size-3 rounded-full border border-sidebar-foreground/18 border-t-sidebar-foreground/62 animate-spin" />
-                                ) : null}
-                              </span>
+                                </span>
+                              ) : null}
 
                               <button
                                 type="button"
                                 onClick={() => handleSelectSession(selectedProject.id, session.id)}
-                                className="flex min-w-0 flex-1 items-center justify-between gap-2 pr-1 text-left"
+                                className="flex min-w-0 flex-1 items-center justify-between gap-2 text-left"
                               >
                                 <span className="min-w-0 flex-1 truncate text-[13px] font-medium leading-none">
                                   {formatSessionTitle(session)}
                                 </span>
                                 {isAwaitingResponse ? (
-                                  <span className="inline-flex h-5 items-center rounded-full bg-emerald-500/14 px-2 text-sm font-medium text-emerald-400">
+                                  <span className="inline-flex h-5 shrink-0 items-center rounded-full bg-emerald-500/14 px-2 text-sm font-medium text-emerald-400">
                                     Awaiting response
                                   </span>
                                 ) : null}
                               </button>
 
-                              {isConfirmingArchive ? (
-                                <button
-                                  type="button"
-                                  onClick={(event) =>
-                                    void handleArchiveIntent(event, selectedProject.id, session.id)
-                                  }
-                                  className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded-full border border-border/70 bg-muted/60 px-2 py-0.5 text-sm font-medium tracking-tight text-destructive hover:bg-muted/80"
-                                  aria-label="Confirm archive session"
-                                >
-                                  Confirm
-                                </button>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={(event) =>
-                                    void handleArchiveIntent(event, selectedProject.id, session.id)
-                                  }
-                                  className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-1 opacity-0 transition-opacity hover:bg-[var(--sidebar-item-hover)] group-hover/session:opacity-100"
-                                  aria-label="Archive session"
-                                >
-                                  <Archive size={14} className="text-muted-foreground" />
-                                </button>
-                              )}
+                              <div
+                                className={cn(
+                                  "ml-1 flex shrink-0 items-center justify-end",
+                                  isConfirmingArchive ? "min-w-[4.75rem]" : "w-7"
+                                )}
+                              >
+                                {isConfirmingArchive ? (
+                                  <button
+                                    type="button"
+                                    onClick={(event) =>
+                                      void handleArchiveIntent(event, selectedProject.id, session.id)
+                                    }
+                                    className="rounded-full border border-border/70 bg-muted/60 px-2 py-0.5 text-sm font-medium tracking-tight text-destructive hover:bg-muted/80"
+                                    aria-label="Confirm archive session"
+                                  >
+                                    Confirm
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={(event) =>
+                                      void handleArchiveIntent(event, selectedProject.id, session.id)
+                                    }
+                                    className="rounded p-1 opacity-0 transition-opacity hover:bg-[var(--sidebar-item-hover)] focus-visible:opacity-100 group-hover/session:opacity-100"
+                                    aria-label="Archive session"
+                                  >
+                                    <Archive size={14} className="text-muted-foreground" />
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           )
                         })

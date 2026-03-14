@@ -8,9 +8,16 @@ import { useFileSearch } from "../hooks/useFileSearch"
 import type { HarnessDefinition, HarnessId, RuntimePromptResponse } from "../types"
 import type { ComposerPlan, ComposerPrompt } from "./composer/types"
 import { REASONING_EFFORTS, getModelsForHarness } from "./composer/types"
-import { createRuntimePromptResponse, isRuntimePromptQuestionAnswered } from "../domain/runtimePrompts"
+import {
+  createRuntimeApprovalResponse,
+  createRuntimePromptResponse,
+  isRuntimeApprovalPrompt,
+  isRuntimePromptQuestionAnswered,
+  isRuntimeQuestionPrompt,
+} from "../domain/runtimePrompts"
 import { populateComposerFromSerializedValue, serializeComposerState } from "./composer/composerSerialization"
 import { ComposerEditorSurface } from "./composer/ComposerEditorSurface"
+import { ApprovalPromptSurface } from "./composer/ApprovalPromptSurface"
 import { StructuredPromptSurface } from "./composer/StructuredPromptSurface"
 import {
   DropdownMenu,
@@ -29,6 +36,7 @@ import {
   type LexicalNode,
 } from "lexical"
 import { $createSkillChipNode, $isSkillChipNode, SkillChipNode } from "./SkillChipNode"
+import { cn } from "@/lib/utils"
 
 function getCodexModelId(model: string): string {
   switch (model) {
@@ -126,7 +134,10 @@ export function ChatInput({
 
   const isStreaming = status === "streaming"
   const isPromptActive = !!prompt
-  const currentPromptQuestion = isPromptActive ? prompt?.questions[currentPromptQuestionIndex] ?? null : null
+  const activeQuestionPrompt = isRuntimeQuestionPrompt(prompt) ? prompt : null
+  const activeApprovalPrompt = isRuntimeApprovalPrompt(prompt) ? prompt : null
+  const isApprovalComposerState = !!activeApprovalPrompt
+  const currentPromptQuestion = activeQuestionPrompt?.questions[currentPromptQuestionIndex] ?? null
   const currentPromptQuestionAnswered = currentPromptQuestion
     ? isRuntimePromptQuestionAnswered(
         currentPromptQuestion,
@@ -134,8 +145,8 @@ export function ChatInput({
         promptCustomAnswers[currentPromptQuestion.id]
       )
     : false
-  const isLastPromptQuestion = prompt
-    ? currentPromptQuestionIndex === prompt.questions.length - 1
+  const isLastPromptQuestion = activeQuestionPrompt
+    ? currentPromptQuestionIndex === activeQuestionPrompt.questions.length - 1
     : false
 
   const atMenuKey = input.startsWith("@") ? `at:${input}` : null
@@ -143,8 +154,10 @@ export function ChatInput({
 
   const showAtMenu = !isPromptActive && input.startsWith("@") && !isStreaming && dismissedMenuKey !== atMenuKey
   const atQuery = showAtMenu ? input.slice(1) : ""
-  const canSubmit = isPromptActive
-    ? !!currentPromptQuestion && currentPromptQuestionAnswered && !isStreaming
+  const canSubmit = activeQuestionPrompt
+    ? !!currentPromptQuestion && currentPromptQuestionAnswered
+    : activeApprovalPrompt
+      ? false
     : input.trim().length > 0 && !isStreaming
 
   useEffect(() => {
@@ -432,7 +445,7 @@ export function ChatInput({
       }))
 
       if (
-        prompt &&
+        activeQuestionPrompt &&
         currentPromptQuestion &&
         currentPromptQuestion.id === questionId &&
         currentPromptQuestion.kind === "single_select" &&
@@ -445,16 +458,16 @@ export function ChatInput({
         !isLastPromptQuestion
       ) {
         setCurrentPromptQuestionIndex((index) =>
-          Math.min(index + 1, prompt.questions.length - 1)
+          Math.min(index + 1, activeQuestionPrompt.questions.length - 1)
         )
       }
     },
-    [currentPromptQuestion, isLastPromptQuestion, prompt, promptCustomAnswers]
+    [activeQuestionPrompt, currentPromptQuestion, isLastPromptQuestion, promptCustomAnswers]
   )
 
   const handlePromptCustomAnswerChange = useCallback(
     (questionId: string, value: string) => {
-      const question = prompt?.questions.find((candidate) => candidate.id === questionId)
+      const question = activeQuestionPrompt?.questions.find((candidate) => candidate.id === questionId)
 
       setPromptCustomAnswers((current) => ({
         ...current,
@@ -468,12 +481,12 @@ export function ChatInput({
         }))
       }
     },
-    [prompt]
+    [activeQuestionPrompt]
   )
 
   const handlePromptCustomAnswerFocus = useCallback(
     (questionId: string) => {
-      const question = prompt?.questions.find((candidate) => candidate.id === questionId)
+      const question = activeQuestionPrompt?.questions.find((candidate) => candidate.id === questionId)
 
       if (!question?.allowOther) {
         return
@@ -493,26 +506,43 @@ export function ChatInput({
         }
       })
     },
-    [prompt]
+    [activeQuestionPrompt]
   )
 
   const handleDismissPrompt = useCallback(() => {
     onDismissPrompt?.()
   }, [onDismissPrompt])
 
+  const handleApprovePrompt = useCallback(() => {
+    if (!activeApprovalPrompt) {
+      return
+    }
+
+    onAnswerPrompt?.(createRuntimeApprovalResponse(activeApprovalPrompt, "approve"))
+  }, [activeApprovalPrompt, onAnswerPrompt])
+
+  const handleDenyPrompt = useCallback(() => {
+    if (!activeApprovalPrompt) {
+      handleDismissPrompt()
+      return
+    }
+
+    onAnswerPrompt?.(createRuntimeApprovalResponse(activeApprovalPrompt, "deny"))
+  }, [activeApprovalPrompt, handleDismissPrompt, onAnswerPrompt])
+
   const handleGoToPreviousPromptQuestion = useCallback(() => {
     setCurrentPromptQuestionIndex((index) => Math.max(index - 1, 0))
   }, [])
 
   const handleGoToNextPromptQuestion = useCallback(() => {
-    if (!prompt) {
+    if (!activeQuestionPrompt) {
       return
     }
 
     setCurrentPromptQuestionIndex((index) =>
-      Math.min(index + 1, prompt.questions.length - 1)
+      Math.min(index + 1, activeQuestionPrompt.questions.length - 1)
     )
-  }, [prompt])
+  }, [activeQuestionPrompt])
 
   useEffect(() => {
     if (!isPromptActive) {
@@ -522,16 +552,21 @@ export function ChatInput({
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault()
+        if (activeApprovalPrompt) {
+          handleDenyPrompt()
+          return
+        }
+
         handleDismissPrompt()
       }
     }
 
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [handleDismissPrompt, isPromptActive])
+  }, [activeApprovalPrompt, handleDenyPrompt, handleDismissPrompt, isPromptActive])
 
-  const promptProgressLabel = isPromptActive && prompt
-    ? `${currentPromptQuestionIndex + 1} of ${prompt.questions.length}`
+  const promptProgressLabel = activeQuestionPrompt
+    ? `${currentPromptQuestionIndex + 1} of ${activeQuestionPrompt.questions.length}`
     : null
 
   const isFirstPromptQuestion = currentPromptQuestionIndex === 0
@@ -544,20 +579,24 @@ export function ChatInput({
     (e?: FormEvent) => {
       e?.preventDefault()
 
-      if (isPromptActive && prompt) {
+      if (activeApprovalPrompt) {
+        return
+      }
+
+      if (activeQuestionPrompt) {
         if (!currentPromptQuestion || !currentPromptQuestionAnswered) {
           return
         }
 
         if (!isLastPromptQuestion) {
           setCurrentPromptQuestionIndex((index) =>
-            Math.min(index + 1, prompt.questions.length - 1)
+            Math.min(index + 1, activeQuestionPrompt.questions.length - 1)
           )
           return
         }
 
         onAnswerPrompt?.(
-          createRuntimePromptResponse(prompt, promptAnswers, promptCustomAnswers)
+          createRuntimePromptResponse(activeQuestionPrompt, promptAnswers, promptCustomAnswers)
         )
         setCurrentPromptQuestionIndex(0)
         setPromptAnswers({})
@@ -624,7 +663,8 @@ export function ChatInput({
       isPromptActive,
       onSubmit,
       onAnswerPrompt,
-      prompt,
+      activeQuestionPrompt,
+      activeApprovalPrompt,
       promptAnswers,
       promptCustomAnswers,
       isPlanModeAvailable,
@@ -827,9 +867,23 @@ export function ChatInput({
 
   return (
     <form onSubmit={handleSubmit} className="bg-main-content px-10 pb-3">
-      <div className="relative rounded-2xl border border-border bg-card shadow-sm">
+      <div
+        className={cn(
+          "relative overflow-hidden rounded-2xl border bg-card shadow-sm transition-colors",
+          isApprovalComposerState
+            ? "border-[var(--color-chat-approval-border)] bg-[var(--color-chat-approval-surface)]"
+            : "border-border"
+        )}
+      >
         {activePlan && (
-          <div className="relative border-b border-border">
+          <div
+            className={cn(
+              "relative border-b",
+              isApprovalComposerState
+                ? "border-[var(--color-chat-approval-border)]"
+                : "border-border"
+            )}
+          >
             {activePlan && (
               <div className="px-4 py-3">
                 <div className="flex items-start gap-3">
@@ -877,25 +931,37 @@ export function ChatInput({
           </div>
         )}
 
-        <div className="relative px-4 pt-3 pb-3">
+        <div
+          className={cn(
+            "relative px-4 pt-3 pb-3"
+          )}
+        >
           {isPromptActive && prompt ? (
-            <StructuredPromptSurface
-              prompt={prompt}
-              answers={promptAnswers}
-              customAnswers={promptCustomAnswers}
-              onAnswerChange={handlePromptAnswerChange}
-              onCustomAnswerChange={handlePromptCustomAnswerChange}
-              onCustomAnswerFocus={handlePromptCustomAnswerFocus}
-              currentQuestionIndex={currentPromptQuestionIndex}
-              progressLabel={promptProgressLabel ?? ""}
-              onPreviousQuestion={handleGoToPreviousPromptQuestion}
-              onNextQuestion={handleGoToNextPromptQuestion}
-              canGoPrevious={!isFirstPromptQuestion}
-              canGoNext={!isLastPromptQuestion}
-              canSubmitCurrentQuestion={canSubmit}
-              submitLabel={promptCtaLabel}
-              onDismissPrompt={handleDismissPrompt}
-            />
+            activeApprovalPrompt ? (
+              <ApprovalPromptSurface
+                prompt={activeApprovalPrompt}
+                onApprove={handleApprovePrompt}
+                onDeny={handleDenyPrompt}
+              />
+            ) : activeQuestionPrompt ? (
+              <StructuredPromptSurface
+                prompt={activeQuestionPrompt}
+                answers={promptAnswers}
+                customAnswers={promptCustomAnswers}
+                onAnswerChange={handlePromptAnswerChange}
+                onCustomAnswerChange={handlePromptCustomAnswerChange}
+                onCustomAnswerFocus={handlePromptCustomAnswerFocus}
+                currentQuestionIndex={currentPromptQuestionIndex}
+                progressLabel={promptProgressLabel ?? ""}
+                onPreviousQuestion={handleGoToPreviousPromptQuestion}
+                onNextQuestion={handleGoToNextPromptQuestion}
+                canGoPrevious={!isFirstPromptQuestion}
+                canGoNext={!isLastPromptQuestion}
+                canSubmitCurrentQuestion={canSubmit}
+                submitLabel={promptCtaLabel}
+                onDismissPrompt={handleDismissPrompt}
+              />
+            ) : null
           ) : (
             <>
               <ComposerEditorSurface

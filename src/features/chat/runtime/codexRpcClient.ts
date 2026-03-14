@@ -55,7 +55,6 @@ const OPTED_OUT_NOTIFICATION_METHODS = [
   "codex/event/reasoning_content_delta",
   "codex/event/reasoning_raw_content_delta",
   "codex/event/exec_command_output_delta",
-  "codex/event/exec_approval_request",
   "codex/event/exec_command_begin",
   "codex/event/exec_command_end",
   "codex/event/exec_output",

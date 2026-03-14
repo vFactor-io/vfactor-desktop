@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion"
-import { BookOpen, MagnifyingGlass, Plus, Refresh } from "@/components/icons"
+import { BookOpen, InformationCircle, MagnifyingGlass, Plus, Refresh } from "@/components/icons"
 import { Badge } from "@/features/shared/components/ui/badge"
 import { Button } from "@/features/shared/components/ui/button"
 import {
@@ -16,6 +16,11 @@ import {
   InputGroupInput,
 } from "@/features/shared/components/ui/input-group"
 import { Switch } from "@/features/shared/components/ui/switch"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/features/shared/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 
 type SkillCategory = "installed" | "recommended"
@@ -245,9 +250,14 @@ const SKILLS: SkillDefinition[] = [
   },
 ]
 
-function SkillGlyph() {
+function SkillGlyph({ className }: { className?: string } = {}) {
   return (
-    <div className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-border bg-muted">
+    <div
+      className={cn(
+        "flex size-11 shrink-0 items-center justify-center rounded-xl border border-border bg-muted",
+        className,
+      )}
+    >
       <BookOpen size={18} className="text-skill-icon" strokeWidth={2} />
     </div>
   )
@@ -354,15 +364,17 @@ function SkillDetailsDialog({
       >
         <div className="flex flex-col gap-5 px-6 pb-6 pt-5">
           <DialogHeader className="pr-10">
-            <div className="mb-1">
-              <SkillGlyph />
+            <div className="flex items-start gap-3">
+              <SkillGlyph className="mt-0.5" />
+              <div className="min-w-0 space-y-1">
+                <DialogTitle className="text-[2rem] leading-none tracking-tight text-card-foreground">
+                  {skill.name}
+                </DialogTitle>
+                <DialogDescription className="text-lg text-muted-foreground">
+                  {skill.description}
+                </DialogDescription>
+              </div>
             </div>
-            <DialogTitle className="text-[2rem] leading-none tracking-tight text-card-foreground">
-              {skill.name}
-            </DialogTitle>
-            <DialogDescription className="text-lg text-muted-foreground">
-              {skill.description}
-            </DialogDescription>
           </DialogHeader>
 
           <div className="rounded-xl border border-border bg-background">
@@ -414,6 +426,156 @@ function SkillsSection({
           <SkillCard key={skill.id} skill={skill} onSelect={onSelectSkill} />
         ))}
       </div>
+    </section>
+  )
+}
+
+function SidebarSkillRow({
+  skill,
+  onSelect,
+}: {
+  skill: SkillDefinition
+  onSelect: (skill: SkillDefinition) => void
+}) {
+  const actionLabel = skill.enabled ? "Remove" : "Install"
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelect(skill)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault()
+          onSelect(skill)
+        }
+      }}
+      className="grid w-full cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-sidebar-accent/55"
+    >
+      <span className="flex size-6 shrink-0 items-center justify-center">
+        <BookOpen size={14} className="text-skill-icon" strokeWidth={2} />
+      </span>
+
+      <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-1.5 text-sm leading-none">
+          <span className="truncate font-medium text-foreground">{skill.name}</span>
+          {skill.tags?.[0] ? (
+            <Badge
+              variant="outline"
+              className="h-5 shrink-0 rounded-full border-transparent bg-sidebar-accent px-1.5 text-[9px] font-medium uppercase tracking-[0.14em] text-sidebar-foreground/72"
+            >
+              {skill.tags[0]}
+            </Badge>
+          ) : null}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex shrink-0 items-center justify-center text-muted-foreground transition-colors hover:text-foreground">
+                <InformationCircle className="size-3" />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" align="end" className="max-w-64 text-sm leading-5">
+              {skill.description}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
+
+      <Button
+        type="button"
+        size="xs"
+        variant={skill.enabled ? "ghost" : "default"}
+        className={cn("cursor-pointer", skill.enabled ? "text-muted-foreground hover:text-foreground" : undefined)}
+        onClick={(event) => {
+          event.stopPropagation()
+        }}
+      >
+        {actionLabel}
+      </Button>
+    </div>
+  )
+}
+
+export function SkillsSidebarPanel() {
+  const [query, setQuery] = useState("")
+  const [selectedSkill, setSelectedSkill] = useState<SkillDefinition | null>(null)
+  const normalizedQuery = query.trim().toLowerCase()
+
+  const filteredSkills = useMemo(() => {
+    return SKILLS.filter((skill) => {
+      if (!normalizedQuery) {
+        return true
+      }
+
+      const haystack = [skill.name, skill.description, ...(skill.tags ?? [])].join(" ").toLowerCase()
+      return haystack.includes(normalizedQuery)
+    })
+  }, [normalizedQuery])
+
+  const installedSkills = filteredSkills.filter((skill) => skill.category === "installed")
+  const recommendedSkills = filteredSkills.filter((skill) => skill.category === "recommended")
+
+  return (
+    <section className="flex h-full min-h-0 flex-col bg-sidebar text-sidebar-foreground">
+      <div className="border-b border-sidebar-border px-3 py-3">
+        <InputGroup>
+          <InputGroupAddon>
+            <MagnifyingGlass size={15} className="text-muted-foreground" />
+          </InputGroupAddon>
+          <InputGroupInput
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search skills"
+          />
+        </InputGroup>
+      </div>
+
+      <div className="app-scrollbar flex-1 overflow-y-auto px-3 py-3">
+        {installedSkills.length || recommendedSkills.length ? (
+          <div className="space-y-6">
+            {installedSkills.length ? (
+              <section className="space-y-3">
+                <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground/80">
+                  Installed
+                </div>
+
+                <div className="space-y-1">
+                  {installedSkills.map((skill) => (
+                    <SidebarSkillRow key={skill.id} skill={skill} onSelect={setSelectedSkill} />
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            {recommendedSkills.length ? (
+              <section className="space-y-3">
+                <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground/80">
+                  Recommended
+                </div>
+
+                <div className="space-y-1">
+                  {recommendedSkills.map((skill) => (
+                    <SidebarSkillRow key={skill.id} skill={skill} onSelect={setSelectedSkill} />
+                  ))}
+                </div>
+              </section>
+            ) : null}
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-dashed border-sidebar-border bg-sidebar-accent/35 px-4 py-8 text-center text-sm text-muted-foreground">
+            No skills matched "{query}".
+          </div>
+        )}
+      </div>
+
+      <SkillDetailsDialog
+        skill={selectedSkill}
+        open={selectedSkill != null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedSkill(null)
+          }
+        }}
+      />
     </section>
   )
 }

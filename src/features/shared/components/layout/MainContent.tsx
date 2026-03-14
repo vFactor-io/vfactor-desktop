@@ -3,7 +3,6 @@ import { ChatContainer, TabBar } from "@/features/chat/components"
 import { FileViewer, DiffViewer } from "@/features/editor/components"
 import { getDiffData } from "@/features/editor/mocks/mock-diffs"
 import { SettingsPage } from "@/features/settings/components/SettingsPage"
-import { SkillsPage } from "@/features/skills/components/SkillsPage"
 import { useTabStore } from "@/features/editor/store"
 import type { Tab } from "@/features/chat/types"
 import type { SettingsSectionId } from "@/features/settings/config"
@@ -47,7 +46,7 @@ function TabContent({ tab }: TabContentProps) {
 const CHAT_TAB: Tab = { id: "chat", type: "chat", title: "Chat" }
 
 interface MainContentProps {
-  activeView: "chat" | "settings" | "skills" | "automations"
+  activeView: "chat" | "settings" | "automations"
   activeSettingsSection: SettingsSectionId
 }
 
@@ -58,14 +57,6 @@ export function MainContent({ activeView, activeSettingsSection }: MainContentPr
     return (
       <main className="flex-1 min-w-80 bg-main-content text-main-content-foreground overflow-hidden flex flex-col">
         <SettingsPage activeSection={activeSettingsSection} />
-      </main>
-    )
-  }
-
-  if (activeView === "skills") {
-    return (
-      <main className="flex-1 min-w-80 bg-main-content text-main-content-foreground overflow-hidden flex flex-col">
-        <SkillsPage />
       </main>
     )
   }

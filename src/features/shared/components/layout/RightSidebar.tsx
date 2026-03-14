@@ -3,63 +3,69 @@ import { FileTreeViewer } from "@/features/version-control/components"
 import { useProjectStore } from "@/features/workspace/store"
 import { useTabStore } from "@/features/editor/store"
 import { useChatStore } from "@/features/chat/store"
+import { SkillsSidebarPanel } from "@/features/skills/components/SkillsPage"
+import {
+  loadProjectSecrets,
+  saveProjectSecret,
+  type ProjectSecretFieldDefinition,
+} from "@/features/workspace/utils/envFiles"
 import { readProjectFiles } from "@/features/workspace/utils/fileSystem"
 import { useRightSidebar } from "./useRightSidebar"
 import type { FileTreeItem } from "@/features/version-control/types"
 import { Button, Input } from "@/features/shared/components/ui"
 import { cn } from "@/lib/utils"
-import { Eye } from "@/components/icons"
+import { BookOpen, Eye, Folder, Plus } from "@/components/icons"
 
 interface RightSidebarProps {
-  activeView?: "chat" | "settings" | "skills" | "automations"
+  activeView?: "chat" | "settings" | "automations"
 }
 
-type RightSidebarTab = "files" | "secrets"
+type RightSidebarTab = "files" | "skills" | "secrets"
+
+const RIGHT_SIDEBAR_TABS: Array<{
+  key: RightSidebarTab
+  label: string
+  icon: typeof Folder
+}> = [
+  { key: "files", label: "Files", icon: Folder },
+  { key: "skills", label: "Skills", icon: BookOpen },
+  { key: "secrets", label: "Secrets", icon: Eye },
+]
 
 interface SecretFieldState {
+  key: string
+  label: string
+  placeholder: string
   value: string
   savedValue: string
   isVisible: boolean
+  sourceFile: string | null
+  writeTargetFile: string
 }
 
-const SECRET_FIELDS = [
-  {
-    key: "OPENAI_API_KEY",
-    label: "OpenAI API Key",
-    placeholder: "sk-...",
-  },
-  {
-    key: "ANTHROPIC_API_KEY",
-    label: "Anthropic API Key",
-    placeholder: "sk-ant-...",
-  },
-  {
-    key: "LINEAR_API_KEY",
-    label: "Linear API Key",
-    placeholder: "lin_api_...",
-  },
-] as const
+interface DraftSecretState {
+  key: string
+  value: string
+  isVisible: boolean
+}
 
-function createInitialSecretsState(): Record<string, SecretFieldState> {
-  return Object.fromEntries(
-    SECRET_FIELDS.map((field) => [
-      field.key,
-      {
-        value: "",
-        savedValue: "",
-        isVisible: false,
-      },
-    ])
-  )
+function createSecretState(definition: ProjectSecretFieldDefinition): SecretFieldState {
+  return {
+    ...definition,
+    value: definition.savedValue,
+    isVisible: false,
+  }
 }
 
 export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
   const [fileTreeData, setFileTreeData] = useState<Record<string, FileTreeItem>>({})
   const [isInitialLoad, setIsInitialLoad] = useState(true)
   const [activeTab, setActiveTab] = useState<RightSidebarTab>("files")
-  const [secretsByProject, setSecretsByProject] = useState<
-    Record<string, Record<string, SecretFieldState>>
-  >({})
+  const [isSecretsLoading, setIsSecretsLoading] = useState(false)
+  const [savingSecretKey, setSavingSecretKey] = useState<string | null>(null)
+  const [secretsError, setSecretsError] = useState<string | null>(null)
+  const [secretsByProject, setSecretsByProject] = useState<Record<string, SecretFieldState[]>>({})
+  const [draftSecretByProject, setDraftSecretByProject] = useState<Record<string, DraftSecretState | null>>({})
   const { isCollapsed } = useRightSidebar()
   const { projects, selectedProjectId } = useProjectStore()
   const { openFile, switchProject } = useTabStore()
@@ -69,14 +75,22 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
   const selectedProject = projects.find((p) => p.id === selectedProjectId)
   const selectedProjectSecrets = useMemo(() => {
     if (!selectedProjectId) {
-      return createInitialSecretsState()
+      return []
     }
 
-    return secretsByProject[selectedProjectId] ?? createInitialSecretsState()
+    return secretsByProject[selectedProjectId] ?? []
   }, [secretsByProject, selectedProjectId])
+  const selectedProjectDraftSecret = useMemo(() => {
+    if (!selectedProjectId) {
+      return null
+    }
+
+    return draftSecretByProject[selectedProjectId] ?? null
+  }, [draftSecretByProject, selectedProjectId])
   
   // Track refresh timeout for debouncing
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const secretsRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Load files function (showLoading only for initial load)
   const loadFiles = useCallback(async (isInitial = false) => {
@@ -115,11 +129,45 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
     }, 300) // Debounce 300ms to batch rapid changes
   }, [loadFiles])
 
+  const loadSecrets = useCallback(async () => {
+    if (!selectedProject?.path || !selectedProjectId) {
+      setIsSecretsLoading(false)
+      setSecretsError(null)
+      return
+    }
+
+    setIsSecretsLoading(true)
+    setSecretsError(null)
+
+    try {
+      const definitions = await loadProjectSecrets(selectedProject.path)
+      setSecretsByProject((current) => ({
+        ...current,
+        [selectedProjectId]: definitions.map(createSecretState),
+      }))
+    } catch (error) {
+      console.error("Failed to load project secrets:", error)
+      setSecretsError("Couldn't read env files for this project.")
+    } finally {
+      setIsSecretsLoading(false)
+    }
+  }, [selectedProject?.path, selectedProjectId])
+
+  const scheduleSecretsRefresh = useCallback(() => {
+    if (secretsRefreshTimeoutRef.current) {
+      clearTimeout(secretsRefreshTimeoutRef.current)
+    }
+    secretsRefreshTimeoutRef.current = setTimeout(() => {
+      void loadSecrets()
+    }, 300)
+  }, [loadSecrets])
+
   // Switch project tabs and load files when selected project changes
   useEffect(() => {
     switchProject(selectedProjectId ?? null)
     loadFiles(true) // Initial load with loading indicator
-  }, [selectedProjectId, switchProject, loadFiles])
+    void loadSecrets()
+  }, [selectedProjectId, switchProject, loadFiles, loadSecrets])
 
   // Subscribe to file change events from the active harness
   useEffect(() => {
@@ -134,6 +182,11 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
       if (isAbsoluteMatch || isRelativePath) {
         scheduleRefresh()
       }
+
+      const changedFileName = event.file.split("/").pop() ?? event.file
+      if (changedFileName.startsWith(".env")) {
+        scheduleSecretsRefresh()
+      }
     })
 
     return () => {
@@ -141,14 +194,13 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
       if (refreshTimeoutRef.current) {
         clearTimeout(refreshTimeoutRef.current)
       }
+      if (secretsRefreshTimeoutRef.current) {
+        clearTimeout(secretsRefreshTimeoutRef.current)
+      }
     }
-  }, [selectedProject?.path, onFileChange, scheduleRefresh])
+  }, [selectedProject?.path, onFileChange, scheduleRefresh, scheduleSecretsRefresh])
 
-  if (isCollapsed || activeView !== "chat") {
-    return null
-  }
-
-  const updateSecretField = (
+  const updateSecretField = useCallback((
     fieldKey: string,
     updater: (current: SecretFieldState) => SecretFieldState
   ) => {
@@ -157,20 +209,148 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
     }
 
     setSecretsByProject((current) => {
-      const projectSecrets = current[selectedProjectId] ?? createInitialSecretsState()
+      const projectSecrets = current[selectedProjectId] ?? []
 
       return {
         ...current,
-        [selectedProjectId]: {
-          ...projectSecrets,
-          [fieldKey]: updater(projectSecrets[fieldKey] ?? {
-            value: "",
-            savedValue: "",
-            isVisible: false,
-          }),
-        },
+        [selectedProjectId]: projectSecrets.map((field) =>
+          field.key === fieldKey ? updater(field) : field
+        ),
       }
     })
+  }, [selectedProjectId])
+
+  const startDraftSecret = useCallback(() => {
+    if (!selectedProjectId) {
+      return
+    }
+
+    setDraftSecretByProject((current) => ({
+      ...current,
+      [selectedProjectId]: current[selectedProjectId] ?? {
+        key: "",
+        value: "",
+        isVisible: true,
+      },
+    }))
+    setSecretsError(null)
+  }, [selectedProjectId])
+
+  const updateDraftSecret = useCallback((
+    updater: (current: DraftSecretState) => DraftSecretState
+  ) => {
+    if (!selectedProjectId) {
+      return
+    }
+
+    setDraftSecretByProject((current) => {
+      const draft = current[selectedProjectId]
+      if (!draft) {
+        return current
+      }
+
+      return {
+        ...current,
+        [selectedProjectId]: updater(draft),
+      }
+    })
+  }, [selectedProjectId])
+
+  const clearDraftSecret = useCallback(() => {
+    if (!selectedProjectId) {
+      return
+    }
+
+    setDraftSecretByProject((current) => ({
+      ...current,
+      [selectedProjectId]: null,
+    }))
+    setSecretsError(null)
+  }, [selectedProjectId])
+
+  const handleSaveSecret = useCallback(
+    async (fieldKey: string) => {
+      if (!selectedProject?.path || !selectedProjectId) {
+        return
+      }
+
+      const field = selectedProjectSecrets.find((candidate) => candidate.key === fieldKey)
+      if (!field) {
+        return
+      }
+
+      const nextValue = field.value.trim()
+      if (nextValue.length === 0 || nextValue === field.savedValue.trim()) {
+        return
+      }
+
+      setSavingSecretKey(fieldKey)
+      setSecretsError(null)
+
+      try {
+        await saveProjectSecret(selectedProject.path, fieldKey, nextValue)
+        const definitions = await loadProjectSecrets(selectedProject.path)
+        setSecretsByProject((current) => ({
+          ...current,
+          [selectedProjectId]: definitions.map(createSecretState),
+        }))
+      } catch (error) {
+        console.error("Failed to save project secret:", error)
+        setSecretsError(`Couldn't save ${field.label}.`)
+      } finally {
+        setSavingSecretKey(null)
+      }
+    },
+    [selectedProject?.path, selectedProjectId, selectedProjectSecrets],
+  )
+
+  const handleSaveDraftSecret = useCallback(async () => {
+    if (!selectedProject?.path || !selectedProjectId || !selectedProjectDraftSecret) {
+      return
+    }
+
+    const draftKey = selectedProjectDraftSecret.key.trim().toUpperCase()
+    const draftValue = selectedProjectDraftSecret.value.trim()
+
+    if (!/^[A-Z_][A-Z0-9_]*$/.test(draftKey)) {
+      setSecretsError("Secret keys must use letters, numbers, and underscores.")
+      return
+    }
+
+    if (selectedProjectSecrets.some((field) => field.key === draftKey)) {
+      setSecretsError(`${draftKey} already exists in this project.`)
+      return
+    }
+
+    if (draftValue.length === 0) {
+      setSecretsError("Enter a value before saving the secret.")
+      return
+    }
+
+    setSavingSecretKey(draftKey)
+    setSecretsError(null)
+
+    try {
+      await saveProjectSecret(selectedProject.path, draftKey, draftValue)
+      const definitions = await loadProjectSecrets(selectedProject.path)
+      setSecretsByProject((current) => ({
+        ...current,
+        [selectedProjectId]: definitions.map(createSecretState),
+      }))
+      setDraftSecretByProject((current) => ({
+        ...current,
+        [selectedProjectId]: null,
+      }))
+    } catch (error) {
+      console.error("Failed to save project secret:", error)
+      setSecretsError(`Couldn't save ${draftKey}.`)
+    } finally {
+      setSavingSecretKey(null)
+    }
+  }, [selectedProject?.path, selectedProjectId, selectedProjectDraftSecret, selectedProjectSecrets])
+
+  if (isCollapsed || activeView !== "chat") {
+    return null
   }
 
   return (
@@ -179,22 +359,23 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
       <div className="border-b border-sidebar-border px-4 py-3 shrink-0">
         <div className="flex items-center gap-2">
           <div className="inline-flex rounded-xl bg-sidebar-accent p-1">
-            {(["files", "secrets"] as const).map((tab) => {
-              const isActive = activeTab === tab
+            {RIGHT_SIDEBAR_TABS.map(({ key, label, icon: Icon }) => {
+              const isActive = activeTab === key
 
               return (
                 <button
-                  key={tab}
+                  key={key}
                   type="button"
-                  onClick={() => setActiveTab(tab)}
+                  onClick={() => setActiveTab(key)}
                   className={cn(
-                    "rounded-lg px-3 py-1.5 text-sm font-medium capitalize transition-colors cursor-pointer",
+                    "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer",
                     isActive
                       ? "bg-card text-card-foreground shadow-sm"
                       : "text-muted-foreground hover:text-foreground"
                   )}
                 >
-                  {tab}
+                  <Icon className="size-4 shrink-0" />
+                  <span>{label}</span>
                 </button>
               )
             })}
@@ -203,7 +384,12 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
       </div>
 
       {/* Content area */}
-      <div className="overflow-y-auto px-2 py-2 flex-1">
+      <div
+        className={cn(
+          "flex-1",
+          activeTab === "skills" ? "min-h-0" : "overflow-y-auto px-2 py-2"
+        )}
+      >
         {activeTab === "files" ? (
           isInitialLoad ? (
             <div className="flex items-center justify-center py-8">
@@ -224,6 +410,8 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
               onFileClick={openFile}
             />
           )
+        ) : activeTab === "skills" ? (
+          <SkillsSidebarPanel />
         ) : (
           <div className="space-y-3 px-1 py-1">
             {!selectedProject ? (
@@ -232,25 +420,142 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
               </div>
             ) : (
               <>
-                {SECRET_FIELDS.map((field) => {
-                  const state = selectedProjectSecrets[field.key]
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-card px-3 py-2.5">
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    Pulls secret-like keys from repo env files and saves edits into local overrides.
+                  </p>
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="ghost"
+                    className="shrink-0"
+                    onClick={startDraftSecret}
+                    disabled={selectedProjectDraftSecret != null}
+                  >
+                    <Plus className="size-3.5" />
+                    Add secret
+                  </Button>
+                </div>
+
+                {secretsError ? (
+                  <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-2.5 text-xs leading-5 text-destructive">
+                    {secretsError}
+                  </div>
+                ) : null}
+
+                {isSecretsLoading && selectedProjectSecrets.length === 0 ? (
+                  <div className="flex items-center justify-center py-8">
+                    <span className="text-sm text-muted-foreground">Loading secrets...</span>
+                  </div>
+                ) : null}
+
+                {selectedProjectDraftSecret ? (
+                  <div className="rounded-xl border border-border bg-card px-3 py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-foreground">New secret</p>
+                        <p className="mt-1 text-xs text-muted-foreground">Saves to .env.local</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 space-y-2">
+                      <Input
+                        value={selectedProjectDraftSecret.key}
+                        placeholder="SECRET_KEY"
+                        onChange={(event) =>
+                          updateDraftSecret((current) => ({
+                            ...current,
+                            key: event.target.value,
+                          }))
+                        }
+                      />
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type={selectedProjectDraftSecret.isVisible ? "text" : "password"}
+                          value={selectedProjectDraftSecret.value}
+                          placeholder="Enter value"
+                          onChange={(event) =>
+                            updateDraftSecret((current) => ({
+                              ...current,
+                              value: event.target.value,
+                            }))
+                          }
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateDraftSecret((current) => ({
+                              ...current,
+                              isVisible: !current.isVisible,
+                            }))
+                          }
+                          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                          aria-label={selectedProjectDraftSecret.isVisible ? "Hide secret" : "Show secret"}
+                        >
+                          <Eye className="size-4" />
+                        </button>
+                      </div>
+                      <div className="flex items-center justify-end gap-2">
+                        <Button type="button" size="xs" variant="ghost" onClick={clearDraftSecret}>
+                          Cancel
+                        </Button>
+                        <Button
+                          type="button"
+                          size="xs"
+                          disabled={
+                            savingSecretKey !== null ||
+                            selectedProjectDraftSecret.key.trim().length === 0 ||
+                            selectedProjectDraftSecret.value.trim().length === 0
+                          }
+                          onClick={() => void handleSaveDraftSecret()}
+                        >
+                          {savingSecretKey === selectedProjectDraftSecret.key.trim().toUpperCase()
+                            ? "Saving..."
+                            : "Add"}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {!isSecretsLoading &&
+                selectedProjectSecrets.length === 0 &&
+                selectedProjectDraftSecret == null ? (
+                  <div className="rounded-xl border border-dashed border-border bg-card px-3 py-6 text-center">
+                    <p className="text-sm font-medium text-foreground">No secrets found yet</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      Add the first secret and it will be written to `.env.local`.
+                    </p>
+                  </div>
+                ) : null}
+
+                {selectedProjectSecrets.map((state) => {
                   const hasSavedValue = state.savedValue.trim().length > 0
                   const isDirty = state.value.trim() !== state.savedValue.trim()
+                  const syncHint =
+                    state.sourceFile == null
+                      ? `Saves to ${state.writeTargetFile}`
+                      : state.sourceFile.endsWith(".example")
+                        ? `Discovered in ${state.sourceFile} · saves to ${state.writeTargetFile}`
+                      : state.sourceFile === state.writeTargetFile
+                        ? `Stored in ${state.sourceFile}`
+                        : `Read from ${state.sourceFile} · saves to ${state.writeTargetFile}`
 
                   return (
                     <div
-                      key={field.key}
+                      key={state.key}
                       className="rounded-xl border border-border bg-card px-3 py-3"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="text-sm font-medium text-foreground">{field.label}</p>
+                          <p className="text-sm font-medium text-foreground">{state.label}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">{syncHint}</p>
                         </div>
                         {hasSavedValue ? (
                           <button
                             type="button"
                             onClick={() =>
-                              updateSecretField(field.key, (current) => ({
+                              updateSecretField(state.key, (current) => ({
                                 ...current,
                                 isVisible: !current.isVisible,
                               }))
@@ -267,9 +572,9 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
                         <Input
                           type={hasSavedValue && !state.isVisible ? "password" : "text"}
                           value={state.value}
-                          placeholder={field.placeholder}
+                          placeholder={state.placeholder}
                           onChange={(event) =>
-                            updateSecretField(field.key, (current) => ({
+                            updateSecretField(state.key, (current) => ({
                               ...current,
                               value: event.target.value,
                             }))
@@ -277,17 +582,10 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
                         />
                         <Button
                           type="button"
-                          disabled={state.value.trim().length === 0 || !isDirty}
-                          onClick={() =>
-                            updateSecretField(field.key, (current) => ({
-                              ...current,
-                              savedValue: current.value.trim(),
-                              value: current.value.trim(),
-                              isVisible: false,
-                            }))
-                          }
+                          disabled={state.value.trim().length === 0 || !isDirty || savingSecretKey === state.key}
+                          onClick={() => void handleSaveSecret(state.key)}
                         >
-                          Save
+                          {savingSecretKey === state.key ? "Saving..." : "Save"}
                         </Button>
                       </div>
                     </div>

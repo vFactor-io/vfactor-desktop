@@ -28,6 +28,7 @@ import { useProjectStore } from "@/features/workspace/store"
 import { getAgentAvatarUrl } from "@/features/workspace/utils/avatar"
 import { openFolderPicker } from "@/features/workspace/utils/folderDialog"
 import { useStickToBottomContext } from "use-stick-to-bottom"
+import { isRuntimeApprovalPrompt } from "../domain/runtimePrompts"
 import { ChatTimelineItem, InlineSubagentActivity } from "./ChatTimelineItem"
 
 interface ChatMessagesProps {
@@ -176,10 +177,69 @@ export function ChatMessages({
   childSessions,
   showInlineIntro = false,
 }: ChatMessagesProps) {
-  const hasContent = messages.length > 0
-  const lastMessage = messages[messages.length - 1]
+  const approvalTimelineMessage = useMemo(() => {
+    if (!isRuntimeApprovalPrompt(activePrompt)) {
+      return null
+    }
+
+    const itemType =
+      activePrompt.approval.kind === "fileChange" ? "fileChange" : "commandExecution"
+    const messageId = activePrompt.approval.itemId
+      ? `approval:${activePrompt.approval.itemId}`
+      : `approval:${activePrompt.id}`
+
+    return {
+      info: {
+        id: messageId,
+        sessionId: messageId,
+        role: "assistant" as const,
+        createdAt: Date.now(),
+        itemType,
+      },
+      parts: [
+        {
+          id: `${messageId}:tool`,
+          type: "tool" as const,
+          messageId,
+          sessionId: messageId,
+          tool: itemType === "fileChange" ? "fileChange" : "command/exec",
+          state: {
+            status: "pending" as const,
+            title:
+              itemType === "fileChange"
+                ? "Apply file changes"
+                : activePrompt.approval.command ?? "Run command",
+            subtitle: activePrompt.approval.cwd,
+            input:
+              itemType === "fileChange"
+                ? {
+                    reason: activePrompt.approval.reason,
+                  }
+                : {
+                    command: activePrompt.approval.command,
+                    cwd: activePrompt.approval.cwd,
+                    commandActions: activePrompt.approval.commandActions,
+                  },
+            output:
+              itemType === "fileChange"
+                ? {
+                    changes: activePrompt.approval.changes ?? [],
+                    outputText: null,
+                  }
+                : undefined,
+          },
+        },
+      ],
+    }
+  }, [activePrompt])
+  const renderedMessages = useMemo(
+    () => (approvalTimelineMessage ? [...messages, approvalTimelineMessage] : messages),
+    [approvalTimelineMessage, messages]
+  )
+  const hasContent = renderedMessages.length > 0
+  const lastMessage = renderedMessages[renderedMessages.length - 1]
   const shouldRenderStreamingPlaceholder =
-    status === "streaming" && (!lastMessage || lastMessage.info.role === "user")
+    status === "streaming" && !activePrompt && (!lastMessage || lastMessage.info.role === "user")
 
   // Convert ChildSessionState to ChildSessionData for the component
   const childSessionData: Map<string, ChildSessionData> | undefined = childSessions 
@@ -230,11 +290,11 @@ export function ChatMessages({
       <ConversationContent className="mx-auto w-full max-w-[803px] px-10 pb-10">
         <>
           {showInlineIntro ? <ChatEmptyState selectedProject={_selectedProject} /> : null}
-          {messages.map((message, index) => (
+          {renderedMessages.map((message, index) => (
             <ChatTimelineItem
               key={message.info.id}
               message={message}
-              isStreaming={status === "streaming" && index === messages.length - 1}
+              isStreaming={status === "streaming" && index === renderedMessages.length - 1}
               childSessions={childSessionData}
             />
           ))}

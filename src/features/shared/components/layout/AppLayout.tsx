@@ -8,7 +8,7 @@ import { TitleBar } from "./TitleBar"
 import type { SettingsSectionId } from "@/features/settings/config"
 
 export function AppLayout() {
-  const [activeView, setActiveView] = useState<"chat" | "settings" | "skills" | "automations">("chat")
+  const [activeView, setActiveView] = useState<"chat" | "settings" | "automations">("chat")
   const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionId>("general")
 
   return (
@@ -26,7 +26,6 @@ export function AppLayout() {
               onOpenChat={() => setActiveView("chat")}
               onOpenAutomations={() => setActiveView("automations")}
               onOpenSettings={() => setActiveView("settings")}
-              onOpenSkills={() => setActiveView("skills")}
               onSelectSettingsSection={setActiveSettingsSection}
             />
             <MainContent

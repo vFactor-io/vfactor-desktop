@@ -209,7 +209,15 @@ function renderCommandSummary(toolPart: RuntimeToolPart) {
     }
   }
 
-  if (toolPart.state.status === "running" || toolPart.state.status === "pending") {
+  if (toolPart.state.status === "pending") {
+    return (
+      <span>
+        Waiting for approval to run {renderInlineCode(commandLabel)}
+      </span>
+    )
+  }
+
+  if (toolPart.state.status === "running") {
     return (
       <span>
         Background terminal running {renderInlineCode(commandLabel)}
@@ -239,6 +247,24 @@ function renderFileChangeSummary(toolPart: RuntimeToolPart) {
       ? (output as { changes?: unknown[] }).changes
       : undefined
   const fileChanges = getFileChangeEntries(source)
+
+  if (toolPart.state.status === "pending") {
+    if (fileChanges.length === 0) {
+      return <span>Waiting for approval to apply workspace edits</span>
+    }
+
+    const primaryPath = getBaseName(fileChanges[0]?.path ?? "file")
+    const pendingLabel =
+      fileChanges.length === 1
+        ? "Waiting for approval to edit"
+        : `Waiting for approval to edit ${fileChanges.length} files including`
+    return (
+      <span className="inline-flex flex-wrap items-center gap-2">
+        <span>{pendingLabel}</span>
+        <span>{renderInlinePath(primaryPath)}</span>
+      </span>
+    )
+  }
 
   if (fileChanges.length === 0) {
     return <span>Prepared workspace edits</span>
@@ -579,6 +605,12 @@ export function ChatTimelineItem({
         isStreaming={isStreaming}
         tone="accent"
       />
+    )
+  }
+
+  if (itemType === "approval") {
+    return (
+      <TimelineTextBlock eyebrow="Approval" text={text} isStreaming={isStreaming} tone="muted" />
     )
   }
 

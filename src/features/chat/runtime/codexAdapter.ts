@@ -6,11 +6,14 @@ import type {
   HarnessTurnInput,
   HarnessTurnResult,
   MessageWithParts,
+  RuntimeApprovalFileChange,
   RuntimeMessage,
   RuntimeMessagePart,
   RuntimePrompt,
+  RuntimeQuestionPrompt,
   RuntimePromptQuestion,
   RuntimePromptResponse,
+  RuntimeQuestionPromptResponse,
   RuntimeSession,
   RuntimeToolPart,
   RuntimeToolState,
@@ -18,7 +21,6 @@ import type {
 import { getRemoteSessionId } from "../domain/runtimeSessions"
 import { getCodexRpcClient } from "./codexRpcClient"
 
-const TURN_COMPLETION_TIMEOUT_MS = 120_000
 const TURN_SYNC_INTERVAL_MS = 250
 
 interface CodexThread {
@@ -222,6 +224,83 @@ interface CodexPendingUserInputRequest {
   prompt: RuntimePrompt
 }
 
+interface CodexApprovalChangePayload {
+  type?: unknown
+  content?: unknown
+  diff?: unknown
+  unified_diff?: unknown
+}
+
+interface CodexApplyPatchApprovalRequestMessage {
+  type?: string
+  call_id?: string
+  turn_id?: string
+  item_id?: string
+  changes?: unknown
+  reason?: unknown
+  grant_root?: unknown
+}
+
+interface CodexExecApprovalRequestMessage {
+  type?: string
+  call_id?: string
+  turn_id?: string
+  item_id?: string
+  command?: unknown
+  cmd?: unknown
+  cwd?: unknown
+  reason?: unknown
+  commandActions?: unknown
+  command_actions?: unknown
+  parsedCmd?: unknown
+  parsed_cmd?: unknown
+  proposed_execpolicy_amendment?: unknown
+}
+
+interface CodexApprovalNotificationParams {
+  id?: string | number
+  conversationId?: string
+  threadId?: string
+  turnId?: string
+  msg?: CodexApplyPatchApprovalRequestMessage | CodexExecApprovalRequestMessage
+}
+
+interface CodexFileChangeApprovalServerRequestParams {
+  threadId?: string
+  conversationId?: string
+  turnId?: string
+  itemId?: string
+  callId?: string
+  changes?: unknown
+}
+
+interface CodexCommandApprovalServerRequestParams {
+  threadId?: string
+  conversationId?: string
+  turnId?: string
+  itemId?: string
+  callId?: string
+  command?: unknown
+  cmd?: unknown
+  cwd?: unknown
+  reason?: unknown
+  commandActions?: unknown
+  command_actions?: unknown
+  parsedCmd?: unknown
+  parsed_cmd?: unknown
+}
+
+interface CodexPendingApprovalRequest {
+  protocol: "v1ClientRequest" | "v1ServerRequest" | "v2ServerRequest"
+  requestMethod?: "applyPatchApproval" | "execCommandApproval"
+  requestId?: string | number
+  threadId: string
+  turnId: string
+  itemId?: string
+  callId: string
+  prompt: RuntimePrompt
+}
+
 function toMilliseconds(seconds: number): number {
   return seconds * 1000
 }
@@ -288,6 +367,7 @@ function mapCodexUserInputRequestToPrompt(
 
   return {
     id: `codex-request-user-input:${String(requestId)}`,
+    kind: "question",
     title: promptTitle,
     body: params.questions.length > 1 ? "Answer the questions below to continue." : undefined,
     questions: params.questions.map((question) =>
@@ -297,8 +377,8 @@ function mapCodexUserInputRequestToPrompt(
 }
 
 function mapRuntimePromptResponseToCodexResponse(
-  prompt: RuntimePrompt,
-  response: RuntimePromptResponse
+  prompt: RuntimeQuestionPrompt,
+  response: RuntimeQuestionPromptResponse
 ): { answers: Record<string, { answers: string[] }> } {
   return {
     answers: Object.fromEntries(
@@ -324,6 +404,367 @@ function mapRuntimePromptResponseToCodexResponse(
         ] as const
       })
     ),
+  }
+}
+
+function toOptionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined
+}
+
+function normalizeApprovalChangeType(value: unknown): RuntimeApprovalFileChange["type"] {
+  const normalized = String(value ?? "").toLowerCase()
+
+  if (normalized.includes("delete") || normalized.includes("remove")) {
+    return "delete"
+  }
+
+  if (normalized.includes("add") || normalized.includes("create")) {
+    return "add"
+  }
+
+  if (normalized.includes("update") || normalized.includes("modify") || normalized.includes("edit")) {
+    return "update"
+  }
+
+  return "change"
+}
+
+function mapCodexApprovalChanges(changes: unknown): RuntimeApprovalFileChange[] {
+  if (Array.isArray(changes)) {
+    return changes.flatMap((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return []
+      }
+
+      const path =
+        ("path" in entry && typeof entry.path === "string" && entry.path) ||
+        ("filePath" in entry && typeof entry.filePath === "string" && entry.filePath) ||
+        ("file_path" in entry && typeof entry.file_path === "string" && entry.file_path)
+
+      if (!path) {
+        return []
+      }
+
+      return [
+        {
+          path,
+          type: normalizeApprovalChangeType("type" in entry ? entry.type : undefined),
+          content: toOptionalString("content" in entry ? entry.content : undefined),
+          diff: toOptionalString(
+            "diff" in entry ? entry.diff : "unified_diff" in entry ? entry.unified_diff : undefined
+          ),
+        },
+      ]
+    })
+  }
+
+  if (!changes || typeof changes !== "object") {
+    return []
+  }
+
+  return Object.entries(changes as Record<string, CodexApprovalChangePayload>).map(
+    ([path, change]) => ({
+      path,
+      type: normalizeApprovalChangeType(change?.type),
+      content: toOptionalString(change?.content),
+      diff: toOptionalString(change?.diff ?? change?.unified_diff),
+    })
+  )
+}
+
+function getApprovalCommand(value: {
+  command?: unknown
+  cmd?: unknown
+}): string | undefined {
+  if (typeof value.command === "string" && value.command.trim().length > 0) {
+    return value.command
+  }
+
+  if (typeof value.cmd === "string" && value.cmd.trim().length > 0) {
+    return value.cmd
+  }
+
+  if (Array.isArray(value.command) && value.command.every((part) => typeof part === "string")) {
+    return value.command.join(" ")
+  }
+
+  return undefined
+}
+
+function getApprovalCommandActions(value: {
+  commandActions?: unknown
+  command_actions?: unknown
+  parsedCmd?: unknown
+  parsed_cmd?: unknown
+}): unknown[] | undefined {
+  const candidate =
+    value.commandActions ??
+    value.command_actions ??
+    value.parsedCmd ??
+    value.parsed_cmd
+
+  if (Array.isArray(candidate)) {
+    return candidate
+  }
+
+  if (candidate && typeof candidate === "object") {
+    return [candidate]
+  }
+
+  return undefined
+}
+
+function mapApprovalDecisionToServerResponse(
+  prompt: RuntimePrompt,
+  response: RuntimePromptResponse
+): { decision: string } {
+  if (prompt.kind !== "approval" || response.kind !== "approval") {
+    throw new Error("Approval responses can only be sent for approval prompts")
+  }
+
+  return {
+    decision: response.decision === "approve" ? "accept" : "decline",
+  }
+}
+
+function mapApprovalDecisionToClientRequest(
+  prompt: RuntimePrompt,
+  response: RuntimePromptResponse
+): { decision: string } {
+  if (prompt.kind !== "approval" || response.kind !== "approval") {
+    throw new Error("Approval responses can only be sent for approval prompts")
+  }
+
+  return {
+    decision: response.decision === "approve" ? "accept" : "decline",
+  }
+}
+
+function logCodexApprovalDebug(event: string, details: Record<string, unknown>): void {
+  console.info("[codexApproval]", event, details)
+}
+
+function mergeApprovalPrompts(
+  actionablePrompt: RuntimePrompt,
+  metadataPrompt: RuntimePrompt | undefined
+): RuntimePrompt {
+  if (
+    actionablePrompt.kind !== "approval" ||
+    metadataPrompt?.kind !== "approval" ||
+    actionablePrompt.approval.callId !== metadataPrompt.approval.callId
+  ) {
+    return actionablePrompt
+  }
+
+  return {
+    ...actionablePrompt,
+    body: actionablePrompt.body ?? metadataPrompt.body,
+    approval: {
+      ...metadataPrompt.approval,
+      ...actionablePrompt.approval,
+      changes: actionablePrompt.approval.changes ?? metadataPrompt.approval.changes,
+      command: actionablePrompt.approval.command ?? metadataPrompt.approval.command,
+      commandSegments:
+        actionablePrompt.approval.commandSegments ?? metadataPrompt.approval.commandSegments,
+      cwd: actionablePrompt.approval.cwd ?? metadataPrompt.approval.cwd,
+      reason: actionablePrompt.approval.reason ?? metadataPrompt.approval.reason,
+      grantRoot: actionablePrompt.approval.grantRoot ?? metadataPrompt.approval.grantRoot,
+      commandActions:
+        actionablePrompt.approval.commandActions ?? metadataPrompt.approval.commandActions,
+    },
+  }
+}
+
+function mapRuntimeFileChangesToApplyPatchFileChanges(
+  changes: RuntimeApprovalFileChange[] | undefined
+): Record<string, unknown> {
+  return Object.fromEntries(
+    (changes ?? []).map((change) => {
+      if (change.type === "add") {
+        return [change.path, { type: "add", content: change.content ?? "" }] as const
+      }
+
+      if (change.type === "delete") {
+        return [change.path, { type: "delete", content: change.content ?? "" }] as const
+      }
+
+      return [
+        change.path,
+        {
+          type: "update",
+          unified_diff: change.diff ?? change.content ?? "",
+          move_path: null,
+        },
+      ] as const
+    })
+  )
+}
+
+function mapApprovalPromptToApplyPatchApprovalParams(prompt: RuntimePrompt): Record<string, unknown> {
+  if (prompt.kind !== "approval" || prompt.approval.kind !== "fileChange") {
+    throw new Error("Apply patch approvals require a file-change approval prompt")
+  }
+
+  return {
+    conversationId: prompt.approval.conversationId,
+    callId: prompt.approval.callId,
+    fileChanges: mapRuntimeFileChangesToApplyPatchFileChanges(prompt.approval.changes),
+    reason: prompt.approval.reason ?? null,
+    grantRoot: prompt.approval.grantRoot ?? null,
+  }
+}
+
+function mapApprovalPromptToExecCommandApprovalParams(prompt: RuntimePrompt): Record<string, unknown> {
+  if (prompt.kind !== "approval" || prompt.approval.kind !== "commandExecution") {
+    throw new Error("Exec command approvals require a command approval prompt")
+  }
+
+  return {
+    conversationId: prompt.approval.conversationId,
+    callId: prompt.approval.callId,
+    command: prompt.approval.commandSegments ?? [],
+    cwd: prompt.approval.cwd ?? "",
+    reason: prompt.approval.reason ?? null,
+    parsedCmd: Array.isArray(prompt.approval.commandActions) ? prompt.approval.commandActions : [],
+  }
+}
+
+function mapApplyPatchApprovalNotificationToPrompt(
+  params: CodexApprovalNotificationParams
+): RuntimePrompt | null {
+  const threadId = params.conversationId ?? params.threadId
+  const message = params.msg as CodexApplyPatchApprovalRequestMessage | undefined
+  const callId = toOptionalString(message?.call_id)
+  const turnId = toOptionalString(message?.turn_id ?? params.turnId)
+
+  if (!threadId || !callId || !turnId) {
+    return null
+  }
+
+  const changes = mapCodexApprovalChanges(message?.changes)
+
+  return {
+    id: `codex-approval:fileChange:${callId}`,
+    kind: "approval",
+    title: "Approve file changes",
+    body:
+      changes.length > 0
+        ? `Codex wants to apply ${changes.length === 1 ? "1 file change" : `${changes.length} file changes`} before continuing.`
+        : "Codex wants to apply file changes before continuing.",
+    approval: {
+      kind: "fileChange",
+      callId,
+      turnId,
+      conversationId: threadId,
+      itemId: toOptionalString(message?.item_id),
+      changes,
+      reason: toOptionalString(message?.reason),
+      grantRoot: toOptionalString(message?.grant_root),
+    },
+  }
+}
+
+function mapExecApprovalNotificationToPrompt(
+  params: CodexApprovalNotificationParams
+): RuntimePrompt | null {
+  const threadId = params.conversationId ?? params.threadId
+  const message = params.msg as CodexExecApprovalRequestMessage | undefined
+  const callId = toOptionalString(message?.call_id)
+  const turnId = toOptionalString(message?.turn_id ?? params.turnId)
+
+  if (!threadId || !callId || !turnId) {
+    return null
+  }
+
+  return {
+    id: `codex-approval:commandExecution:${callId}`,
+    kind: "approval",
+    title: "Approve command execution",
+    body: "Codex needs approval before running a command in your workspace.",
+    approval: {
+      kind: "commandExecution",
+      callId,
+      turnId,
+      conversationId: threadId,
+      itemId: toOptionalString(message?.item_id),
+      command: getApprovalCommand(message ?? {}),
+      commandSegments:
+        Array.isArray(message?.command) && message.command.every((part) => typeof part === "string")
+          ? message.command
+          : undefined,
+      cwd: toOptionalString(message?.cwd),
+      reason: toOptionalString(message?.reason),
+      commandActions: getApprovalCommandActions(message ?? {}),
+    },
+  }
+}
+
+function mapFileChangeApprovalServerRequestToPrompt(
+  requestId: string | number,
+  params: CodexFileChangeApprovalServerRequestParams
+): RuntimePrompt | null {
+  const threadId = params.threadId ?? params.conversationId
+  const turnId = toOptionalString(params.turnId)
+  const callId = toOptionalString(params.callId ?? params.itemId)
+
+  if (!threadId || !turnId || !callId) {
+    return null
+  }
+
+  const changes = mapCodexApprovalChanges(params.changes)
+
+  return {
+    id: `codex-approval:fileChange:${callId}`,
+    kind: "approval",
+    title: "Approve file changes",
+    body:
+      changes.length > 0
+        ? `Codex wants to apply ${changes.length === 1 ? "1 file change" : `${changes.length} file changes`} before continuing.`
+        : "Codex wants to apply file changes before continuing.",
+    approval: {
+      kind: "fileChange",
+      callId,
+      turnId,
+      conversationId: threadId,
+      requestId,
+      itemId: toOptionalString(params.itemId),
+      changes,
+      reason: toOptionalString(params.reason),
+      grantRoot: toOptionalString(params.grantRoot),
+    },
+  }
+}
+
+function mapCommandApprovalServerRequestToPrompt(
+  requestId: string | number,
+  params: CodexCommandApprovalServerRequestParams
+): RuntimePrompt | null {
+  const threadId = params.threadId ?? params.conversationId
+  const turnId = toOptionalString(params.turnId)
+  const callId = toOptionalString(params.callId ?? params.itemId)
+
+  if (!threadId || !turnId || !callId) {
+    return null
+  }
+
+  return {
+    id: `codex-approval:commandExecution:${callId}`,
+    kind: "approval",
+    title: "Approve command execution",
+    body: "Codex needs approval before running a command in your workspace.",
+    approval: {
+      kind: "commandExecution",
+      callId,
+      turnId,
+      conversationId: threadId,
+      requestId,
+      itemId: toOptionalString(params.itemId),
+      command: getApprovalCommand(params),
+      commandSegments: undefined,
+      cwd: toOptionalString(params.cwd),
+      reason: toOptionalString(params.reason),
+      commandActions: getApprovalCommandActions(params),
+    },
   }
 }
 
@@ -818,6 +1259,8 @@ export class CodexHarnessAdapter implements HarnessAdapter {
   private rpc = getCodexRpcClient()
   private activeTurns = new Map<string, string>()
   private pendingUserInputRequests = new Map<string, CodexPendingUserInputRequest>()
+  private pendingApprovalRequests = new Map<string, CodexPendingApprovalRequest>()
+  private pendingApprovalNotificationPrompts = new Map<string, RuntimePrompt>()
 
   constructor(public definition: HarnessDefinition) {}
 
@@ -832,7 +1275,7 @@ export class CodexHarnessAdapter implements HarnessAdapter {
       thread: CodexThread
     }>("thread/start", {
       cwd: projectPath,
-      approvalPolicy: "never",
+      approvalPolicy: "untrusted",
       sandbox: "workspace-write",
       experimentalRawEvents: false,
       persistExtendedHistory: false,
@@ -909,6 +1352,10 @@ export class CodexHarnessAdapter implements HarnessAdapter {
   async answerPrompt(input: HarnessPromptInput): Promise<HarnessTurnResult> {
     const pendingRequest = this.pendingUserInputRequests.get(input.session.id)
     if (pendingRequest && pendingRequest.prompt.id === input.prompt.id) {
+      if (input.prompt.kind !== "question" || input.response.kind !== "question") {
+        throw new Error("Question prompt responses must use the structured question answer shape")
+      }
+
       this.rpc.respond(
         pendingRequest.requestId,
         mapRuntimePromptResponseToCodexResponse(input.prompt, input.response)
@@ -928,6 +1375,90 @@ export class CodexHarnessAdapter implements HarnessAdapter {
 
       this.pendingUserInputRequests.delete(input.session.id)
       return {}
+    }
+
+    const pendingApprovalRequest = this.pendingApprovalRequests.get(input.session.id)
+    if (pendingApprovalRequest && pendingApprovalRequest.prompt.id === input.prompt.id) {
+      logCodexApprovalDebug("answer:start", {
+        sessionId: input.session.id,
+        promptId: input.prompt.id,
+        protocol: pendingApprovalRequest.protocol,
+        requestId: pendingApprovalRequest.requestId ?? null,
+        callId: pendingApprovalRequest.callId,
+        approvalKind:
+          input.prompt.kind === "approval" ? input.prompt.approval.kind : null,
+        decision:
+          input.response.kind === "approval" ? input.response.decision : null,
+      })
+
+      if (pendingApprovalRequest.protocol === "v2ServerRequest") {
+        if (pendingApprovalRequest.requestId == null) {
+          throw new Error("Approval server request is missing a request id.")
+        }
+
+        this.rpc.respond(
+          pendingApprovalRequest.requestId,
+          mapApprovalDecisionToServerResponse(input.prompt, input.response)
+        )
+
+        try {
+          await this.rpc.waitForNotification<CodexServerRequestResolvedNotification>(
+            (notification) =>
+              notification.method === "serverRequest/resolved" &&
+              notification.params?.threadId === pendingApprovalRequest.threadId &&
+              notification.params?.requestId === pendingApprovalRequest.requestId,
+            TURN_SYNC_INTERVAL_MS * 8
+          )
+        } catch {
+          // Ignore races where the request resolves before the listener attaches.
+        }
+      } else if (pendingApprovalRequest.protocol === "v1ServerRequest") {
+        if (pendingApprovalRequest.requestId == null) {
+          throw new Error("Approval server request is missing a request id.")
+        }
+
+        this.rpc.respond(
+          pendingApprovalRequest.requestId,
+          mapApprovalDecisionToClientRequest(input.prompt, input.response)
+        )
+      } else {
+        const method =
+          pendingApprovalRequest.requestMethod ??
+          (input.prompt.kind === "approval" && input.prompt.approval.kind === "fileChange"
+            ? "applyPatchApproval"
+            : "execCommandApproval")
+        const params =
+          method === "applyPatchApproval"
+            ? mapApprovalPromptToApplyPatchApprovalParams(input.prompt)
+            : mapApprovalPromptToExecCommandApprovalParams(input.prompt)
+
+        await this.rpc.request(method, {
+          ...params,
+          ...mapApprovalDecisionToClientRequest(input.prompt, input.response),
+        })
+      }
+
+      this.pendingApprovalRequests.delete(input.session.id)
+      this.pendingApprovalNotificationPrompts.delete(input.session.id)
+      logCodexApprovalDebug("answer:cleared", {
+        sessionId: input.session.id,
+        promptId: input.prompt.id,
+        requestId: pendingApprovalRequest.requestId ?? null,
+        callId: pendingApprovalRequest.callId,
+      })
+      return {}
+    }
+
+    if (input.prompt.kind === "approval") {
+      logCodexApprovalDebug("answer:missing-pending", {
+        sessionId: input.session.id,
+        promptId: input.prompt.id,
+        callId: input.prompt.approval.callId,
+        approvalKind: input.prompt.approval.kind,
+        pendingPromptId: pendingApprovalRequest?.prompt.id ?? null,
+        pendingCallId: pendingApprovalRequest?.callId ?? null,
+      })
+      throw new Error("Approval request is no longer pending.")
     }
 
     return this.sendMessage({
@@ -984,6 +1515,99 @@ export class CodexHarnessAdapter implements HarnessAdapter {
       let emitQueued = false
       let lastEmittedSnapshot = ""
       let activePromptId: string | null = null
+
+      const registerApprovalPrompt = (
+        prompt: RuntimePrompt,
+        pendingApproval: Omit<CodexPendingApprovalRequest, "callId" | "prompt" | "threadId" | "turnId">
+      ) => {
+        if (prompt.kind !== "approval") {
+          return
+        }
+
+        const promptWithMetadata = mergeApprovalPrompts(
+          prompt,
+          this.pendingApprovalNotificationPrompts.get(sessionId)
+        )
+
+        const existingPendingApproval = this.pendingApprovalRequests.get(sessionId)
+        if (existingPendingApproval?.callId === promptWithMetadata.approval.callId) {
+          const shouldUpgradeToServerRequest =
+            existingPendingApproval.protocol === "v1ClientRequest" &&
+            pendingApproval.protocol !== "v1ClientRequest"
+
+          if (shouldUpgradeToServerRequest) {
+            const mergedPrompt =
+              existingPendingApproval.prompt.kind === "approval" &&
+              promptWithMetadata.kind === "approval"
+                ? {
+                    ...existingPendingApproval.prompt,
+                    approval: {
+                      ...existingPendingApproval.prompt.approval,
+                      ...promptWithMetadata.approval,
+                      changes:
+                        existingPendingApproval.prompt.approval.changes ??
+                        promptWithMetadata.approval.changes,
+                      command:
+                        existingPendingApproval.prompt.approval.command ??
+                        promptWithMetadata.approval.command,
+                      commandSegments:
+                        existingPendingApproval.prompt.approval.commandSegments ??
+                        promptWithMetadata.approval.commandSegments,
+                      cwd:
+                        existingPendingApproval.prompt.approval.cwd ??
+                        promptWithMetadata.approval.cwd,
+                      reason:
+                        existingPendingApproval.prompt.approval.reason ??
+                        promptWithMetadata.approval.reason,
+                      grantRoot:
+                        existingPendingApproval.prompt.approval.grantRoot ??
+                        promptWithMetadata.approval.grantRoot,
+                      commandActions:
+                        existingPendingApproval.prompt.approval.commandActions ??
+                        promptWithMetadata.approval.commandActions,
+                    },
+                  }
+                : promptWithMetadata
+
+            this.pendingApprovalRequests.set(sessionId, {
+              ...pendingApproval,
+              threadId: mergedPrompt.approval.conversationId,
+              turnId: mergedPrompt.approval.turnId,
+              itemId: mergedPrompt.approval.itemId,
+              callId: mergedPrompt.approval.callId,
+              prompt: mergedPrompt,
+            })
+            logCodexApprovalDebug("register:upgrade", {
+              sessionId,
+              promptId: mergedPrompt.id,
+              callId: mergedPrompt.approval.callId,
+              protocol: pendingApproval.protocol,
+              requestId: "requestId" in pendingApproval ? pendingApproval.requestId ?? null : null,
+              approvalKind: mergedPrompt.approval.kind,
+            })
+          }
+          return
+        }
+
+        this.pendingApprovalRequests.set(sessionId, {
+          ...pendingApproval,
+          threadId: promptWithMetadata.approval.conversationId,
+          turnId: promptWithMetadata.approval.turnId,
+          itemId: promptWithMetadata.approval.itemId,
+          callId: promptWithMetadata.approval.callId,
+          prompt: promptWithMetadata,
+        })
+        logCodexApprovalDebug("register:new", {
+          sessionId,
+          promptId: promptWithMetadata.id,
+          callId: promptWithMetadata.approval.callId,
+          protocol: pendingApproval.protocol,
+          requestId: "requestId" in pendingApproval ? pendingApproval.requestId ?? null : null,
+          approvalKind: promptWithMetadata.approval.kind,
+        })
+        activePromptId = promptWithMetadata.id
+        onUpdate?.({ prompt: promptWithMetadata })
+      }
 
       const emitUpdate = () => {
         if (!onUpdate || emitQueued || settled) {
@@ -1048,11 +1672,12 @@ export class CodexHarnessAdapter implements HarnessAdapter {
         }
 
         settled = true
-        window.clearTimeout(timeoutId)
         window.clearInterval(syncIntervalId)
         unsubscribe()
         unsubscribeServerRequest()
         this.pendingUserInputRequests.delete(sessionId)
+        this.pendingApprovalRequests.delete(sessionId)
+        this.pendingApprovalNotificationPrompts.delete(sessionId)
         resolve(turn)
       }
 
@@ -1062,29 +1687,14 @@ export class CodexHarnessAdapter implements HarnessAdapter {
         }
 
         settled = true
-        window.clearTimeout(timeoutId)
         window.clearInterval(syncIntervalId)
         unsubscribe()
         unsubscribeServerRequest()
+        this.pendingUserInputRequests.delete(sessionId)
+        this.pendingApprovalRequests.delete(sessionId)
+        this.pendingApprovalNotificationPrompts.delete(sessionId)
         reject(error instanceof Error ? error : new Error(String(error)))
       }
-
-      const timeoutId = window.setTimeout(async () => {
-        try {
-          const fallbackTurn = await this.readTurn(threadId, turnId)
-          if (fallbackTurn && fallbackTurn.status !== "inProgress") {
-            finish(fallbackTurn)
-            return
-          }
-        } catch (error) {
-          if (!isTransientTurnReadError(error)) {
-            fail(error)
-            return
-          }
-        }
-
-        fail(new Error("Timed out waiting for Codex turn completion"))
-      }, TURN_COMPLETION_TIMEOUT_MS)
 
       const syncIntervalId = window.setInterval(() => {
         void syncTurnFromRead()
@@ -1228,13 +1838,92 @@ export class CodexHarnessAdapter implements HarnessAdapter {
               }
 
               const pendingRequest = this.pendingUserInputRequests.get(sessionId)
-              if (!pendingRequest || pendingRequest.requestId !== params.requestId) {
+              if (pendingRequest?.requestId === params.requestId) {
+                this.pendingUserInputRequests.delete(sessionId)
+                activePromptId = null
+                onUpdate?.({ prompt: null })
                 return
               }
 
-              this.pendingUserInputRequests.delete(sessionId)
+              const pendingApprovalRequest = this.pendingApprovalRequests.get(sessionId)
+              if (pendingApprovalRequest?.requestId !== params.requestId) {
+                return
+              }
+
+              this.pendingApprovalRequests.delete(sessionId)
+              this.pendingApprovalNotificationPrompts.delete(sessionId)
+              logCodexApprovalDebug("resolved", {
+                sessionId,
+                promptId: pendingApprovalRequest.prompt.id,
+                requestId: params.requestId,
+                callId: pendingApprovalRequest.callId,
+                approvalKind:
+                  pendingApprovalRequest.prompt.kind === "approval"
+                    ? pendingApprovalRequest.prompt.approval.kind
+                    : null,
+              })
               activePromptId = null
               onUpdate?.({ prompt: null })
+              return
+            }
+
+            case "codex/event/apply_patch_approval_request": {
+              const params = notification.params as CodexApprovalNotificationParams | undefined
+              const notificationTurnId =
+                typeof params?.msg === "object" && params.msg && "turn_id" in params.msg
+                  ? params.msg.turn_id
+                  : params?.turnId
+              if (
+                !params ||
+                (params.conversationId ?? params.threadId) !== threadId ||
+                notificationTurnId !== turnId
+              ) {
+                return
+              }
+
+              const prompt = mapApplyPatchApprovalNotificationToPrompt(params)
+              if (!prompt) {
+                return
+              }
+
+              this.pendingApprovalNotificationPrompts.set(sessionId, prompt)
+              logCodexApprovalDebug("notification:cached", {
+                sessionId,
+                promptId: prompt.id,
+                callId: prompt.approval.callId,
+                approvalKind: prompt.approval.kind,
+                source: "codex/event/apply_patch_approval_request",
+              })
+              return
+            }
+
+            case "codex/event/exec_approval_request": {
+              const params = notification.params as CodexApprovalNotificationParams | undefined
+              const notificationTurnId =
+                typeof params?.msg === "object" && params.msg && "turn_id" in params.msg
+                  ? params.msg.turn_id
+                  : params?.turnId
+              if (
+                !params ||
+                (params.conversationId ?? params.threadId) !== threadId ||
+                notificationTurnId !== turnId
+              ) {
+                return
+              }
+
+              const prompt = mapExecApprovalNotificationToPrompt(params)
+              if (!prompt) {
+                return
+              }
+
+              this.pendingApprovalNotificationPrompts.set(sessionId, prompt)
+              logCodexApprovalDebug("notification:cached", {
+                sessionId,
+                promptId: prompt.id,
+                callId: prompt.approval.callId,
+                approvalKind: prompt.approval.kind,
+                source: "codex/event/exec_approval_request",
+              })
               return
             }
 
@@ -1248,29 +1937,148 @@ export class CodexHarnessAdapter implements HarnessAdapter {
 
       const unsubscribeServerRequest = this.rpc.onServerRequest((request) => {
         try {
-          if (request.method !== "item/tool/requestUserInput") {
+          if (request.method === "item/tool/requestUserInput") {
+            const params = request.params as CodexToolRequestUserInputParams | undefined
+            if (!params || params.threadId !== threadId || params.turnId !== turnId) {
+              return
+            }
+
+            const prompt = mapCodexUserInputRequestToPrompt(request.id, params)
+            if (!prompt || activePromptId === prompt.id) {
+              return
+            }
+
+            activePromptId = prompt.id
+            this.pendingUserInputRequests.set(sessionId, {
+              requestId: request.id,
+              threadId: params.threadId,
+              turnId: params.turnId,
+              itemId: params.itemId,
+              prompt,
+            })
+            onUpdate?.({ prompt })
             return
           }
 
-          const params = request.params as CodexToolRequestUserInputParams | undefined
-          if (!params || params.threadId !== threadId || params.turnId !== turnId) {
+          if (request.method === "item/fileChange/requestApproval") {
+            const params = request.params as CodexFileChangeApprovalServerRequestParams | undefined
+            if (!params || (params.threadId ?? params.conversationId) !== threadId || params.turnId !== turnId) {
+              return
+            }
+
+            const prompt = mapFileChangeApprovalServerRequestToPrompt(request.id, params)
+            if (!prompt || activePromptId === prompt.id) {
+              return
+            }
+
+            registerApprovalPrompt(prompt, {
+              protocol: "v2ServerRequest",
+              requestId: request.id,
+            })
             return
           }
 
-          const prompt = mapCodexUserInputRequestToPrompt(request.id, params)
-          if (!prompt || activePromptId === prompt.id) {
+          if (request.method === "item/commandExecution/requestApproval") {
+            const params = request.params as CodexCommandApprovalServerRequestParams | undefined
+            if (!params || (params.threadId ?? params.conversationId) !== threadId || params.turnId !== turnId) {
+              return
+            }
+
+            const prompt = mapCommandApprovalServerRequestToPrompt(request.id, params)
+            if (!prompt || activePromptId === prompt.id) {
+              return
+            }
+
+            registerApprovalPrompt(prompt, {
+              protocol: "v2ServerRequest",
+              requestId: request.id,
+            })
             return
           }
 
-          activePromptId = prompt.id
-          this.pendingUserInputRequests.set(sessionId, {
-            requestId: request.id,
-            threadId: params.threadId,
-            turnId: params.turnId,
-            itemId: params.itemId,
-            prompt,
-          })
-          onUpdate?.({ prompt })
+          if (request.method === "applyPatchApproval") {
+            const params = request.params as {
+              conversationId?: string
+              callId?: string
+              fileChanges?: unknown
+              reason?: unknown
+              grantRoot?: unknown
+            } | undefined
+            if (!params || params.conversationId !== threadId) {
+              return
+            }
+
+            const prompt = {
+              id: `codex-approval:fileChange:${String(params.callId ?? "unknown")}`,
+              kind: "approval" as const,
+              title: "Approve file changes",
+              body: "Codex wants to apply file changes before continuing.",
+              approval: {
+                kind: "fileChange" as const,
+                callId: toOptionalString(params.callId) ?? "unknown",
+                turnId,
+                conversationId: params.conversationId,
+                requestId: request.id,
+                changes: mapCodexApprovalChanges(params.fileChanges),
+                reason: toOptionalString(params.reason),
+                grantRoot: toOptionalString(params.grantRoot),
+              },
+            }
+            if (activePromptId === prompt.id) {
+              return
+            }
+
+            registerApprovalPrompt(prompt, {
+              protocol: "v1ServerRequest",
+              requestId: request.id,
+            })
+            return
+          }
+
+          if (request.method === "execCommandApproval") {
+            const params = request.params as {
+              conversationId?: string
+              callId?: string
+              command?: unknown
+              cwd?: unknown
+              reason?: unknown
+              parsedCmd?: unknown
+            } | undefined
+            if (!params || params.conversationId !== threadId) {
+              return
+            }
+
+            const commandSegments =
+              Array.isArray(params.command) && params.command.every((part) => typeof part === "string")
+                ? params.command
+                : []
+            const prompt = {
+              id: `codex-approval:commandExecution:${String(params.callId ?? "unknown")}`,
+              kind: "approval" as const,
+              title: "Approve command execution",
+              body: "Codex needs approval before running a command in your workspace.",
+              approval: {
+                kind: "commandExecution" as const,
+                callId: toOptionalString(params.callId) ?? "unknown",
+                turnId,
+                conversationId: params.conversationId,
+                requestId: request.id,
+                command: commandSegments.join(" "),
+                commandSegments,
+                cwd: toOptionalString(params.cwd),
+                reason: toOptionalString(params.reason),
+                commandActions: Array.isArray(params.parsedCmd) ? params.parsedCmd : [],
+              },
+            }
+            if (activePromptId === prompt.id) {
+              return
+            }
+
+            registerApprovalPrompt(prompt, {
+              protocol: "v1ServerRequest",
+              requestId: request.id,
+            })
+          }
         } catch (error) {
           fail(error)
         }
