@@ -49,6 +49,7 @@ export interface RuntimeMessage {
   sessionId: string;
   role: "user" | "assistant";
   createdAt: number;
+  turnId?: string;
   finishReason?: "end_turn" | "stop" | "error";
   itemType?:
     | "userMessage"

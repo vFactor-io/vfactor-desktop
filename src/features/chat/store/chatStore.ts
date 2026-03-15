@@ -49,6 +49,7 @@ import type {
 import type { FileChangeEvent, PersistedChatState, ProjectChatState } from "./storeTypes"
 
 const STORE_FILE = "chat.json"
+const STREAM_PERSIST_DEBOUNCE_MS = 250
 
 interface ChatState {
   chatByProject: Record<string, ProjectChatState>
@@ -98,6 +99,7 @@ interface ChatState {
 }
 
 let storeInstance: Store | null = null
+let scheduledPersistTimeoutId: ReturnType<typeof setTimeout> | null = null
 
 function isExpiredApprovalPromptError(error: unknown): boolean {
   if (!(error instanceof Error)) {
@@ -115,6 +117,25 @@ async function getStore(): Promise<Store> {
     storeInstance = await load(STORE_FILE)
   }
   return storeInstance
+}
+
+function clearScheduledPersist(): void {
+  if (scheduledPersistTimeoutId == null) {
+    return
+  }
+
+  clearTimeout(scheduledPersistTimeoutId)
+  scheduledPersistTimeoutId = null
+}
+
+function schedulePersistState(persist: () => Promise<void>): void {
+  clearScheduledPersist()
+  scheduledPersistTimeoutId = setTimeout(() => {
+    scheduledPersistTimeoutId = null
+    void persist().catch((error) => {
+      console.error("[chatStore] Failed to persist partial streamed state:", error)
+    })
+  }, STREAM_PERSIST_DEBOUNCE_MS)
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -688,6 +709,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
               error: null,
             }
           })
+
+          schedulePersistState(() => get()._persistState())
         },
       })
 
@@ -793,6 +816,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
                   error: null,
                 }
               })
+
+              schedulePersistState(() => get()._persistState())
             },
           })
 
@@ -937,6 +962,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   _persistState: async () => {
+    clearScheduledPersist()
     const { chatByProject, messagesBySession } = get()
     const store = await getStore()
     await store.set("chatState", {

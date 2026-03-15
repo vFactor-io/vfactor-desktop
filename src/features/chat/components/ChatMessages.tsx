@@ -1,7 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
-import { useChatStore, type MessageWithParts, type ChildSessionState } from "../store"
 import type { Project } from "@/features/workspace/types"
-import type { RuntimePrompt } from "../types"
+import type { ChildSessionState, MessageWithParts, RuntimePrompt } from "../types"
 import {
   Conversation,
   ConversationContent,
@@ -12,8 +11,7 @@ import {
   MessageContent,
 } from "./ai-elements/message"
 import type { ChildSessionData } from "./agent-activity/AgentActivitySubagent"
-import { CaretDown, Plus } from "@/components/icons"
-import { Button } from "@/features/shared/components/ui/button"
+import { CaretDown, CaretRight, Plus } from "@/components/icons"
 import { LoadingDots } from "@/features/shared/components/ui/loading-dots"
 import {
   DropdownMenu,
@@ -29,7 +27,14 @@ import { getAgentAvatarUrl } from "@/features/workspace/utils/avatar"
 import { openFolderPicker } from "@/features/workspace/utils/folderDialog"
 import { useStickToBottomContext } from "use-stick-to-bottom"
 import { isRuntimeApprovalPrompt } from "../domain/runtimePrompts"
-import { ChatTimelineItem, InlineSubagentActivity } from "./ChatTimelineItem"
+import { ChatTimelineItem, InlineSubagentActivity, ToolTimelineRow } from "./ChatTimelineItem"
+import {
+  buildTimelineBlocks,
+  getActivityGroupSummary,
+  getToolPartFromMessage,
+  isActivityGroupActive,
+  type TimelineActivityGroupBlock,
+} from "./timelineActivity"
 
 interface ChatMessagesProps {
   messages: MessageWithParts[]
@@ -194,6 +199,7 @@ export function ChatMessages({
         sessionId: messageId,
         role: "assistant" as const,
         createdAt: Date.now(),
+        turnId: activePrompt.approval.turnId,
         itemType,
       },
       parts: [
@@ -236,10 +242,76 @@ export function ChatMessages({
     () => (approvalTimelineMessage ? [...messages, approvalTimelineMessage] : messages),
     [approvalTimelineMessage, messages]
   )
+  const timelineBlocks = useMemo(
+    () => buildTimelineBlocks(renderedMessages),
+    [renderedMessages]
+  )
+  const activityGroups = useMemo(
+    () => timelineBlocks.filter((block): block is TimelineActivityGroupBlock => block.type === "activityGroup"),
+    [timelineBlocks]
+  )
+  const [groupOpenByKey, setGroupOpenByKey] = useState<Record<string, boolean>>({})
+  const autoCollapsedGroupKeysRef = useRef<Set<string>>(new Set())
   const hasContent = renderedMessages.length > 0
   const lastMessage = renderedMessages[renderedMessages.length - 1]
   const shouldRenderStreamingPlaceholder =
     status === "streaming" && !activePrompt && (!lastMessage || lastMessage.info.role === "user")
+
+  useEffect(() => {
+    const activeGroupKeys = activityGroups
+      .filter((group) => isActivityGroupActive(group))
+      .map((group) => group.key)
+
+    if (activeGroupKeys.length === 0) {
+      return
+    }
+
+    for (const key of activeGroupKeys) {
+      autoCollapsedGroupKeysRef.current.delete(key)
+    }
+
+    setGroupOpenByKey((previous) => {
+      let nextState = previous
+
+      for (const key of activeGroupKeys) {
+        if (previous[key] === true) {
+          continue
+        }
+
+        if (nextState === previous) {
+          nextState = { ...previous }
+        }
+        nextState[key] = true
+      }
+
+      return nextState
+    })
+  }, [activityGroups])
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return
+    }
+
+    const timeoutIds = activityGroups.flatMap((group) => {
+      if (isActivityGroupActive(group) || autoCollapsedGroupKeysRef.current.has(group.key)) {
+        return []
+      }
+
+      return [
+        window.setTimeout(() => {
+          autoCollapsedGroupKeysRef.current.add(group.key)
+          setGroupOpenByKey((previous) =>
+            previous[group.key] === false ? previous : { ...previous, [group.key]: false }
+          )
+        }, 300),
+      ]
+    })
+
+    return () => {
+      timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId))
+    }
+  }, [activityGroups])
 
   // Convert ChildSessionState to ChildSessionData for the component
   const childSessionData: Map<string, ChildSessionData> | undefined = childSessions 
@@ -290,14 +362,29 @@ export function ChatMessages({
       <ConversationContent className="mx-auto w-full max-w-[803px] px-10 pb-10">
         <>
           {showInlineIntro ? <ChatEmptyState selectedProject={_selectedProject} /> : null}
-          {renderedMessages.map((message, index) => (
-            <ChatTimelineItem
-              key={message.info.id}
-              message={message}
-              isStreaming={status === "streaming" && index === renderedMessages.length - 1}
-              childSessions={childSessionData}
-            />
-          ))}
+          {timelineBlocks.map((block) =>
+            block.type === "message" ? (
+              <ChatTimelineItem
+                key={block.key}
+                message={block.message}
+                isStreaming={status === "streaming" && block.message.info.id === lastMessage?.info.id}
+                childSessions={childSessionData}
+              />
+            ) : (
+              <TimelineActivityGroup
+                key={block.key}
+                group={block}
+                childSessions={childSessionData}
+                isOpen={isActivityGroupActive(block) ? true : groupOpenByKey[block.key] ?? true}
+                onToggle={() =>
+                  setGroupOpenByKey((previous) => ({
+                    ...previous,
+                    [block.key]: !(previous[block.key] ?? true),
+                  }))
+                }
+              />
+            )
+          )}
           {orphanChildSessions.length > 0 ? (
             <div className="space-y-3">
               {orphanChildSessions.map((childSession) => (
@@ -347,6 +434,66 @@ function ChatAutoScroll({
   }, [lastMessage?.info.role, lastMessageId, scrollToBottom, status])
 
   return null
+}
+
+function TimelineActivityGroup({
+  group,
+  childSessions,
+  isOpen,
+  onToggle,
+}: {
+  group: TimelineActivityGroupBlock
+  childSessions?: Map<string, ChildSessionData>
+  isOpen: boolean
+  onToggle: () => void
+}) {
+  const isActive = isActivityGroupActive(group)
+  const summary = getActivityGroupSummary(group)
+
+  return (
+    <MessageComponent from="assistant">
+      <MessageContent>
+        <div className="w-full text-[14px] leading-5 text-muted-foreground">
+          {isActive ? (
+            <div className="inline-flex max-w-full items-center gap-1.5 text-left">
+              <span className="min-w-0">{summary}</span>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={onToggle}
+              className="inline-flex max-w-full items-center gap-1.5 text-left"
+            >
+              <span className="min-w-0">{summary}</span>
+              <span className="shrink-0 text-muted-foreground">
+                {isOpen ? <CaretDown className="size-4" /> : <CaretRight className="size-4" />}
+              </span>
+            </button>
+          )}
+          {isOpen ? (
+            <div className="mt-2 space-y-2 border-l border-border/60 pl-4">
+              {group.messages.map((message) => {
+                const toolPart = getToolPartFromMessage(message)
+                if (!toolPart) {
+                  return null
+                }
+
+                return (
+                  <ToolTimelineRow
+                    key={message.info.id}
+                    message={message}
+                    toolPart={toolPart}
+                    childSessions={childSessions}
+                    withinGroup
+                  />
+                )
+              })}
+            </div>
+          ) : null}
+        </div>
+      </MessageContent>
+    </MessageComponent>
+  )
 }
 
 function StreamingAssistantPlaceholder({

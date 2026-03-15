@@ -12,6 +12,7 @@ import {
   MessageUserContent,
 } from "./ai-elements/message"
 import type { ChildSessionData } from "./agent-activity/AgentActivitySubagent"
+import { getFileChangeEntries, getToolPart } from "./timelineActivity"
 
 interface ChatTimelineItemProps {
   message: MessageWithParts
@@ -24,35 +25,6 @@ function getMessageText(parts: RuntimeMessagePart[]): string {
     .filter((part): part is Extract<RuntimeMessagePart, { type: "text" }> => part.type === "text")
     .map((part) => part.text)
     .join("")
-}
-
-function getToolPart(parts: RuntimeMessagePart[]): RuntimeToolPart | null {
-  return parts.find((part): part is RuntimeToolPart => part.type === "tool") ?? null
-}
-
-function getFileChangeEntries(value: unknown): Array<{ path: string; kind: string; diff?: string }> {
-  if (!Array.isArray(value)) {
-    return []
-  }
-
-  return value.flatMap((entry) => {
-    if (!entry || typeof entry !== "object") {
-      return []
-    }
-
-    const path = "path" in entry && typeof entry.path === "string" ? entry.path : null
-    const kind =
-      "kind" in entry &&
-      entry.kind &&
-      typeof entry.kind === "object" &&
-      "type" in entry.kind &&
-      typeof entry.kind.type === "string"
-        ? entry.kind.type
-        : "change"
-    const diff = "diff" in entry && typeof entry.diff === "string" ? entry.diff : undefined
-
-    return path ? [{ path, kind, diff }] : []
-  })
 }
 
 function TimelineTextBlock({
@@ -470,55 +442,65 @@ function renderToolDetails(
 function InlineActivityRow({
   summary,
   details,
+  withinGroup = false,
 }: {
   summary: ReactNode
   details?: ReactNode
+  withinGroup?: boolean
 }) {
   const canExpand = Boolean(details)
   const [isOpen, setIsOpen] = useState(false)
 
+  const content = (
+    <div className="group w-full py-0 text-[14px] leading-5 text-muted-foreground">
+      {canExpand ? (
+        <button
+          type="button"
+          onClick={() => setIsOpen((value) => !value)}
+          className="inline-flex max-w-full items-center gap-1.5 align-top text-left"
+        >
+          <div className="min-w-0">{summary}</div>
+          <span
+            className={cn(
+              "shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100",
+              isOpen && "opacity-100"
+            )}
+          >
+            {isOpen ? <CaretDown className="size-4" /> : <CaretRight className="size-4" />}
+          </span>
+        </button>
+      ) : (
+        <div className="min-w-0">{summary}</div>
+      )}
+      {canExpand && isOpen ? (
+        <div className="mt-2 border-l border-border/60 pl-4">
+          {details}
+        </div>
+      ) : null}
+    </div>
+  )
+
+  if (withinGroup) {
+    return content
+  }
+
   return (
     <MessageComponent from="assistant">
-      <MessageContent>
-        <div className="group w-full py-0 text-[14px] leading-5 text-muted-foreground">
-          {canExpand ? (
-            <button
-              type="button"
-              onClick={() => setIsOpen((value) => !value)}
-              className="inline-flex max-w-full items-center gap-1.5 align-top text-left"
-            >
-              <div className="min-w-0">{summary}</div>
-              <span
-                className={cn(
-                  "shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100",
-                  isOpen && "opacity-100"
-                )}
-              >
-                {isOpen ? <CaretDown className="size-4" /> : <CaretRight className="size-4" />}
-              </span>
-            </button>
-          ) : (
-            <div className="min-w-0">{summary}</div>
-          )}
-          {canExpand && isOpen ? (
-            <div className="mt-2 border-l border-border/60 pl-4">
-              {details}
-            </div>
-          ) : null}
-        </div>
-      </MessageContent>
+      <MessageContent>{content}</MessageContent>
     </MessageComponent>
   )
 }
 
-function ToolTimelineRow({
+export function ToolTimelineRow({
   message,
   toolPart,
   childSessions,
+  withinGroup = false,
 }: {
   message: MessageWithParts
   toolPart: RuntimeToolPart
   childSessions?: Map<string, ChildSessionData>
+  withinGroup?: boolean
 }) {
   const details = useMemo(
     () => renderToolDetails(message, toolPart, childSessions),
@@ -527,18 +509,30 @@ function ToolTimelineRow({
 
   if (message.info.itemType === "commandExecution") {
     return (
-      <InlineActivityRow summary={renderCommandSummary(toolPart)} details={details} />
+      <InlineActivityRow
+        summary={renderCommandSummary(toolPart)}
+        details={details}
+        withinGroup={withinGroup}
+      />
     )
   }
 
   if (message.info.itemType === "fileChange") {
     return (
-      <InlineActivityRow summary={renderFileChangeSummary(toolPart)} details={details} />
+      <InlineActivityRow
+        summary={renderFileChangeSummary(toolPart)}
+        details={details}
+        withinGroup={withinGroup}
+      />
     )
   }
 
   return (
-    <InlineActivityRow summary={renderGenericToolSummary(message, toolPart)} details={details} />
+    <InlineActivityRow
+      summary={renderGenericToolSummary(message, toolPart)}
+      details={details}
+      withinGroup={withinGroup}
+    />
   )
 }
 
