@@ -8,6 +8,13 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
+#[cfg(target_os = "macos")]
+use objc2::AllocAnyThread;
+#[cfg(target_os = "macos")]
+use objc2_app_kit::{NSApplication, NSImage};
+#[cfg(target_os = "macos")]
+use objc2_foundation::{MainThreadMarker, NSData};
+
 const CODEX_RPC_MESSAGE_EVENT: &str = "codex-rpc:message";
 const CODEX_RPC_STATUS_EVENT: &str = "codex-rpc:status";
 const APP_UPDATE_EVENT: &str = "app-update:event";
@@ -529,6 +536,19 @@ fn first_content_paragraph(body: &str) -> Option<String> {
     }
 }
 
+fn current_window_icon() -> tauri::Result<tauri::image::Image<'static>> {
+    tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png")).map(|icon| icon.to_owned())
+}
+
+#[cfg(target_os = "macos")]
+fn apply_macos_app_icon() {
+    let mtm = unsafe { MainThreadMarker::new_unchecked() };
+    let app = NSApplication::sharedApplication(mtm);
+    let data = NSData::with_bytes(include_bytes!("../icons/icon.icns"));
+    let app_icon = NSImage::initWithData(NSImage::alloc(), &data).expect("creating icon");
+    unsafe { app.setApplicationIconImage(Some(&app_icon)) };
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -557,6 +577,14 @@ pub fn run() {
             install_app_update,
         ])
         .setup(|app| {
+            let icon = current_window_icon()?;
+            for window in app.webview_windows().values() {
+                let _ = window.set_icon(icon.clone());
+            }
+
+            #[cfg(target_os = "macos")]
+            apply_macos_app_icon();
+
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
@@ -581,6 +609,12 @@ pub fn run() {
                 }
             }
         })
-        .run(tauri::generate_context!())
+        .run({
+            let mut context = tauri::generate_context!();
+            context.set_default_window_icon(Some(
+                current_window_icon().expect("failed to load the app icon"),
+            ));
+            context
+        })
         .expect("error while running tauri application");
 }
