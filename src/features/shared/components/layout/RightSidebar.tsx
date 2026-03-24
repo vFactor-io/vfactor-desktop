@@ -3,7 +3,7 @@ import { FileTreeViewer } from "@/features/version-control/components"
 import { useProjectStore } from "@/features/workspace/store"
 import { useTabStore } from "@/features/editor/store"
 import { useChatStore } from "@/features/chat/store"
-import { SkillsSidebarPanel } from "@/features/skills/components/SkillsPage"
+import { TerminalPanel } from "@/features/terminal/components"
 import {
   loadProjectSecrets,
   saveProjectSecret,
@@ -14,13 +14,13 @@ import { useRightSidebar } from "./useRightSidebar"
 import type { FileTreeItem } from "@/features/version-control/types"
 import { Button, Input } from "@/features/shared/components/ui"
 import { cn } from "@/lib/utils"
-import { BookOpen, Eye, Folder, Plus } from "@/components/icons"
+import { Eye, Folder, Plus } from "@/components/icons"
 
 interface RightSidebarProps {
   activeView?: "chat" | "settings" | "automations"
 }
 
-type RightSidebarTab = "files" | "skills" | "secrets"
+type RightSidebarTab = "files" | "secrets"
 
 const RIGHT_SIDEBAR_TABS: Array<{
   key: RightSidebarTab
@@ -28,7 +28,6 @@ const RIGHT_SIDEBAR_TABS: Array<{
   icon: typeof Folder
 }> = [
   { key: "files", label: "Files", icon: Folder },
-  { key: "skills", label: "Skills", icon: BookOpen },
   { key: "secrets", label: "Secrets", icon: Eye },
 ]
 
@@ -450,13 +449,15 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
         </div>
       </div>
 
-      {/* Content area */}
       <div
-        className={cn(
-          "flex-1",
-          activeTab === "skills" ? "min-h-0" : "overflow-y-auto px-1.5 py-1.5"
-        )}
+        className="flex min-h-0 flex-1 flex-col"
       >
+        <div
+          className={cn(
+            "min-h-0 flex-1",
+            "overflow-y-auto px-1.5 py-1.5"
+          )}
+        >
         {activeTab === "files" ? (
           isInitialLoad ? (
             <div className="flex items-center justify-center py-8">
@@ -477,8 +478,6 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
               onFileClick={openFile}
             />
           )
-        ) : activeTab === "skills" ? (
-          <SkillsSidebarPanel />
         ) : (
           <div className="space-y-2 px-1.5 py-1">
             {!selectedProject ? (
@@ -662,6 +661,11 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
             )}
           </div>
         )}
+        </div>
+        <TerminalPanel
+          projectId={selectedProjectId}
+          projectPath={selectedProject?.path ?? null}
+        />
       </div>
       <div
         role="separator"

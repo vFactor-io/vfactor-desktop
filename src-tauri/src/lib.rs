@@ -1,10 +1,13 @@
+use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
+use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
@@ -18,9 +21,12 @@ use objc2_foundation::{MainThreadMarker, NSData};
 const CODEX_RPC_MESSAGE_EVENT: &str = "codex-rpc:message";
 const CODEX_RPC_STATUS_EVENT: &str = "codex-rpc:status";
 const APP_UPDATE_EVENT: &str = "app-update:event";
+const TERMINAL_DATA_EVENT: &str = "terminal:data";
+const TERMINAL_EXIT_EVENT: &str = "terminal:exit";
 const APP_UPDATE_ENDPOINT: &str =
     "https://github.com/bradleygibsongit/nucleus-desktop/releases/latest/download/latest.json";
 const APP_UPDATE_PUBLIC_KEY: &str = include_str!("../updater-public-key.txt");
+const TERMINAL_SCROLLBACK_LIMIT: usize = 200_000;
 
 struct CodexServer {
     state: Mutex<CodexServerState>,
@@ -32,6 +38,37 @@ struct CodexServerState {
 }
 
 struct PendingUpdate(Mutex<Option<Update>>);
+
+struct TerminalManager {
+    sessions: Mutex<HashMap<String, Arc<TerminalSession>>>,
+}
+
+struct TerminalSession {
+    writer: Mutex<Box<dyn Write + Send>>,
+    master: Mutex<Box<dyn MasterPty + Send>>,
+    child: Mutex<Box<dyn portable_pty::Child + Send>>,
+    buffer: Mutex<String>,
+    exited: AtomicBool,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TerminalStartResponse {
+    initial_data: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TerminalDataEvent {
+    session_id: String,
+    data: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TerminalExitEvent {
+    session_id: String,
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -76,6 +113,144 @@ struct AppUpdateDownloadEvent {
     chunk_length: Option<usize>,
     downloaded: Option<usize>,
     content_length: Option<u64>,
+}
+
+impl TerminalSession {
+    fn new(
+        writer: Box<dyn Write + Send>,
+        master: Box<dyn MasterPty + Send>,
+        child: Box<dyn portable_pty::Child + Send>,
+    ) -> Self {
+        Self {
+            writer: Mutex::new(writer),
+            master: Mutex::new(master),
+            child: Mutex::new(child),
+            buffer: Mutex::new(String::new()),
+            exited: AtomicBool::new(false),
+        }
+    }
+
+    fn snapshot(&self) -> Result<String, String> {
+        self.buffer
+            .lock()
+            .map(|buffer| buffer.clone())
+            .map_err(|error| format!("Failed to lock terminal buffer: {}", error))
+    }
+
+    fn append_output(&self, chunk: &str) {
+        let Ok(mut buffer) = self.buffer.lock() else {
+            return;
+        };
+
+        buffer.push_str(chunk);
+
+        if buffer.len() <= TERMINAL_SCROLLBACK_LIMIT {
+            return;
+        }
+
+        let trimmed: String = buffer
+            .chars()
+            .rev()
+            .take(TERMINAL_SCROLLBACK_LIMIT)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+
+        *buffer = trimmed;
+    }
+
+    fn mark_exited(&self) {
+        self.exited.store(true, Ordering::Relaxed);
+    }
+
+    fn is_exited(&self) -> bool {
+        self.exited.load(Ordering::Relaxed)
+    }
+
+    fn write_input(&self, data: &str) -> Result<(), String> {
+        if self.is_exited() {
+            return Err("Terminal session has exited".to_string());
+        }
+
+        let mut writer = self
+            .writer
+            .lock()
+            .map_err(|error| format!("Failed to lock terminal writer: {}", error))?;
+
+        writer
+            .write_all(data.as_bytes())
+            .map_err(|error| format!("Failed to write to terminal session: {}", error))?;
+        writer
+            .flush()
+            .map_err(|error| format!("Failed to flush terminal session: {}", error))
+    }
+
+    fn resize(&self, cols: u16, rows: u16) -> Result<(), String> {
+        let master = self
+            .master
+            .lock()
+            .map_err(|error| format!("Failed to lock terminal master: {}", error))?;
+
+        master
+            .resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|error| format!("Failed to resize terminal session: {}", error))
+    }
+
+    fn kill(&self) {
+        if let Ok(mut child) = self.child.lock() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        self.mark_exited();
+    }
+
+    fn reap(&self) {
+        if let Ok(mut child) = self.child.lock() {
+            let _ = child.wait();
+        }
+        self.mark_exited();
+    }
+}
+
+fn decode_utf8_chunk(pending: &mut Vec<u8>, chunk: &[u8]) -> String {
+    pending.extend_from_slice(chunk);
+    let mut decoded = String::new();
+
+    loop {
+        match std::str::from_utf8(pending) {
+            Ok(valid) => {
+                decoded.push_str(valid);
+                pending.clear();
+                break;
+            }
+            Err(error) => {
+                let valid_up_to = error.valid_up_to();
+
+                if valid_up_to > 0 {
+                    if let Ok(valid_prefix) = std::str::from_utf8(&pending[..valid_up_to]) {
+                        decoded.push_str(valid_prefix);
+                    }
+                    pending.drain(..valid_up_to);
+                }
+
+                match error.error_len() {
+                    Some(invalid_sequence_len) => {
+                        decoded.push('\u{FFFD}');
+                        pending.drain(..invalid_sequence_len);
+                    }
+                    None => break,
+                }
+            }
+        }
+    }
+
+    decoded
 }
 
 #[tauri::command]
@@ -399,6 +574,202 @@ async fn install_app_update(
     app.restart()
 }
 
+#[tauri::command]
+async fn terminal_create_session(
+    app: AppHandle,
+    terminal_manager: State<'_, TerminalManager>,
+    session_id: String,
+    cwd: String,
+    cols: u16,
+    rows: u16,
+) -> Result<TerminalStartResponse, String> {
+    if session_id.trim().is_empty() {
+        return Err("Terminal session id is required".to_string());
+    }
+
+    let cwd_path = PathBuf::from(cwd.trim());
+    if !cwd_path.exists() {
+        return Err(format!(
+            "Terminal working directory does not exist: {}",
+            cwd_path.display()
+        ));
+    }
+
+    if !cwd_path.is_dir() {
+        return Err(format!(
+            "Terminal working directory is not a folder: {}",
+            cwd_path.display()
+        ));
+    }
+
+    {
+        let mut sessions = terminal_manager
+            .sessions
+            .lock()
+            .map_err(|error| format!("Failed to lock terminal sessions: {}", error))?;
+
+        if let Some(existing) = sessions.get(&session_id).cloned() {
+            if existing.is_exited() {
+                sessions.remove(&session_id);
+            } else {
+                existing.resize(cols.max(1), rows.max(1))?;
+                return Ok(TerminalStartResponse {
+                    initial_data: existing.snapshot()?,
+                });
+            }
+        }
+    }
+
+    let pty_system = native_pty_system();
+    let pty_pair = pty_system
+        .openpty(PtySize {
+            rows: rows.max(1),
+            cols: cols.max(1),
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|error| format!("Failed to open terminal PTY: {}", error))?;
+
+    let shell = resolve_default_shell();
+    let mut command = CommandBuilder::new(&shell);
+    command.cwd(cwd_path);
+
+    #[cfg(not(target_os = "windows"))]
+    command.arg("-l");
+
+    let mut reader = pty_pair
+        .master
+        .try_clone_reader()
+        .map_err(|error| format!("Failed to create terminal reader: {}", error))?;
+    let writer = pty_pair
+        .master
+        .take_writer()
+        .map_err(|error| format!("Failed to create terminal writer: {}", error))?;
+    let child = pty_pair
+        .slave
+        .spawn_command(command)
+        .map_err(|error| format!("Failed to start shell '{}': {}", shell, error))?;
+
+    let session = Arc::new(TerminalSession::new(writer, pty_pair.master, child));
+    let reader_session = Arc::clone(&session);
+    let reader_session_id = session_id.clone();
+    let reader_app = app.clone();
+
+    std::thread::spawn(move || {
+        let mut bytes = [0u8; 8192];
+        let mut pending_utf8 = Vec::new();
+
+        loop {
+            match reader.read(&mut bytes) {
+                Ok(0) => break,
+                Ok(read_len) => {
+                    let chunk = decode_utf8_chunk(&mut pending_utf8, &bytes[..read_len]);
+                    if chunk.is_empty() {
+                        continue;
+                    }
+
+                    reader_session.append_output(&chunk);
+
+                    let _ = reader_app.emit(
+                        TERMINAL_DATA_EVENT,
+                        TerminalDataEvent {
+                            session_id: reader_session_id.clone(),
+                            data: chunk,
+                        },
+                    );
+                }
+                Err(error) => {
+                    log::warn!("Failed reading terminal session output: {}", error);
+                    break;
+                }
+            }
+        }
+
+        if !pending_utf8.is_empty() {
+            let chunk = String::from_utf8_lossy(&pending_utf8).to_string();
+            reader_session.append_output(&chunk);
+            let _ = reader_app.emit(
+                TERMINAL_DATA_EVENT,
+                TerminalDataEvent {
+                    session_id: reader_session_id.clone(),
+                    data: chunk,
+                },
+            );
+        }
+
+        reader_session.reap();
+        let _ = reader_app.emit(
+            TERMINAL_EXIT_EVENT,
+            TerminalExitEvent {
+                session_id: reader_session_id,
+            },
+        );
+    });
+
+    terminal_manager
+        .sessions
+        .lock()
+        .map_err(|error| format!("Failed to lock terminal sessions: {}", error))?
+        .insert(session_id, Arc::clone(&session));
+
+    Ok(TerminalStartResponse {
+        initial_data: session.snapshot()?,
+    })
+}
+
+#[tauri::command]
+async fn terminal_write(
+    terminal_manager: State<'_, TerminalManager>,
+    session_id: String,
+    data: String,
+) -> Result<(), String> {
+    let session = terminal_manager
+        .sessions
+        .lock()
+        .map_err(|error| format!("Failed to lock terminal sessions: {}", error))?
+        .get(&session_id)
+        .cloned()
+        .ok_or_else(|| format!("Unknown terminal session: {}", session_id))?;
+
+    session.write_input(&data)
+}
+
+#[tauri::command]
+async fn terminal_resize(
+    terminal_manager: State<'_, TerminalManager>,
+    session_id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    let session = terminal_manager
+        .sessions
+        .lock()
+        .map_err(|error| format!("Failed to lock terminal sessions: {}", error))?
+        .get(&session_id)
+        .cloned()
+        .ok_or_else(|| format!("Unknown terminal session: {}", session_id))?;
+
+    session.resize(cols.max(1), rows.max(1))
+}
+
+#[tauri::command]
+async fn terminal_close_session(
+    terminal_manager: State<'_, TerminalManager>,
+    session_id: String,
+) -> Result<(), String> {
+    let session = terminal_manager
+        .sessions
+        .lock()
+        .map_err(|error| format!("Failed to lock terminal sessions: {}", error))?
+        .remove(&session_id);
+
+    if let Some(session) = session {
+        session.kill();
+    }
+
+    Ok(())
+}
+
 fn resolve_managed_skills_root() -> Result<PathBuf, String> {
     resolve_home_directory()
         .map(|home| home.join(".agents").join("skills"))
@@ -421,6 +792,18 @@ fn resolve_home_directory() -> Option<PathBuf> {
                 _ => None,
             },
         )
+}
+
+fn resolve_default_shell() -> String {
+    #[cfg(target_os = "windows")]
+    {
+        env::var("COMSPEC").unwrap_or_else(|_| "powershell.exe".to_string())
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
+    }
 }
 
 fn parse_skill_document(content: &str) -> ParsedSkillDocument {
@@ -568,6 +951,9 @@ pub fn run() {
             }),
         })
         .manage(PendingUpdate(Mutex::new(None)))
+        .manage(TerminalManager {
+            sessions: Mutex::new(HashMap::new()),
+        })
         .invoke_handler(tauri::generate_handler![
             ensure_codex_server,
             codex_rpc_send,
@@ -575,6 +961,10 @@ pub fn run() {
             list_skills,
             check_for_app_update,
             install_app_update,
+            terminal_create_session,
+            terminal_write,
+            terminal_resize,
+            terminal_close_session,
         ])
         .setup(|app| {
             let icon = current_window_icon()?;
@@ -606,6 +996,17 @@ pub fn run() {
                     server_state.stdin = None;
                     let _ = child.kill();
                     let _ = child.wait();
+                }
+
+                let terminal_manager: State<TerminalManager> = window.state();
+                let terminal_sessions = if let Ok(sessions) = terminal_manager.sessions.lock() {
+                    sessions.values().cloned().collect::<Vec<_>>()
+                } else {
+                    Vec::new()
+                };
+
+                for session in terminal_sessions {
+                    session.kill();
                 }
             }
         })
