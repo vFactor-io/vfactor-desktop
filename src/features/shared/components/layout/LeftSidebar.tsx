@@ -9,6 +9,7 @@ import {
   GearSix,
   Archive,
   DotsThree,
+  PencilSimple,
 } from "@/components/icons"
 import {
   DropdownMenu,
@@ -21,7 +22,11 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/features/shared/components/ui/tooltip"
-import { ProjectSettingsModal, QuickStartModal } from "@/features/workspace/components/modals"
+import {
+  ProjectSettingsModal,
+  QuickStartModal,
+  RemoveProjectModal,
+} from "@/features/workspace/components/modals"
 import { useProjectStore } from "@/features/workspace/store"
 import { openFolderPicker } from "@/features/workspace/utils/folderDialog"
 import { useChatStore } from "@/features/chat/store"
@@ -59,6 +64,7 @@ export function LeftSidebar({
 }: LeftSidebarProps) {
   const [quickStartOpen, setQuickStartOpen] = useState(false)
   const [projectSettingsProject, setProjectSettingsProject] = useState<Project | null>(null)
+  const [projectPendingRemoval, setProjectPendingRemoval] = useState<Project | null>(null)
   const [openProjectMenuId, setOpenProjectMenuId] = useState<string | null>(null)
   const [confirmArchiveSessionId, setConfirmArchiveSessionId] = useState<string | null>(null)
   const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>([])
@@ -176,6 +182,17 @@ export function LeftSidebar({
         pendingSessionSelectionRef.current = null
       }
     }
+  }
+
+  const handleCreateProjectThread = async (
+    event: React.MouseEvent<HTMLButtonElement>,
+    project: Project,
+  ) => {
+    event.stopPropagation()
+    setConfirmArchiveSessionId(null)
+    onOpenChat?.()
+    await selectProject(project.id)
+    await openDraftSession(project.id, project.path)
   }
 
   const handleArchiveIntent = async (
@@ -549,7 +566,7 @@ export function LeftSidebar({
                         type="button"
                         onClick={() => void handleToggleProjectExpanded(project)}
                         className={cn(
-                          "group/project flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 pr-9 text-left",
+                          "group/project flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 pr-14 text-left",
                           "text-sidebar-foreground/48 hover:bg-[var(--sidebar-item-hover)] hover:text-sidebar-foreground/72",
                           "group-hover/project-row:bg-[var(--sidebar-item-hover)] group-hover/project-row:text-sidebar-foreground/72",
                         )}
@@ -566,6 +583,19 @@ export function LeftSidebar({
                         <span className="flex min-w-0 flex-1 items-center gap-2 text-left">
                           <span className="truncate text-sm font-medium">{project.name}</span>
                         </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(event) => void handleCreateProjectThread(event, project)}
+                        className={cn(
+                          "absolute top-1/2 right-7 flex h-5 w-5 -translate-y-1/2 items-center justify-center text-sidebar-foreground/30 transition",
+                          "hover:text-sidebar-foreground/72 focus-visible:text-sidebar-foreground/72",
+                          "opacity-0 group-hover/project-row:opacity-100 focus-visible:opacity-100",
+                        )}
+                        aria-label={`New thread in ${project.name}`}
+                      >
+                        <PencilSimple size={14} />
                       </button>
 
                       <DropdownMenu
@@ -586,6 +616,12 @@ export function LeftSidebar({
                         <DropdownMenuContent side="bottom" align="end" className="w-40">
                           <DropdownMenuItem onClick={() => setProjectSettingsProject(project)}>
                             <span>Settings</span>
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            variant="destructive"
+                            onClick={() => setProjectPendingRemoval(project)}
+                          >
+                            <span>Remove project</span>
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -749,6 +785,15 @@ export function LeftSidebar({
         onOpenChange={(open) => {
           if (!open) {
             setProjectSettingsProject(null)
+          }
+        }}
+      />
+      <RemoveProjectModal
+        open={projectPendingRemoval !== null}
+        project={projectPendingRemoval}
+        onOpenChange={(open) => {
+          if (!open) {
+            setProjectPendingRemoval(null)
           }
         }}
       />
