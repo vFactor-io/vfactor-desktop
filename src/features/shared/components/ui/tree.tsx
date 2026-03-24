@@ -54,7 +54,12 @@ function Tree({ indent = 20, tree, className, toggleIconType = 'chevron', ...pro
 
   return (
     <TreeContext.Provider value={{ indent, tree, toggleIconType }}>
-      <div data-slot="tree" style={mergedStyle} className={cn('flex flex-col', className)} {...otherProps} />
+      <div
+        data-slot="tree"
+        style={mergedStyle}
+        className={cn('flex flex-col font-sans text-sm', className)}
+        {...otherProps}
+      />
     </TreeContext.Provider>
   );
 }

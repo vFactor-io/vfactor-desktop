@@ -66,10 +66,11 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
   const [secretsError, setSecretsError] = useState<string | null>(null)
   const [secretsByProject, setSecretsByProject] = useState<Record<string, SecretFieldState[]>>({})
   const [draftSecretByProject, setDraftSecretByProject] = useState<Record<string, DraftSecretState | null>>({})
-  const { isCollapsed } = useRightSidebar()
+  const { isCollapsed, width, setWidth } = useRightSidebar()
   const { projects, selectedProjectId } = useProjectStore()
   const { openFile, switchProject } = useTabStore()
   const { onFileChange } = useChatStore()
+  const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null)
 
   // Get the selected project
   const selectedProject = projects.find((p) => p.id === selectedProjectId)
@@ -91,6 +92,7 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
   // Track refresh timeout for debouncing
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const secretsRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const sidebarWidth = isCollapsed ? 0 : width
 
   // Load files function (showLoading only for initial load)
   const loadFiles = useCallback(async (isInitial = false) => {
@@ -169,6 +171,46 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
     void loadSecrets()
   }, [selectedProjectId, switchProject, loadFiles, loadSecrets])
 
+  const stopResizing = useCallback(() => {
+    resizeStateRef.current = null
+    document.documentElement.style.removeProperty("cursor")
+    document.documentElement.style.removeProperty("user-select")
+    document.documentElement.style.removeProperty("-webkit-user-select")
+    document.body.style.removeProperty("cursor")
+    document.body.style.removeProperty("user-select")
+    document.body.style.removeProperty("-webkit-user-select")
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      stopResizing()
+    }
+  }, [stopResizing])
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      const resizeState = resizeStateRef.current
+      if (!resizeState) {
+        return
+      }
+
+      const nextWidth = resizeState.startWidth - (event.clientX - resizeState.startX)
+      setWidth(nextWidth)
+    }
+
+    const handlePointerUp = () => {
+      stopResizing()
+    }
+
+    window.addEventListener("pointermove", handlePointerMove)
+    window.addEventListener("pointerup", handlePointerUp)
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove)
+      window.removeEventListener("pointerup", handlePointerUp)
+    }
+  }, [setWidth, stopResizing])
+
   // Subscribe to file change events from the active harness
   useEffect(() => {
     if (!selectedProject?.path) return
@@ -199,6 +241,28 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
       }
     }
   }, [selectedProject?.path, onFileChange, scheduleRefresh, scheduleSecretsRefresh])
+
+  const handleResizeStart = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (isCollapsed) {
+      return
+    }
+
+    event.preventDefault()
+
+    resizeStateRef.current = {
+      startX: event.clientX,
+      startWidth: width,
+    }
+
+    window.getSelection()?.removeAllRanges()
+    document.documentElement.style.cursor = "col-resize"
+    document.documentElement.style.userSelect = "none"
+    document.documentElement.style.setProperty("-webkit-user-select", "none")
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+    document.body.style.setProperty("-webkit-user-select", "none")
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
 
   const updateSecretField = useCallback((
     fieldKey: string,
@@ -354,7 +418,10 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
   }
 
   return (
-    <aside className="w-[400px] max-w-[400px] min-w-48 shrink bg-sidebar text-sidebar-foreground border-l border-sidebar-border flex flex-col">
+    <aside
+      style={{ width: sidebarWidth }}
+      className="relative min-w-[300px] max-w-[560px] shrink-0 border-l border-sidebar-border bg-sidebar text-sidebar-foreground flex flex-col"
+    >
       {/* Header */}
       <div className="border-b border-sidebar-border px-3 py-2 shrink-0">
         <div className="flex items-center gap-2">
@@ -596,7 +663,15 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
           </div>
         )}
       </div>
-
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize right sidebar"
+        onPointerDown={handleResizeStart}
+        className="absolute inset-y-0 left-0 z-10 w-2 -translate-x-1/2 cursor-col-resize"
+      >
+        <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-transparent hover:bg-sidebar-border/90" />
+      </div>
     </aside>
   )
 }

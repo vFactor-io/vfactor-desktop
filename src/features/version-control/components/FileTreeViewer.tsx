@@ -1,9 +1,8 @@
 import { useEffect, useRef } from "react"
 import { hotkeysCoreFeature, syncDataLoaderFeature } from "@headless-tree/core"
 import { useTree } from "@headless-tree/react"
-import { Folder, FolderOpen } from "@/components/icons"
+import { DefaultFolderOpenedIcon, FolderIcon, FileIcon } from "@react-symbols/icons/utils"
 import { Tree, TreeItem, TreeItemLabel } from "@/features/shared/components/ui/tree"
-import { getFileIcon } from "@/features/editor/utils/fileIcons"
 import type { FileTreeItem } from "../types"
 
 interface FileTreeViewerProps {
@@ -19,7 +18,7 @@ export function FileTreeViewer({
   data,
   rootId = "root",
   initialExpanded = [],
-  indent = 20,
+  indent = 16,
   className,
   onFileClick,
 }: FileTreeViewerProps) {
@@ -60,21 +59,30 @@ export function FileTreeViewer({
           return (
             <TreeItem key={item.getId()} item={item}>
               <TreeItemLabel
-                className="before:bg-sidebar relative before:absolute before:inset-x-0 before:-inset-y-0.5 before:-z-10"
+                className="before:bg-sidebar relative px-1.5 py-1 before:absolute before:inset-x-0 before:-inset-y-0.5 before:-z-10"
                 onClick={handleClick}
               >
-                <span className="flex items-center gap-2">
+                <span className="flex items-center gap-1.5">
                   {isFolder ? (
                     item.isExpanded() ? (
-                      <FolderOpen className="text-muted-foreground pointer-events-none size-4" />
+                      <DefaultFolderOpenedIcon
+                        aria-hidden="true"
+                        className="pointer-events-none size-3.5 shrink-0"
+                      />
                     ) : (
-                      <Folder className="text-muted-foreground pointer-events-none size-4" />
+                      <FolderIcon
+                        aria-hidden="true"
+                        className="pointer-events-none size-3.5 shrink-0"
+                        folderName={item.getItemName()}
+                      />
                     )
                   ) : (
-                    (() => {
-                      const FileIcon = getFileIcon(item.getItemName())
-                      return <FileIcon className="text-muted-foreground pointer-events-none size-4" />
-                    })()
+                    <FileIcon
+                      aria-hidden="true"
+                      autoAssign
+                      className="pointer-events-none size-3.5 shrink-0"
+                      fileName={item.getItemName()}
+                    />
                   )}
                   {item.getItemName()}
                 </span>
