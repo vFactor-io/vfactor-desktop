@@ -232,33 +232,44 @@ export function Terminal({
   }, [cwd, emptyStateMessage, sessionId, syncTerminalSize])
 
   useEffect(() => {
-    let unlistenData: (() => void) | undefined
-    let unlistenExit: (() => void) | undefined
+    let isDisposed = false
+    const cleanupCallbacks: Array<() => void> = []
 
     const bindTerminalEvents = async () => {
-      unlistenData = await listen<TerminalDataEvent>("terminal:data", (event) => {
-        if (event.payload.sessionId !== sessionIdRef.current) {
-          return
-        }
+      const [unlistenData, unlistenExit] = await Promise.all([
+        listen<TerminalDataEvent>("terminal:data", (event) => {
+          if (event.payload.sessionId !== sessionIdRef.current) {
+            return
+          }
 
-        xtermRef.current?.write(event.payload.data)
-      })
+          xtermRef.current?.write(event.payload.data)
+        }),
+        listen<TerminalExitEvent>("terminal:exit", (event) => {
+          if (event.payload.sessionId !== sessionIdRef.current) {
+            return
+          }
 
-      unlistenExit = await listen<TerminalExitEvent>("terminal:exit", (event) => {
-        if (event.payload.sessionId !== sessionIdRef.current) {
-          return
-        }
+          xtermRef.current?.writeln("")
+          xtermRef.current?.writeln("\x1b[90mTerminal session ended. Reopen the project terminal to start a new shell.\x1b[0m")
+        }),
+      ])
 
-        xtermRef.current?.writeln("")
-        xtermRef.current?.writeln("\x1b[90mTerminal session ended. Reopen the project terminal to start a new shell.\x1b[0m")
-      })
+      if (isDisposed) {
+        unlistenData()
+        unlistenExit()
+        return
+      }
+
+      cleanupCallbacks.push(unlistenData, unlistenExit)
     }
 
     void bindTerminalEvents()
 
     return () => {
-      unlistenData?.()
-      unlistenExit?.()
+      isDisposed = true
+      for (const cleanup of cleanupCallbacks.splice(0)) {
+        cleanup()
+      }
     }
   }, [])
 
