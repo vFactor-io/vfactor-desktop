@@ -115,16 +115,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const { projects, selectedProjectId } = get()
     const updatedProjects = projects.filter((p) => p.id !== id)
 
-    // Persist
-    const store = await getStore()
-    await store.set(STORE_KEY, updatedProjects)
-    await store.save()
-
-    // If we removed the selected project, select another
     let newSelectedId = selectedProjectId
     if (selectedProjectId === id) {
       newSelectedId = updatedProjects.length > 0 ? updatedProjects[0].id : null
     }
+
+    const store = await getStore()
+    await store.set(STORE_KEY, updatedProjects)
+    await store.set(SELECTED_PROJECT_KEY, newSelectedId)
+    await store.save()
 
     set({ projects: updatedProjects, selectedProjectId: newSelectedId })
   },
