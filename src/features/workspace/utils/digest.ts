@@ -1,4 +1,4 @@
-import { readTextFile } from "@tauri-apps/plugin-fs"
+import { desktop } from "@/desktop/client"
 
 const AGENT_DIGEST_DIRECTORY = ".nucleus"
 const AGENT_DIGEST_FILENAME = "digest.md"
@@ -24,7 +24,7 @@ export function extractLatestDigestEntry(markdown: string): string {
 export async function readLatestAgentDigest(agentPath: string): Promise<string | null> {
   const digestPath = getAgentDigestPath(agentPath)
 
-  const markdown = await readTextFile(digestPath)
+  const markdown = await desktop.fs.readTextFile(digestPath)
   const latestEntry = extractLatestDigestEntry(markdown)
 
   return latestEntry || null

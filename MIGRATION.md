@@ -5,8 +5,8 @@ This document details the migration from `claude-interface` (custom ACP implemen
 ## Background
 
 The `claude-interface` project had a custom ACP (Agent Client Protocol) implementation:
-- **Rust backend** (~6,500 lines): Managed stdio JSON-RPC communication with OpenCode agent
-- **TypeScript frontend** (~7,500 lines): React hooks, Zustand store, permission handling
+- **Backend runtime**: Managed stdio JSON-RPC communication with the coding runtime
+- **TypeScript frontend**: React hooks, Zustand store, permission handling
 
 This was overly complex. We are moving to a simpler agent runtime integration (TBD).
 
@@ -43,7 +43,7 @@ This was overly complex. We are moving to a simpler agent runtime integration (T
 **Status: In Progress**
 
 - [x] Initialize project with bun
-- [x] Set up React + Tauri scaffolding
+- [x] Set up the desktop shell
 - [x] Build core app layout (title bar, sidebars, main content)
 - [x] Add system theme handling
 - [ ] Wire up initial chat UI components
@@ -82,7 +82,6 @@ Define a permission request flow in the UI that the agent runtime adapter can in
 ## Files to Delete from claude-interface
 
 After migration is complete:
-- `src-tauri/src/acp/` - Entire Rust ACP module (already deleted)
 - `src/features/acp/` - TypeScript ACP implementation (already deleted)
 
 ## Testing Checklist
@@ -102,5 +101,5 @@ Before considering migration complete:
 
 ## Resources
 
-- [Tauri Documentation](https://tauri.app/)
+- [Electron Documentation](https://www.electronjs.org/docs/latest/)
 - [React Documentation](https://react.dev/)

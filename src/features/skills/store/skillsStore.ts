@@ -1,5 +1,5 @@
-import { invoke } from "@tauri-apps/api/core"
 import { create } from "zustand"
+import { desktop } from "@/desktop/client"
 import type { ManagedSkill, SkillsSyncResponse } from "../types"
 
 interface SkillsState {
@@ -26,7 +26,7 @@ export const useSkillsStore = create<SkillsState>((set) => ({
     }))
 
     try {
-      const response = await invoke<SkillsSyncResponse>("list_skills")
+      const response = await desktop.skills.list()
 
       set({
         managedRootPath: response.managedRootPath,

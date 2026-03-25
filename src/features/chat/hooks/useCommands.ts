@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { desktop } from "@/desktop/client"
 import { useProjectStore } from "@/features/workspace/store"
 import { useChatStore } from "../store/chatStore"
 import type { SkillsSyncResponse } from "@/features/skills/types"
@@ -50,7 +50,7 @@ export function useCommands() {
     try {
       const [rawCommands, installedSkillsResponse] = await Promise.all([
         listCommands(selectedProjectId),
-        invoke<SkillsSyncResponse>("list_skills").catch(() => null),
+        desktop.skills.list().catch(() => null as SkillsSyncResponse | null),
       ])
       const installedSkillCommands: NormalizedCommand[] =
         installedSkillsResponse?.skills.map((skill) => ({

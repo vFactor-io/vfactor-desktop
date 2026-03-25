@@ -1,4 +1,4 @@
-import { exists, readTextFile, writeTextFile } from "@tauri-apps/plugin-fs"
+import { desktop } from "@/desktop/client"
 
 export interface ProjectSecretFieldDefinition {
   key: string
@@ -94,10 +94,12 @@ export async function saveProjectSecret(
   )
   const targetFileName = existingLocalFile ?? ".env.local"
   const targetPath = `${projectPath}/${targetFileName}`
-  const existingContent = (await exists(targetPath)) ? await readTextFile(targetPath) : ""
+  const existingContent = (await desktop.fs.exists(targetPath))
+    ? await desktop.fs.readTextFile(targetPath)
+    : ""
   const nextContent = upsertEnvValue(existingContent, key, value)
 
-  await writeTextFile(targetPath, nextContent, { create: true })
+  await desktop.fs.writeTextFile(targetPath, nextContent, { create: true })
 }
 
 function buildProjectSecretField(
@@ -132,14 +134,14 @@ async function readParsedEnvFiles(projectPath: string): Promise<ParsedEnvFile[]>
 
   for (const fileName of ENV_DISCOVERY_FILES) {
     const path = `${projectPath}/${fileName}`
-    if (!(await exists(path))) {
+    if (!(await desktop.fs.exists(path))) {
       continue
     }
 
     parsedFiles.push({
       name: fileName,
       path,
-      values: parseEnvFile(await readTextFile(path)),
+      values: parseEnvFile(await desktop.fs.readTextFile(path)),
     })
   }
 

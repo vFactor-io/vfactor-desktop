@@ -1,5 +1,5 @@
-import { invoke } from "@tauri-apps/api/core"
 import { useEffect, useMemo, useRef, useState } from "react"
+import { desktop, type GitBranchesResponse } from "@/desktop/client"
 import {
   CaretDown,
   CheckCircle,
@@ -18,19 +18,6 @@ import { CreateBranchDialog } from "./CreateBranchDialog"
 
 interface BranchTargetSelectorProps {
   projectPath: string | null
-}
-
-interface GitWorkingTreeSummary {
-  changedFiles: number
-  additions: number
-  deletions: number
-}
-
-interface GitBranchesResponse {
-  currentBranch: string
-  upstreamBranch: string | null
-  branches: string[]
-  workingTreeSummary: GitWorkingTreeSummary
 }
 
 const MIN_BRANCH_LOADING_MS = 350
@@ -74,7 +61,7 @@ export function BranchTargetSelector({ projectPath }: BranchTargetSelectorProps)
     setIsLoading(true)
     setErrorMessage(null)
 
-    invoke<GitBranchesResponse>("get_git_branches", { projectPath })
+    desktop.git.getBranches(projectPath)
       .then((data) => {
         if (!cancelled) {
           setBranchData(data)
@@ -180,10 +167,7 @@ export function BranchTargetSelector({ projectPath }: BranchTargetSelectorProps)
 
     try {
       const [nextData] = await Promise.all([
-        invoke<GitBranchesResponse>("checkout_git_branch", {
-          projectPath,
-          branchName: branch,
-        }),
+        desktop.git.checkoutBranch(projectPath, branch),
         new Promise((resolve) => window.setTimeout(resolve, MIN_BRANCH_LOADING_MS)),
       ])
 

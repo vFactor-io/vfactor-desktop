@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { mkdir, exists } from "@tauri-apps/plugin-fs"
+import { desktop } from "@/desktop/client"
 import { Command } from "@/components/icons"
 import {
   Dialog,
@@ -58,7 +58,7 @@ export function QuickStartModal({ open, onOpenChange }: QuickStartModalProps) {
       const projectPath = `${location}/${name}`
 
       // Check if folder already exists
-      const folderExists = await exists(projectPath)
+      const folderExists = await desktop.fs.exists(projectPath)
       if (folderExists) {
         setError("A folder with this name already exists at this location.")
         setIsCreating(false)
@@ -66,7 +66,7 @@ export function QuickStartModal({ open, onOpenChange }: QuickStartModalProps) {
       }
 
       // Create the directory
-      await mkdir(projectPath, { recursive: true })
+      await desktop.fs.mkdir(projectPath, { recursive: true })
 
       // Add to project store
       await addProject(projectPath, name)

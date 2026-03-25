@@ -1,6 +1,5 @@
 import { create } from "zustand"
-import { load, Store } from "@tauri-apps/plugin-store"
-import { homeDir } from "@tauri-apps/api/path"
+import { desktop, loadDesktopStore, type DesktopStoreHandle } from "@/desktop/client"
 import type { Project } from "../types"
 
 const STORE_FILE = "projects.json"
@@ -24,11 +23,11 @@ interface ProjectState {
   setDefaultLocation: (path: string) => Promise<void>
 }
 
-let storeInstance: Store | null = null
+let storeInstance: DesktopStoreHandle | null = null
 
-async function getStore(): Promise<Store> {
+async function getStore(): Promise<DesktopStoreHandle> {
   if (!storeInstance) {
-    storeInstance = await load(STORE_FILE)
+    storeInstance = await loadDesktopStore(STORE_FILE)
   }
   return storeInstance
 }
@@ -50,7 +49,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       let defaultLoc = savedLocation || ""
       if (!defaultLoc) {
         try {
-          defaultLoc = await homeDir()
+          defaultLoc = await desktop.fs.homeDir()
         } catch {
           defaultLoc = ""
         }
@@ -100,7 +99,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
     const updatedProjects = [newProject, ...projects]
 
-    // Persist to Tauri store
+    // Persist to the desktop store
     const store = await getStore()
     await store.set(STORE_KEY, updatedProjects)
     await store.save()

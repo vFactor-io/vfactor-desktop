@@ -1,6 +1,6 @@
 # Nucleus Desktop
 
-Open-source desktop coding ADE with Tauri + React.
+Open-source desktop coding ADE with Electron + React.
 
 ## First Design Principles
 
@@ -30,15 +30,15 @@ Nucleus Desktop is intended to become an open-source coding ADE: a desktop envir
 
 This project is being built in phases:
 
-1. **Phase 1 (Current)**: UI shell with Tauri + React
+1. **Phase 1 (Current)**: UI shell with Electron + React
 2. **Phase 2**: Coding runtime and harness integration
 3. **Phase 3**: Migrate UI components from Codex-interface project
 
 ## Commands
 
 ```bash
-bun run dev                # Run Vite dev server
-bun run tauri:dev          # Run Tauri app
+bun run dev                # Run Electron app in development
+bun run build              # Build Electron app
 bun run cli "prompt"       # Run OpenCode CLI (streams by default)
 bun run cli "prompt" --stream-tools  # Stream tool activity
 bun run cli "prompt" --raw-only      # Only show raw response
@@ -52,7 +52,7 @@ bun run typecheck          # TypeScript type checking
 ```
 nucleus-desktop/
 ├── src/                   # React UI shell
-├── src-tauri/             # Tauri backend
+├── electron/              # Electron main/preload/services
 ├── package.json
 ├── tsconfig.json
 └── MIGRATION.md           # Detailed migration plan
@@ -61,20 +61,19 @@ nucleus-desktop/
 ### Target (Phase 2+)
 ```
 nucleus-desktop/
+├── electron/              # Electron shell, IPC, and native services
 ├── src/
-│   ├── main.ts            # Tauri main process
 │   ├── runtime/           # ADE runtime and harness integration (TBD)
 │   └── features/          # UI features (migrated from Codex-interface)
 │       ├── chat/          # Chat/thread UI scoped to the selected project
 │       └── shared/        # Shared UI components
-├── src-tauri/             # Tauri Rust backend (minimal)
 └── ...
 ```
 
 ## Key Dependencies
 
 - `bun` - JavaScript runtime and package manager
-- `@tauri-apps/cli` - Tauri app tooling
+- `electron` / `electron-vite` - Desktop shell and dev/build tooling
 - `@opencode-ai/sdk` - OpenCode SDK
 
 ## UI Migration Notes
@@ -98,7 +97,7 @@ These components have already been decoupled from the old ACP implementation and
 
 ## Integration Learnings
 
-- The current chat runtime is still OpenCode-shaped end-to-end: Tauri starts `opencode serve --port 4096` in `src-tauri/src/lib.rs`, and the React chat store talks to it through `@opencode-ai/sdk/client` plus the global event stream in `src/features/chat/store/chatStore.ts`.
+- The current chat runtime is still OpenCode-shaped end-to-end, and it now runs through the Electron desktop bridge.
 - The product direction has changed from an agent-builder framing to a coding ADE with project-backed workspaces. Existing stores/types may still say `agent` in places, but new UX and architectural work should treat that layer as project selection with chat threads nested under each project.
 - If adding multiple coding harnesses (OpenCode, Codex, Claude Code), keep orchestration out of this app and introduce a thin per-harness adapter that maps each provider into shared UI-local thread/message/tool/subagent types before data reaches hooks or components.
 - Codex is not a drop-in replacement for the OpenCode client. The closest fit is Codex App Server, which uses JSON-RPC `thread/*` and `turn/*` events instead of OpenCode's REST/SSE shape; prefer generating version-matched bindings with `codex app-server generate-ts` rather than hand-rolling protocol types.

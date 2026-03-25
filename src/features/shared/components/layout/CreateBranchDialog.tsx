@@ -1,5 +1,5 @@
-import { invoke } from "@tauri-apps/api/core"
 import { useEffect, useState } from "react"
+import { desktop, type GitBranchesResponse } from "@/desktop/client"
 import { CircleNotch, GitBranch, X } from "@/components/icons"
 import { Button } from "@/features/shared/components/ui/button"
 import {
@@ -10,19 +10,6 @@ import {
   DialogTitle,
 } from "@/features/shared/components/ui/dialog"
 import { Input } from "@/features/shared/components/ui/input"
-
-interface GitWorkingTreeSummary {
-  changedFiles: number
-  additions: number
-  deletions: number
-}
-
-interface GitBranchesResponse {
-  currentBranch: string
-  upstreamBranch: string | null
-  branches: string[]
-  workingTreeSummary: GitWorkingTreeSummary
-}
 
 interface CreateBranchDialogProps {
   open: boolean
@@ -74,10 +61,7 @@ export function CreateBranchDialog({
     setErrorMessage(null)
 
     try {
-      const nextData = await invoke<GitBranchesResponse>("create_and_checkout_git_branch", {
-        projectPath,
-        branchName: trimmedBranchName,
-      })
+      const nextData = await desktop.git.createAndCheckoutBranch(projectPath, trimmedBranchName)
 
       onCreated(nextData)
       onOpenChange(false)

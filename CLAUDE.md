@@ -1,6 +1,6 @@
 # Nucleus Desktop
 
-Open-source desktop AI co-worker app with Tauri + React.
+Open-source desktop AI co-worker app with Electron + React.
 
 ## Product Direction
 
@@ -16,15 +16,15 @@ Nucleus Desktop is intended to become an open-source analogue to Claude Cowork: 
 
 This project is being built in phases:
 
-1. **Phase 1 (Current)**: UI shell with Tauri + React
+1. **Phase 1 (Current)**: UI shell with Electron + React
 2. **Phase 2**: Agent runtime integration
 3. **Phase 3**: Migrate UI components from claude-interface project
 
 ## Commands
 
 ```bash
-bun run dev                # Run Vite dev server
-bun run tauri:dev          # Run Tauri app
+bun run dev                # Run Electron app in development
+bun run build              # Build Electron app
 bun run cli "prompt"       # Run OpenCode CLI (streams by default)
 bun run cli "prompt" --stream-tools  # Stream tool activity
 bun run cli "prompt" --raw-only      # Only show raw response
@@ -38,7 +38,7 @@ bun run typecheck          # TypeScript type checking
 ```
 nucleus-desktop/
 ├── src/                   # React UI shell
-├── src-tauri/             # Tauri backend
+├── electron/              # Electron main/preload/services
 ├── package.json
 ├── tsconfig.json
 └── MIGRATION.md           # Detailed migration plan
@@ -47,20 +47,19 @@ nucleus-desktop/
 ### Target (Phase 2+)
 ```
 nucleus-desktop/
+├── electron/              # Electron shell, IPC, and native services
 ├── src/
-│   ├── main.ts            # Tauri main process
 │   ├── agent/             # Agent runtime integration (TBD)
 │   └── features/          # UI features (migrated from claude-interface)
 │       ├── chat/          # Chat UI components
 │       └── shared/        # Shared UI components
-├── src-tauri/             # Tauri Rust backend (minimal)
 └── ...
 ```
 
 ## Key Dependencies
 
 - `bun` - JavaScript runtime and package manager
-- `@tauri-apps/cli` - Tauri app tooling
+- `electron` / `electron-vite` - Desktop shell and dev/build tooling
 - `@opencode-ai/sdk` - OpenCode SDK
 
 ## UI Migration Notes

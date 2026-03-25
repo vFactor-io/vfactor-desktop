@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { desktop } from "@/desktop/client"
 import { CaretDown, CaretUp, Plus, X } from "@/components/icons"
 import { Separator } from "@/features/shared/components/ui"
 import { cn } from "@/lib/utils"
@@ -152,7 +152,7 @@ export function TerminalPanel({ projectId, projectPath, className }: TerminalPan
       return
     }
 
-    void invoke("terminal_close_session", { sessionId: `project-terminal:${tabId}` }).catch((error) => {
+    void desktop.terminal.closeSession(`project-terminal:${tabId}`).catch((error) => {
       console.error("Failed to close terminal session:", error)
     })
 

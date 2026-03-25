@@ -1,6 +1,6 @@
 # Nucleus Desktop
 
-Desktop Agentic Developer Environment (ADE) with Tauri + React.
+Desktop Agentic Developer Environment (ADE) with Electron + React.
 
 Nucleus Desktop is a local-first coding workspace for agentic software development. Each workspace in the app is a project backed by a local folder, with chats, tools, files, and approvals scoped to that project.
 
@@ -18,14 +18,14 @@ Nucleus Desktop is a local-first coding workspace for agentic software developme
 
 ## Usage
 
-**Web UI (Vite)**:
+**Desktop app (Electron + renderer HMR)**:
 ```bash
 bun run dev
 ```
 
-**Desktop app (Tauri)**:
+**Preview the built app**:
 ```bash
-bun run tauri:dev
+bun run preview
 ```
 
 **CLI (OpenCode SDK, streaming by default)**:
@@ -46,36 +46,42 @@ bun run cli "What files are in this repo?" --json-only
 bun run typecheck
 ```
 
+**Bundle the app**:
+```bash
+bun run dist
+```
+
 ## Project Structure
 
 ```
 nucleus-desktop/
-├── src/               # React UI
-├── src-tauri/         # Tauri backend
-├── package.json       # Dependencies and scripts
-├── tsconfig.json      # TypeScript configuration
-├── vite.config.ts     # Vite config
-└── MIGRATION.md       # Migration plan from claude-interface
+├── src/                  # React renderer
+├── electron/             # Electron main/preload/services
+├── build/icons/          # Packaging icons
+├── package.json          # Dependencies, scripts, electron-builder config
+├── electron.vite.config.ts
+└── MIGRATION.md          # Product migration notes
 ```
 
 ## Features
 
-- Desktop UI shell with React + Tauri
+- Desktop UI shell with React + Electron
 - Local-first project workspaces backed by folders
 - Coding-focused ADE workflows for chat, tools, and approvals
 - Shared layout system (sidebars, title bar, main content)
+- Typed preload bridge for filesystem, terminal, git, Codex, skills, and updates
 - Theming based on system preference
 
 ## Development Phases
 
 See [MIGRATION.md](./MIGRATION.md) for the full plan.
 
-1. **Phase 1 (Current)**: UI shell with Tauri + React
+1. **Phase 1 (Current)**: UI shell with Electron + React
 2. **Phase 2**: Coding runtime and harness integration
 3. **Phase 3**: Migrate UI components from claude-interface project
 
 ## Resources
 
-- [Tauri Documentation](https://tauri.app/)
+- [Electron Documentation](https://www.electronjs.org/docs/latest/)
 - [React Documentation](https://react.dev/)
-- [Vite Documentation](https://vitejs.dev/)
+- [electron-vite Documentation](https://electron-vite.org/)

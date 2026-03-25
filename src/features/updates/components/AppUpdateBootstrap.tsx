@@ -1,7 +1,6 @@
 import { useEffect } from "react"
-import { listen } from "@tauri-apps/api/event"
+import { desktop } from "@/desktop/client"
 import {
-  APP_UPDATE_EVENT,
   type AppUpdateDownloadEvent,
   useAppUpdateStore,
 } from "@/features/updates/store/updateStore"
@@ -16,20 +15,19 @@ export function AppUpdateBootstrap() {
 
     void initialize()
 
-    void listen<AppUpdateDownloadEvent>(APP_UPDATE_EVENT, (event) => {
-      handleDownloadEvent(event.payload)
-    })
-      .then((dispose) => {
-        if (isMounted) {
-          unlisten = dispose
-          return
-        }
+    try {
+      const dispose = desktop.app.onUpdateEvent((event: AppUpdateDownloadEvent) => {
+        handleDownloadEvent(event)
+      })
 
+      if (isMounted) {
+        unlisten = dispose
+      } else {
         dispose()
-      })
-      .catch((error) => {
-        console.error("Failed to subscribe to app update events:", error)
-      })
+      }
+    } catch (error) {
+      console.error("Failed to subscribe to app update events:", error)
+    }
 
     return () => {
       isMounted = false

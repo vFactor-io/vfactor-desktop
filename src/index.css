@@ -230,6 +230,14 @@
     --radius-4xl: calc(var(--radius) + 16px);
 }
 
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

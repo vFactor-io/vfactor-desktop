@@ -20,5 +20,5 @@
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["vite.config.ts", "index.ts"]
+  "include": ["electron.vite.config.ts", "electron/**/*.ts", "index.ts"]
 }

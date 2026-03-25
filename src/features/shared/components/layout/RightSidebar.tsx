@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
+import { desktop } from "@/desktop/client"
 import { FileTreeViewer } from "@/features/version-control/components"
 import { useFileTreeStore, useProjectStore } from "@/features/workspace/store"
 import { useTabStore } from "@/features/editor/store"
@@ -58,6 +59,8 @@ function createSecretState(definition: ProjectSecretFieldDefinition): SecretFiel
 export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
   const [isInitialLoad, setIsInitialLoad] = useState(true)
   const [activeTab, setActiveTab] = useState<RightSidebarTab>("files")
+  const [fileImportError, setFileImportError] = useState<string | null>(null)
+  const [isImportingFiles, setIsImportingFiles] = useState(false)
   const [isSecretsLoading, setIsSecretsLoading] = useState(false)
   const [savingSecretKey, setSavingSecretKey] = useState<string | null>(null)
   const [secretsError, setSecretsError] = useState<string | null>(null)
@@ -72,6 +75,7 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
     loadingByProjectPath,
     initialize: initializeFileTreeStore,
     setActiveProjectPath,
+    refreshActiveProject,
   } = useFileTreeStore()
   const { openFile, switchProject } = useTabStore()
 
@@ -141,6 +145,11 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
   }, [initializeFileTreeStore])
 
   useEffect(() => {
+    setFileImportError(null)
+    setIsImportingFiles(false)
+  }, [selectedProject?.path])
+
+  useEffect(() => {
     setIsInitialLoad(true)
 
     void setActiveProjectPath(selectedProject?.path ?? null).finally(() => {
@@ -166,6 +175,39 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
       scheduleSecretsRefresh()
     }
   }, [lastFileTreeEvent, scheduleSecretsRefresh, selectedProject?.path])
+
+  const handleExternalFileDrop = useCallback(
+    async (sourcePaths: string[], targetDirectory: string) => {
+      if (!selectedProject?.path) {
+        return
+      }
+
+      setIsImportingFiles(true)
+      setFileImportError(null)
+      console.debug("[file-tree-drop] import requested", {
+        projectPath: selectedProject.path,
+        targetDirectory,
+        sourcePaths,
+      })
+
+      try {
+        await desktop.fs.copyPathsIntoDirectory(sourcePaths, targetDirectory)
+        console.debug("[file-tree-drop] import succeeded", {
+          targetDirectory,
+          sourcePaths,
+        })
+        await refreshActiveProject()
+      } catch (error) {
+        console.error("Failed to import dropped files into project:", error)
+        setFileImportError(
+          error instanceof Error ? error.message : "Couldn't add those files to the project."
+        )
+      } finally {
+        setIsImportingFiles(false)
+      }
+    },
+    [refreshActiveProject, selectedProject?.path]
+  )
 
   const updateSecretField = useCallback((
     fieldKey: string,
@@ -330,7 +372,7 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
     >
       {/* Toolbar header */}
       <div className="flex h-11 shrink-0 items-center justify-end border-b border-sidebar-border/70 px-3">
-        <div data-tauri-drag-region className="min-w-0 flex-1 self-stretch" />
+        <div className="drag-region min-w-0 flex-1 self-stretch" />
         <SourceControlActionGroup projectPath={selectedProject?.path ?? null} />
       </div>
 
@@ -378,16 +420,34 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
             <div className="flex items-center justify-center py-8">
               <span className="text-sm text-muted-foreground">Select an agent to view files</span>
             </div>
-          ) : Object.keys(fileTreeData).length === 0 ? (
-            <div className="flex items-center justify-center py-8">
-              <span className="text-sm text-muted-foreground">No files found</span>
-            </div>
           ) : (
-            <FileTreeViewer
-              data={fileTreeData}
-              initialExpanded={["root"]}
-              onFileClick={openFile}
-            />
+            <div className="space-y-2">
+              {isImportingFiles ? (
+                <div className="rounded-xl border border-border/70 bg-card px-2.5 py-2 text-xs leading-5 text-muted-foreground">
+                  Importing dropped files into the project...
+                </div>
+              ) : null}
+
+              {fileImportError ? (
+                <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-2.5 py-2 text-xs leading-5 text-destructive">
+                  {fileImportError}
+                </div>
+              ) : null}
+
+              {Object.keys(fileTreeData).length === 0 ? (
+                <div className="flex items-center justify-center py-8">
+                  <span className="text-sm text-muted-foreground">No files found</span>
+                </div>
+              ) : (
+                <FileTreeViewer
+                  data={fileTreeData}
+                  initialExpanded={["root"]}
+                  projectPath={selectedProject.path}
+                  onFileClick={openFile}
+                  onExternalDrop={handleExternalFileDrop}
+                />
+              )}
+            </div>
           )
         ) : (
           <div className="space-y-2 px-1.5 py-1">

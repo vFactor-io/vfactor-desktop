@@ -1,8 +1,12 @@
 import { useEffect, useRef, useCallback, useState } from "react"
-import { invoke } from "@tauri-apps/api/core"
-import { listen } from "@tauri-apps/api/event"
 import { Terminal as XTerm } from "@xterm/xterm"
 import { FitAddon } from "@xterm/addon-fit"
+import {
+  desktop,
+  type TerminalDataEvent,
+  type TerminalExitEvent,
+  type TerminalStartResponse,
+} from "@/desktop/client"
 import { cn } from "@/lib/utils"
 import "@xterm/xterm/css/xterm.css"
 
@@ -11,19 +15,6 @@ interface TerminalProps {
   cwd: string | null
   emptyStateMessage?: string
   className?: string
-}
-
-interface TerminalStartResponse {
-  initialData: string
-}
-
-interface TerminalDataEvent {
-  sessionId: string
-  data: string
-}
-
-interface TerminalExitEvent {
-  sessionId: string
 }
 
 const INACTIVE_MESSAGE = "\x1b[90mSelect a project to open a terminal.\x1b[0m"
@@ -99,11 +90,7 @@ export function Terminal({
     }
 
     fitAddon.fit()
-    void invoke("terminal_resize", {
-      sessionId,
-      cols: term.cols,
-      rows: term.rows,
-    }).catch((error) => {
+    void desktop.terminal.resize(sessionId, term.cols, term.rows).catch((error) => {
       console.error("Failed to resize terminal session:", error)
     })
   }, [])
@@ -136,7 +123,7 @@ export function Terminal({
         return
       }
 
-      void invoke("terminal_write", { sessionId, data }).catch((error) => {
+      void desktop.terminal.write(sessionId, data).catch((error) => {
         console.error("Failed to write to terminal session:", error)
       })
     })
@@ -195,12 +182,12 @@ export function Terminal({
       sessionIdRef.current = sessionId
 
       try {
-        const response = await invoke<TerminalStartResponse>("terminal_create_session", {
+        const response = await desktop.terminal.createSession(
           sessionId,
           cwd,
-          cols: term.cols,
-          rows: term.rows,
-        })
+          term.cols,
+          term.rows
+        )
 
         if (!isActive || sessionIdRef.current !== sessionId) {
           return
@@ -237,21 +224,25 @@ export function Terminal({
 
     const bindTerminalEvents = async () => {
       const [unlistenData, unlistenExit] = await Promise.all([
-        listen<TerminalDataEvent>("terminal:data", (event) => {
-          if (event.payload.sessionId !== sessionIdRef.current) {
-            return
-          }
+        Promise.resolve(
+          desktop.terminal.onData((event: TerminalDataEvent) => {
+            if (event.sessionId !== sessionIdRef.current) {
+              return
+            }
 
-          xtermRef.current?.write(event.payload.data)
-        }),
-        listen<TerminalExitEvent>("terminal:exit", (event) => {
-          if (event.payload.sessionId !== sessionIdRef.current) {
-            return
-          }
+            xtermRef.current?.write(event.data)
+          })
+        ),
+        Promise.resolve(
+          desktop.terminal.onExit((event: TerminalExitEvent) => {
+            if (event.sessionId !== sessionIdRef.current) {
+              return
+            }
 
-          xtermRef.current?.writeln("")
-          xtermRef.current?.writeln("\x1b[90mTerminal session ended. Reopen the project terminal to start a new shell.\x1b[0m")
-        }),
+            xtermRef.current?.writeln("")
+            xtermRef.current?.writeln("\x1b[90mTerminal session ended. Reopen the project terminal to start a new shell.\x1b[0m")
+          })
+        ),
       ])
 
       if (isDisposed) {

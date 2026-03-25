@@ -1,5 +1,5 @@
-import { invoke } from "@tauri-apps/api/core"
 import { useEffect, useState } from "react"
+import { desktop, type GitBranchesResponse } from "@/desktop/client"
 import { GitPullRequest } from "@/components/icons"
 import { useChatComposerState, useChatProjectState } from "@/features/chat/hooks/useChat"
 import {
@@ -18,16 +18,6 @@ import {
   TooltipTrigger,
 } from "@/features/shared/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-
-interface GitWorkingTreeSummary {
-  changedFiles: number
-}
-
-interface GitBranchesResponse {
-  currentBranch: string
-  upstreamBranch: string | null
-  workingTreeSummary: GitWorkingTreeSummary
-}
 
 export function SourceControlActionGroup({
   className,
@@ -56,9 +46,7 @@ export function SourceControlActionGroup({
     setIsPreparing(true)
 
     try {
-      const branchData = await invoke<GitBranchesResponse>("get_git_branches", {
-        projectPath: selectedProject.path,
-      })
+      const branchData = await desktop.git.getBranches(selectedProject.path)
 
       const message = buildCreatePrMessage(
         {

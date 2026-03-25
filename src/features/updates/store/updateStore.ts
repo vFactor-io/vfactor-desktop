@@ -1,7 +1,6 @@
 import { create } from "zustand"
-import { invoke } from "@tauri-apps/api/core"
-
-export const APP_UPDATE_EVENT = "app-update:event"
+import { desktop } from "@/desktop/client"
+import type { AppUpdateDownloadEvent, AppUpdateInfo } from "@/desktop/client"
 
 export type AppUpdatePhase =
   | "idle"
@@ -13,20 +12,7 @@ export type AppUpdatePhase =
   | "installed"
   | "error"
 
-export interface AppUpdateInfo {
-  version: string
-  currentVersion: string
-  notes: string | null
-  pubDate: string | null
-  target: string
-}
-
-export interface AppUpdateDownloadEvent {
-  event: "started" | "progress" | "finished"
-  chunkLength?: number | null
-  downloaded?: number | null
-  contentLength?: number | null
-}
+export type { AppUpdateDownloadEvent, AppUpdateInfo } from "@/desktop/client"
 
 interface CheckForUpdatesOptions {
   silent?: boolean
@@ -103,7 +89,7 @@ export const useAppUpdateStore = create<AppUpdateState>((set, get) => ({
 
     checkPromise = (async () => {
       try {
-        const update = await invoke<AppUpdateInfo | null>("check_for_app_update")
+        const update = await desktop.app.checkForUpdates()
         const lastCheckedAt = Date.now()
 
         if (update) {
@@ -165,7 +151,7 @@ export const useAppUpdateStore = create<AppUpdateState>((set, get) => ({
     })
 
     try {
-      await invoke("install_app_update")
+      await desktop.app.installUpdate()
       set({ phase: "installed", error: null })
     } catch (error) {
       set({ phase: "error", error: getErrorMessage(error) })

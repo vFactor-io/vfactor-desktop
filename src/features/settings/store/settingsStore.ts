@@ -1,5 +1,5 @@
 import { create } from "zustand"
-import { load, Store } from "@tauri-apps/plugin-store"
+import { loadDesktopStore, type DesktopStoreHandle } from "@/desktop/client"
 
 const STORE_FILE = "settings.json"
 const CREATE_PR_INSTRUCTIONS_KEY = "createPrInstructions"
@@ -17,13 +17,13 @@ interface SettingsState {
   resetCreatePrInstructions: () => void
 }
 
-let storeInstance: Store | null = null
+let storeInstance: DesktopStoreHandle | null = null
 let initializePromise: Promise<void> | null = null
 let persistTimeoutId: ReturnType<typeof setTimeout> | null = null
 
-async function getStore(): Promise<Store> {
+async function getStore(): Promise<DesktopStoreHandle> {
   if (!storeInstance) {
-    storeInstance = await load(STORE_FILE)
+    storeInstance = await loadDesktopStore(STORE_FILE)
   }
 
   return storeInstance

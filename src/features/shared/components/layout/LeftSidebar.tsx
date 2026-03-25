@@ -301,8 +301,7 @@ export function LeftSidebar({
       {/* Toolbar header */}
       <div className="relative hidden h-11 shrink-0 items-center border-b border-sidebar-border/70 px-3 md:flex">
         <div
-          data-tauri-drag-region
-          className="h-full shrink-0"
+          className="drag-region h-full shrink-0"
           style={{ width: WINDOW_CONTROLS_GUTTER_WIDTH }}
           aria-hidden="true"
         />

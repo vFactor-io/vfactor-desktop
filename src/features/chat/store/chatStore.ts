@@ -1,5 +1,5 @@
 import { create } from "zustand"
-import { load, Store } from "@tauri-apps/plugin-store"
+import { loadDesktopStore, type DesktopStoreHandle } from "@/desktop/client"
 import {
   createTextMessage,
   dedupeMessages,
@@ -101,7 +101,7 @@ interface ChatState {
   _persistState: () => Promise<void>
 }
 
-let storeInstance: Store | null = null
+let storeInstance: DesktopStoreHandle | null = null
 let scheduledPersistTimeoutId: ReturnType<typeof setTimeout> | null = null
 
 function isExpiredApprovalPromptError(error: unknown): boolean {
@@ -115,9 +115,9 @@ function isExpiredApprovalPromptError(error: unknown): boolean {
   )
 }
 
-async function getStore(): Promise<Store> {
+async function getStore(): Promise<DesktopStoreHandle> {
   if (!storeInstance) {
-    storeInstance = await load(STORE_FILE)
+    storeInstance = await loadDesktopStore(STORE_FILE)
   }
   return storeInstance
 }

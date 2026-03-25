@@ -1,4 +1,4 @@
-import { readDir } from "@tauri-apps/plugin-fs"
+import { desktop } from "@/desktop/client"
 import type { FileTreeItem } from "@/features/version-control/types"
 
 /**
@@ -95,7 +95,7 @@ export async function readProjectFiles(
   async function processDirectory(dirPath: string, parentId: string) {
     let entries
     try {
-      entries = await readDir(dirPath)
+      entries = await desktop.fs.readDir(dirPath)
     } catch (error) {
       // Silently skip directories we can't read (permissions, etc.)
       // This prevents one bad directory from breaking the whole tree
@@ -162,7 +162,7 @@ export async function readProjectSubtree(
   async function processDirectory(dirPath: string, parentId: string) {
     let entries
     try {
-      entries = await readDir(dirPath)
+      entries = await desktop.fs.readDir(dirPath)
     } catch (error) {
       console.warn(`Skipping unreadable directory ${dirPath}`)
       return

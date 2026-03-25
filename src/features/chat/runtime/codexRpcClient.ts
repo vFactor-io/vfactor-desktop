@@ -1,8 +1,6 @@
-import { invoke } from "@tauri-apps/api/core"
-import { listen, type UnlistenFn } from "@tauri-apps/api/event"
+import { desktop } from "@/desktop/client"
 
-const CODEX_RPC_MESSAGE_EVENT = "codex-rpc:message"
-const CODEX_RPC_STATUS_EVENT = "codex-rpc:status"
+type UnlistenFn = () => void
 
 interface JsonRpcRequest {
   jsonrpc: "2.0"
@@ -189,7 +187,7 @@ export class CodexRpcClient {
 
   private async connectInternal(): Promise<void> {
     await this.attachTransportListeners()
-    await invoke<string>("ensure_codex_server")
+    await desktop.codex.ensureServer()
 
     this.isConnected = true
 
@@ -203,14 +201,14 @@ export class CodexRpcClient {
 
   private async attachTransportListeners(): Promise<void> {
     if (!this.messageUnlisten) {
-      this.messageUnlisten = await listen<string>(CODEX_RPC_MESSAGE_EVENT, (event) => {
-        this.handleMessage(event.payload)
+      this.messageUnlisten = desktop.codex.onMessage((message) => {
+        this.handleMessage(message)
       })
     }
 
     if (!this.statusUnlisten) {
-      this.statusUnlisten = await listen<string>(CODEX_RPC_STATUS_EVENT, (event) => {
-        if (event.payload === "closed") {
+      this.statusUnlisten = desktop.codex.onStatus((status) => {
+        if (status === "closed") {
           this.rejectPendingRequests("Codex App Server connection closed")
           this.resetConnection()
         }
@@ -270,9 +268,7 @@ export class CodexRpcClient {
 
   private async send(payload: JsonRpcRequest | JsonRpcNotification | { jsonrpc: "2.0"; id: number | string; result: unknown }): Promise<void> {
     try {
-      await invoke("codex_rpc_send", {
-        message: JSON.stringify(payload),
-      })
+      await desktop.codex.send(JSON.stringify(payload))
     } catch (error) {
       this.resetConnection()
       throw error

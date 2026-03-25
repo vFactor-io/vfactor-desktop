@@ -1,4 +1,4 @@
-import { open } from "@tauri-apps/plugin-dialog"
+import { desktop } from "@/desktop/client"
 
 /**
  * Opens a native folder picker dialog
@@ -6,18 +6,7 @@ import { open } from "@tauri-apps/plugin-dialog"
  */
 export async function openFolderPicker(): Promise<string | null> {
   try {
-    const selected = await open({
-      directory: true,
-      multiple: false,
-      title: "Select Project Folder",
-    })
-
-    // `open` returns string | string[] | null for directory selection
-    if (typeof selected === "string") {
-      return selected
-    }
-
-    return null
+    return await desktop.dialog.openProjectFolder()
   } catch (error) {
     console.error("Failed to open folder picker:", error)
     return null

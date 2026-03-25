@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 import Editor from "@monaco-editor/react"
-import { readTextFile } from "@tauri-apps/plugin-fs"
+import { desktop } from "@/desktop/client"
 import { getLanguageFromFilename } from "../utils/language"
 import { useTheme } from "@/features/shared/hooks"
 
@@ -34,7 +34,7 @@ export function FileViewer({ filename, filePath }: FileViewerProps) {
       }, 150)
 
       try {
-        const fileContent = await readTextFile(filePath)
+        const fileContent = await desktop.fs.readTextFile(filePath)
         if (!isCancelled) setContent(fileContent)
       } catch (err) {
         console.error("Failed to read file:", err)

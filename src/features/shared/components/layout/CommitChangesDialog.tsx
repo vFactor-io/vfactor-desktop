@@ -1,5 +1,5 @@
-import { invoke } from "@tauri-apps/api/core"
 import { useEffect, useMemo, useState } from "react"
+import { desktop } from "@/desktop/client"
 import {
   CloudUpload,
   GitBranch,
@@ -66,7 +66,7 @@ export function CommitChangesDialog({
       return
     }
 
-    invoke<GitBranchesResponse>("get_git_branches", { projectPath })
+    desktop.git.getBranches(projectPath)
       .then((response) => {
         if (!cancelled && response.currentBranch.trim()) {
           setCurrentBranch(response.currentBranch)
