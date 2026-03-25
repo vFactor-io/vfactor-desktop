@@ -1198,7 +1198,7 @@ export function ChatInput({
 
         <div
           className={cn(
-            "relative px-4 pt-3 pb-3"
+            "relative px-4 pt-4 pb-4"
           )}
         >
           {isPromptActive && prompt ? (

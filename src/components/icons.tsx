@@ -11,7 +11,6 @@ import {
   ArrowUp01Icon,
   ArrowUp02Icon,
   BashIcon,
-  Shaka04Icon,
   Attachment01Icon,
   BookOpen02Icon,
   BrainIcon,
@@ -235,7 +234,6 @@ export const ArrowElbowDownLeft = createIcon("ArrowElbowDownLeft", ArrowDownLeft
 export const ArrowUp = createIcon("ArrowUp", ArrowUp01Icon)
 export const ArrowUp02 = createIcon("ArrowUp02", ArrowUp02Icon)
 export const ArrowMoveDownLeft = createIcon("ArrowMoveDownLeft", ArrowMoveDownLeftIcon)
-export const Shaka = createIcon("Shaka", Shaka04Icon)
 export const BracketsCurly = createIcon("BracketsCurly", CodeSquareIcon)
 export const BookOpen = createIcon("BookOpen", BookOpen02Icon)
 export const Brain = createIcon("Brain", BrainIcon)

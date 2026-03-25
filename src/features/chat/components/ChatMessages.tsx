@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import type { Project } from "@/features/workspace/types"
 import type { ChildSessionState, MessageWithParts, RuntimePromptState } from "../types"
+import { NucleusLogo } from "@/components/NucleusLogo"
 import {
   Conversation,
   ConversationContent,
@@ -10,7 +11,7 @@ import {
   Message as MessageComponent,
   MessageContent,
 } from "./ai-elements/message"
-import { CheckCircle, Copy, File, Shaka } from "@/components/icons"
+import { CheckCircle, Copy, File } from "@/components/icons"
 import { LoadingDots } from "@/features/shared/components/ui/loading-dots"
 import { useStickToBottomContext } from "use-stick-to-bottom"
 import { ChatTimelineItem, InlineSubagentActivity } from "./ChatTimelineItem"
@@ -52,10 +53,6 @@ function StaticConversation({
   )
 }
 
-interface ChatEmptyStateProps {
-  selectedProject?: Project | null
-}
-
 function getMessageText(message: MessageWithParts): string {
   return message.parts
     .filter((part): part is Extract<typeof message.parts[number], { type: "text" }> => part.type === "text")
@@ -63,30 +60,18 @@ function getMessageText(message: MessageWithParts): string {
     .join("")
 }
 
-function ChatEmptyState({ selectedProject }: ChatEmptyStateProps) {
+function ChatEmptyState() {
   return (
     <div className="flex h-full w-full flex-col items-center justify-center">
       <div className="flex flex-col items-center gap-6">
-        <Shaka size={48} className="text-primary" />
+        <NucleusLogo className="size-16 overflow-hidden" imageClassName="scale-125" />
 
         <h2
-          className="bg-gradient-to-b from-foreground to-muted-foreground bg-clip-text text-2xl font-extrabold tracking-tight text-transparent"
+          className="text-center text-[1.5rem] leading-none tracking-[0.04em] text-foreground md:text-[1.875rem]"
+          style={{ fontFamily: '"Geist Pixel", "Geist Mono", ui-monospace, monospace' }}
         >
           Build cool sh*t
         </h2>
-
-        {selectedProject ? (
-          <div className="flex flex-col items-center gap-1 text-center">
-            <span className="max-w-[320px] truncate text-[13px] font-medium leading-snug text-muted-foreground">
-              {selectedProject.name}
-            </span>
-            {selectedProject.path ? (
-              <span className="max-w-[360px] truncate text-[12px] leading-snug text-muted-foreground/40">
-                {selectedProject.path}
-              </span>
-            ) : null}
-          </div>
-        ) : null}
       </div>
     </div>
   )
@@ -182,7 +167,7 @@ export function ChatMessages({
     return (
       <StaticConversation resetKey={_selectedProject?.id ?? "empty-chat"}>
         <div className="flex min-h-full w-full items-center justify-center">
-          <ChatEmptyState key={_selectedProject?.id ?? "empty-chat"} selectedProject={_selectedProject} />
+          <ChatEmptyState key={_selectedProject?.id ?? "empty-chat"} />
         </div>
       </StaticConversation>
     )
@@ -201,7 +186,7 @@ export function ChatMessages({
       />
       <ConversationContent className="mx-auto flex w-full max-w-[803px] flex-col gap-0 px-10 pb-10">
         <>
-          {showInlineIntro ? <ChatEmptyState selectedProject={_selectedProject} /> : null}
+          {showInlineIntro ? <ChatEmptyState /> : null}
           {timelineBlocks.map((block, blockIndex) => {
             if (block.type !== "message") {
               return null

@@ -89,12 +89,18 @@ export function CenterToolbar({ activeView = "chat", onOpenChat }: CenterToolbar
       <div className="flex h-full min-w-0 flex-1 items-center">
         <div
           className={cn(
-            "hidden h-full min-w-0 shrink-0 items-center pl-4 md:flex",
-            activeView !== "chat" && "md:hidden",
+            "hidden h-full min-w-0 shrink-0 items-center gap-3 pl-4 md:flex",
           )}
           style={collapsedBranchOffset > 0 ? { marginLeft: collapsedBranchOffset } : undefined}
         >
-          <BranchTargetSelector projectPath={selectedProject?.path ?? null} />
+          {selectedProject ? (
+            <span className="max-w-[220px] truncate text-sm font-medium text-foreground">
+              {selectedProject.name}
+            </span>
+          ) : null}
+          {activeView === "chat" ? (
+            <BranchTargetSelector projectPath={selectedProject?.path ?? null} />
+          ) : null}
         </div>
         <div data-tauri-drag-region className="min-w-0 flex-1 self-stretch" />
         {activeView === "chat" ? (
@@ -116,6 +122,11 @@ export function CenterToolbar({ activeView = "chat", onOpenChat }: CenterToolbar
 
       {/* Mobile controls */}
       <div className="flex shrink-0 items-center gap-1 px-3 md:hidden">
+        {selectedProject ? (
+          <span className="mr-1 max-w-[140px] truncate text-sm font-medium text-foreground">
+            {selectedProject.name}
+          </span>
+        ) : null}
         <Button
           type="button"
           onClick={toggleLeft}
