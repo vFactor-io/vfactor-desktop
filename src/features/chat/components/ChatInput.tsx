@@ -1,4 +1,4 @@
-import { ArrowUp02, Brain, CaretDown, CheckCircle, Circle, DocumentValidation, Stop } from "@/components/icons"
+import { ArrowUp02, Brain, CaretDown, CheckCircle, Circle, DocumentValidation, Stop, X } from "@/components/icons"
 import {
   useState,
   useRef,
@@ -255,6 +255,10 @@ export function ChatInput({
 
   const togglePlanMode = useCallback(() => {
     setIsPlanModeEnabled((current) => !current)
+  }, [])
+
+  const disablePlanMode = useCallback(() => {
+    setIsPlanModeEnabled(false)
   }, [])
 
   const { commands, isLoading: isLoadingCommands } = useCommands()
@@ -1337,30 +1341,35 @@ export function ChatInput({
               </DropdownMenu>}
 
               {selectorsRow && isPlanModeAvailable && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onMouseDown={handlePlanModeMouseDown}
-                    onClick={handlePlanModeClick}
-                    aria-label="Toggle plan mode"
-                    className={cn(
-                      "inline-flex h-8 w-8 items-center justify-center rounded-full border",
-                      isPlanModeEnabled
-                        ? "border-transparent bg-transparent text-[var(--color-chat-plan-accent)]"
-                        : "border-transparent text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    <DocumentValidation
-                      className={cn(
-                        "size-4",
-                        isPlanModeEnabled ? "text-[var(--color-chat-plan-accent)]" : undefined
-                      )}
-                    />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top">{`Plan mode (${planModeShortcutLabel})`}</TooltipContent>
-              </Tooltip>
+                isPlanModeEnabled ? (
+                  <div className="inline-flex h-8 items-center gap-1 rounded-full bg-[var(--color-chat-plan-surface)] pl-2.5 pr-1 text-[var(--color-chat-plan-accent)]">
+                    <DocumentValidation className="size-4 shrink-0" />
+                    <span className="text-sm font-medium">Plan mode</span>
+                    <button
+                      type="button"
+                      onClick={disablePlanMode}
+                      aria-label="Disable plan mode"
+                      className="inline-flex size-6 items-center justify-center rounded-full text-[var(--color-chat-plan-accent)] transition-colors hover:bg-[var(--color-chat-plan-border)]/30"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onMouseDown={handlePlanModeMouseDown}
+                        onClick={handlePlanModeClick}
+                        aria-label="Toggle plan mode"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-transparent text-muted-foreground hover:text-foreground"
+                      >
+                        <DocumentValidation className="size-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">{`Plan mode (${planModeShortcutLabel})`}</TooltipContent>
+                  </Tooltip>
+                )
               )}
 
               <div className="ml-auto flex items-center gap-2">
