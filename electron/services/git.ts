@@ -165,6 +165,12 @@ async function getGitBranchesResponse(projectPath: string): Promise<GitBranchesR
   }
 }
 
+export async function resolveGitDirectory(projectPath: string): Promise<string> {
+  const trimmedPath = ensureGitProjectPath(projectPath)
+  await runGitCommand(trimmedPath, ["rev-parse", "--show-toplevel"])
+  return runGitCommand(trimmedPath, ["rev-parse", "--absolute-git-dir"])
+}
+
 function localBranchNameForRemote(branchName: string): string {
   return branchName.split("/").slice(1).join("/") || branchName
 }

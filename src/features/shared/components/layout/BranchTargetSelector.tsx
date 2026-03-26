@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { desktop, type GitBranchesResponse } from "@/desktop/client"
+import { desktop } from "@/desktop/client"
 import {
   CaretDown,
   CheckCircle,
@@ -13,6 +13,7 @@ import {
   InputGroupAddon,
   InputGroupInput,
 } from "@/features/shared/components/ui"
+import { useProjectGitBranches } from "@/features/shared/hooks"
 import { cn } from "@/lib/utils"
 import { CreateBranchDialog } from "./CreateBranchDialog"
 
@@ -35,56 +36,32 @@ function formatBranchError(error: unknown) {
 }
 
 export function BranchTargetSelector({ projectPath }: BranchTargetSelectorProps) {
-  const [branchData, setBranchData] = useState<GitBranchesResponse | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
+  const { branchData, isLoading, loadError, refresh, setBranchData } = useProjectGitBranches(
+    projectPath
+  )
   const [searchQuery, setSearchQuery] = useState("")
   const [isOpen, setIsOpen] = useState(false)
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [pendingBranch, setPendingBranch] = useState<string | null>(null)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [actionErrorMessage, setActionErrorMessage] = useState<string | null>(null)
   const dropdownRef = useRef<HTMLDivElement | null>(null)
   const searchInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
-    let cancelled = false
-
-    if (!projectPath) {
-      setBranchData(null)
-      setSearchQuery("")
-      setErrorMessage(null)
-      setIsOpen(false)
-      setIsCreateDialogOpen(false)
-      return
-    }
-
-    setIsLoading(true)
-    setErrorMessage(null)
-
-    desktop.git.getBranches(projectPath)
-      .then((data) => {
-        if (!cancelled) {
-          setBranchData(data)
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          console.warn("[BranchTargetSelector] Failed to load git branches:", error)
-          setBranchData(null)
-          setErrorMessage("Unable to load branches for this project.")
-          setIsOpen(false)
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsLoading(false)
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
+    setSearchQuery("")
+    setActionErrorMessage(null)
+    setIsOpen(false)
+    setIsCreateDialogOpen(false)
+    setPendingBranch(null)
+    setIsSubmitting(false)
   }, [projectPath])
+
+  useEffect(() => {
+    if (loadError) {
+      setIsOpen(false)
+    }
+  }, [loadError])
 
   useEffect(() => {
     if (!isOpen) {
@@ -154,6 +131,7 @@ export function BranchTargetSelector({ projectPath }: BranchTargetSelectorProps)
     deletions: 0,
   }
   const canOpenMenu = !isLoading && branchData !== null
+  const errorMessage = actionErrorMessage ?? loadError
 
   const handleBranchSelect = async (branch: string) => {
     if (!projectPath || !branchData || branch === branchData.currentBranch) {
@@ -163,7 +141,7 @@ export function BranchTargetSelector({ projectPath }: BranchTargetSelectorProps)
 
     setIsSubmitting(true)
     setPendingBranch(branch)
-    setErrorMessage(null)
+    setActionErrorMessage(null)
 
     try {
       const [nextData] = await Promise.all([
@@ -175,7 +153,7 @@ export function BranchTargetSelector({ projectPath }: BranchTargetSelectorProps)
       setSearchQuery("")
       setIsOpen(false)
     } catch (error) {
-      setErrorMessage(formatBranchError(error))
+      setActionErrorMessage(formatBranchError(error))
     } finally {
       setIsSubmitting(false)
       setPendingBranch(null)
@@ -192,7 +170,11 @@ export function BranchTargetSelector({ projectPath }: BranchTargetSelectorProps)
               return
             }
 
-            setErrorMessage(null)
+            if (!isOpen) {
+              void refresh({ quiet: true })
+            }
+
+            setActionErrorMessage(null)
             setSearchQuery("")
             setIsOpen((current) => !current)
           }}
@@ -311,7 +293,7 @@ export function BranchTargetSelector({ projectPath }: BranchTargetSelectorProps)
               <button
                 type="button"
                 onClick={() => {
-                  setErrorMessage(null)
+                  setActionErrorMessage(null)
                   setIsOpen(false)
                   setIsCreateDialogOpen(true)
                 }}
@@ -333,7 +315,7 @@ export function BranchTargetSelector({ projectPath }: BranchTargetSelectorProps)
         onCreated={(nextData) => {
           setBranchData(nextData)
           setSearchQuery("")
-          setErrorMessage(null)
+          setActionErrorMessage(null)
         }}
       />
     </>

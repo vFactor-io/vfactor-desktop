@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
-import { desktop } from "@/desktop/client"
+import { useMemo, useState } from "react"
 import {
   CloudUpload,
   GitBranch,
@@ -16,6 +15,7 @@ import {
   DialogContent,
   DialogTitle,
 } from "@/features/shared/components/ui/dialog"
+import { useProjectGitBranches } from "@/features/shared/hooks"
 import { Switch } from "@/features/shared/components/ui/switch"
 import { Textarea } from "@/features/shared/components/ui/textarea"
 import { cn } from "@/lib/utils"
@@ -24,10 +24,6 @@ interface CommitChangesDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   projectPath: string | null
-}
-
-interface GitBranchesResponse {
-  currentBranch: string
 }
 
 type NextStepId = "commit" | "commit-and-push" | "commit-and-create-pr"
@@ -53,35 +49,11 @@ export function CommitChangesDialog({
   onOpenChange,
   projectPath,
 }: CommitChangesDialogProps) {
-  const [currentBranch, setCurrentBranch] = useState("main")
+  const { branchData } = useProjectGitBranches(projectPath, { enabled: open })
   const [includeUnstaged, setIncludeUnstaged] = useState(true)
   const [commitMessage, setCommitMessage] = useState("")
   const [nextStep, setNextStep] = useState<NextStepId>("commit")
-
-  useEffect(() => {
-    let cancelled = false
-
-    if (!projectPath) {
-      setCurrentBranch("main")
-      return
-    }
-
-    desktop.git.getBranches(projectPath)
-      .then((response) => {
-        if (!cancelled && response.currentBranch.trim()) {
-          setCurrentBranch(response.currentBranch)
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setCurrentBranch("main")
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [projectPath])
+  const currentBranch = branchData?.currentBranch.trim() ? branchData.currentBranch : "main"
 
   const summary = useMemo(
     () => ({

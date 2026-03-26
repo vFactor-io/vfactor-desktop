@@ -1,9 +1,12 @@
 import chokidar, { type FSWatcher } from "chokidar"
-import { basename, relative } from "node:path"
+import { basename, join, relative } from "node:path"
 import type { ProjectFileSystemEvent } from "../../src/desktop/contracts"
 import { EVENT_CHANNELS } from "../ipc/channels"
+import { resolveGitDirectory } from "./git"
 
 type EventSender = (channel: string, payload: unknown) => void
+
+const GIT_METADATA_RESYNC_MS = 75
 
 const IGNORED_DIRECTORIES = new Set([
   ".git",
@@ -67,8 +70,10 @@ function createRescanEvent(rootPath: string): ProjectFileSystemEvent {
 
 export class ProjectWatcherService {
   private watcher: FSWatcher | null = null
+  private gitWatcher: FSWatcher | null = null
   private activePath: string | null = null
   private pendingUnlink: PendingUnlink | null = null
+  private gitRescanTimeout: ReturnType<typeof setTimeout> | null = null
 
   constructor(private readonly sendEvent: EventSender) {}
 
@@ -90,6 +95,17 @@ export class ProjectWatcherService {
 
     const emit = (payload: ProjectFileSystemEvent) => {
       this.sendEvent(EVENT_CHANNELS.projectFs, payload)
+    }
+
+    const scheduleGitRescan = () => {
+      if (this.gitRescanTimeout) {
+        clearTimeout(this.gitRescanTimeout)
+      }
+
+      this.gitRescanTimeout = setTimeout(() => {
+        this.gitRescanTimeout = null
+        emit(createRescanEvent(projectPath))
+      }, GIT_METADATA_RESYNC_MS)
     }
 
     const flushPendingUnlink = () => {
@@ -190,19 +206,59 @@ export class ProjectWatcherService {
       })
 
     this.watcher = watcher
+
+    try {
+      const gitDir = await resolveGitDirectory(projectPath)
+      const gitMetadataPaths = [
+        join(gitDir, "HEAD"),
+        join(gitDir, "packed-refs"),
+        join(gitDir, "refs", "heads"),
+        join(gitDir, "refs", "remotes"),
+      ]
+
+      this.gitWatcher = chokidar.watch(gitMetadataPaths, {
+        ignoreInitial: true,
+        awaitWriteFinish: {
+          stabilityThreshold: 100,
+          pollInterval: 10,
+        },
+      })
+
+      this.gitWatcher
+        .on("all", () => {
+          scheduleGitRescan()
+        })
+        .on("error", (error) => {
+          console.warn("[watcher] Git metadata watcher error:", error)
+          emit(createRescanEvent(projectPath))
+        })
+    } catch (error) {
+      console.warn("[watcher] Failed to resolve git metadata path:", error)
+    }
+
     this.activePath = projectPath
   }
 
   async stop(): Promise<void> {
+    if (this.gitRescanTimeout) {
+      clearTimeout(this.gitRescanTimeout)
+      this.gitRescanTimeout = null
+    }
+
     if (this.pendingUnlink) {
       clearTimeout(this.pendingUnlink.timer)
       this.pendingUnlink = null
+    }
+
+    if (this.gitWatcher) {
+      await this.gitWatcher.close()
     }
 
     if (this.watcher) {
       await this.watcher.close()
     }
 
+    this.gitWatcher = null
     this.watcher = null
     this.activePath = null
   }
