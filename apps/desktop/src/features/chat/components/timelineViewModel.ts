@@ -24,8 +24,8 @@ export interface ChatTimelineViewModel {
   renderedMessages: MessageWithParts[]
   timelineBlocks: TimelineBlock[]
   approvalStateByMessageId: Map<string, RuntimeApprovalDisplayState>
-  latestTurnLastAssistantTextMessage: MessageWithParts | null
-  latestTurnLastAssistantTextMessageId: string | null
+  latestTurnFooterMessage: MessageWithParts | null
+  latestTurnFooterMessageId: string | null
   latestTurnChangedFilesSummary: TimelineFileChangeSummary | null
   completedWorkDurationByMessageId: Map<string, number>
   completedFooterByMessageId: Map<
@@ -221,17 +221,9 @@ export function buildChatTimelineViewModel({
   }
 
   const latestTurnMessages = renderedMessages.slice(latestTurnStartIndex)
-  const latestTurnLastAssistantTextMessage =
-    [...latestTurnMessages]
-      .reverse()
-      .find(
-        (message) =>
-          message.info.role === "assistant" &&
-          message.parts.some((part) => part.type === "text" && part.text.trim())
-      ) ?? null
-  const latestTurnLastAssistantTextMessageId =
-    latestTurnLastAssistantTextMessage?.info.id ?? null
-
+  const latestTurnFooterMessage =
+    [...latestTurnMessages].reverse().find((message) => message.info.role === "assistant") ?? null
+  const latestTurnFooterMessageId = latestTurnFooterMessage?.info.id ?? null
   const changeTotals = new Map<string, { added: number; removed: number }>()
   for (const candidate of latestTurnMessages) {
     if (candidate.info.itemType !== "fileChange") {
@@ -256,7 +248,7 @@ export function buildChatTimelineViewModel({
   }
 
   const latestTurnChangedFilesSummary =
-    latestTurnLastAssistantTextMessageId == null || changeTotals.size === 0
+    latestTurnFooterMessageId == null || changeTotals.size === 0
       ? null
       : (() => {
           const entries = Array.from(changeTotals.entries())
@@ -277,7 +269,7 @@ export function buildChatTimelineViewModel({
 
   const earliestTimestampByTurnId = new Map<string, number>()
   const completedWorkDurationByMessageId = new Map<string, number>()
-  const lastAssistantTextMessageByTurnId = new Map<string, MessageWithParts>()
+  const lastAssistantMessageByTurnId = new Map<string, MessageWithParts>()
   const fileChangeTotalsByTurnId = new Map<string, Map<string, { added: number; removed: number }>>()
 
   for (const message of renderedMessages) {
@@ -317,10 +309,7 @@ export function buildChatTimelineViewModel({
   }
 
   for (const message of renderedMessages) {
-    if (
-      message.info.role !== "assistant" ||
-      !message.parts.some((part) => part.type === "text" && part.text.trim())
-    ) {
+    if (message.info.role !== "assistant") {
       continue
     }
 
@@ -334,7 +323,7 @@ export function buildChatTimelineViewModel({
       message.info.id,
       Math.max(0, message.info.createdAt - startTime)
     )
-    lastAssistantTextMessageByTurnId.set(turnId, message)
+    lastAssistantMessageByTurnId.set(turnId, message)
   }
 
   const completedFooterByMessageId = new Map<
@@ -345,7 +334,7 @@ export function buildChatTimelineViewModel({
     }
   >()
 
-  for (const [turnId, message] of lastAssistantTextMessageByTurnId.entries()) {
+  for (const [turnId, message] of lastAssistantMessageByTurnId.entries()) {
     const durationMs = completedWorkDurationByMessageId.get(message.info.id)
     if (durationMs == null) {
       continue
@@ -406,8 +395,8 @@ export function buildChatTimelineViewModel({
       approvalPromptState,
       approvalDisplayState
     ),
-    latestTurnLastAssistantTextMessage,
-    latestTurnLastAssistantTextMessageId,
+    latestTurnFooterMessage,
+    latestTurnFooterMessageId,
     latestTurnChangedFilesSummary,
     completedWorkDurationByMessageId,
     completedFooterByMessageId,

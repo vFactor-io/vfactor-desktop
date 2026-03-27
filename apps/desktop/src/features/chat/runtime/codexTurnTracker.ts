@@ -33,6 +33,8 @@ import {
   type CodexPendingUserInputRequest,
 } from "./codexPrompts"
 
+const TEXT_DELTA_EMIT_DELAY_MS = 40
+
 interface WaitForCodexTurnCompletionOptions {
   rpc: CodexRpcClient
   threadId: string
@@ -62,6 +64,7 @@ export function waitForCodexTurnCompletion(
     const turnState = new CodexTurnState()
     let settled = false
     let emitQueued = false
+    let emitTimeoutId: number | null = null
     let lastEmittedSnapshot = ""
     let activePromptId: string | null = null
     let lastActivityAt = Date.now()
@@ -69,6 +72,13 @@ export function waitForCodexTurnCompletion(
 
     const noteActivity = () => {
       lastActivityAt = Date.now()
+    }
+
+    const clearScheduledEmit = () => {
+      if (emitTimeoutId != null) {
+        window.clearTimeout(emitTimeoutId)
+        emitTimeoutId = null
+      }
     }
 
     const registerApprovalPrompt = (
@@ -165,8 +175,26 @@ export function waitForCodexTurnCompletion(
       onUpdate?.({ prompt: promptWithMetadata })
     }
 
-    const emitUpdate = () => {
-      if (!onUpdate || emitQueued || settled) {
+    const emitUpdate = (priority: "immediate" | "deferred" = "immediate") => {
+      if (!onUpdate || settled) {
+        return
+      }
+
+      if (priority === "deferred") {
+        if (emitQueued || emitTimeoutId != null) {
+          return
+        }
+
+        emitTimeoutId = window.setTimeout(() => {
+          emitTimeoutId = null
+          emitUpdate("immediate")
+        }, TEXT_DELTA_EMIT_DELAY_MS)
+        return
+      }
+
+      clearScheduledEmit()
+
+      if (emitQueued) {
         return
       }
 
@@ -238,6 +266,7 @@ export function waitForCodexTurnCompletion(
       }
 
       settled = true
+      clearScheduledEmit()
       window.clearInterval(syncIntervalId)
       window.clearInterval(stallIntervalId)
       unsubscribe()
@@ -254,6 +283,7 @@ export function waitForCodexTurnCompletion(
       }
 
       settled = true
+      clearScheduledEmit()
       window.clearInterval(syncIntervalId)
       window.clearInterval(stallIntervalId)
       unsubscribe()
@@ -331,7 +361,7 @@ export function waitForCodexTurnCompletion(
 
             noteActivity()
             turnState.appendAgentMessageDelta(params.itemId, params.delta)
-            emitUpdate()
+            emitUpdate("deferred")
             return
           }
 
@@ -343,7 +373,7 @@ export function waitForCodexTurnCompletion(
 
             noteActivity()
             turnState.appendPlanDelta(params.itemId, params.delta)
-            emitUpdate()
+            emitUpdate("deferred")
             return
           }
 
@@ -355,7 +385,7 @@ export function waitForCodexTurnCompletion(
 
             noteActivity()
             turnState.appendReasoningContentDelta(params.itemId, params.contentIndex, params.delta)
-            emitUpdate()
+            emitUpdate("deferred")
             return
           }
 
@@ -368,7 +398,7 @@ export function waitForCodexTurnCompletion(
 
             noteActivity()
             turnState.appendReasoningSummaryDelta(params.itemId, params.summaryIndex, params.delta)
-            emitUpdate()
+            emitUpdate("deferred")
             return
           }
 

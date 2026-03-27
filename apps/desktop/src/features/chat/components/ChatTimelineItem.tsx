@@ -34,6 +34,7 @@ interface ChatTimelineItemProps {
   message: MessageWithParts
   childSessions?: Map<string, ChildSessionData>
   approvalState?: RuntimeApprovalDisplayState | null
+  isStreaming?: boolean
 }
 
 function getMessageText(parts: RuntimeMessagePart[]): string {
@@ -47,16 +48,19 @@ function TimelineTextBlock({
   eyebrow,
   text,
   tone = "default",
+  isStreaming = false,
 }: {
   eyebrow?: string
   text: string
   tone?: "default" | "muted" | "accent"
+  isStreaming?: boolean
 }) {
   if (tone === "default") {
     return (
       <MessageComponent from="assistant">
         <MessageContent>
           <MessageResponse
+            isStreaming={isStreaming}
             className="leading-relaxed [&>p]:mb-4 last:[&>p]:mb-0"
           >
             {text}
@@ -79,6 +83,7 @@ function TimelineTextBlock({
             </div>
           ) : null}
           <MessageResponse
+            isStreaming={isStreaming}
             className="leading-relaxed [&>p]:mb-4 last:[&>p]:mb-0"
           >
             {text}
@@ -656,6 +661,7 @@ export function ChatTimelineItem({
   message,
   childSessions,
   approvalState = null,
+  isStreaming = false,
 }: ChatTimelineItemProps) {
   const text = getMessageText(message.parts)
   const toolPart = getToolPart(message.parts)
@@ -696,6 +702,7 @@ export function ChatTimelineItem({
     return (
       <TimelineTextBlock
         text={text}
+        isStreaming={isStreaming}
       />
     )
   }
@@ -706,6 +713,7 @@ export function ChatTimelineItem({
         eyebrow="Plan"
         text={text}
         tone="accent"
+        isStreaming={isStreaming}
       />
     )
   }
@@ -716,6 +724,7 @@ export function ChatTimelineItem({
         eyebrow={itemType === "enteredReviewMode" ? "Review Mode" : "Review Closed"}
         text={text}
         tone="accent"
+        isStreaming={isStreaming}
       />
     )
   }
@@ -726,6 +735,7 @@ export function ChatTimelineItem({
         eyebrow="Approval"
         text={text}
         tone="muted"
+        isStreaming={isStreaming}
       />
     )
   }
@@ -734,6 +744,7 @@ export function ChatTimelineItem({
     return (
       <TimelineTextBlock
         text={text}
+        isStreaming={isStreaming}
       />
     )
   }
@@ -741,6 +752,7 @@ export function ChatTimelineItem({
   return (
     <TimelineTextBlock
       text={text}
+      isStreaming={isStreaming}
     />
   )
 }

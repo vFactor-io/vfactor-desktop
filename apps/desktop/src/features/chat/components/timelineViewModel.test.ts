@@ -87,4 +87,14 @@ describe("buildChatTimelineViewModel", () => {
     expect(viewModel.renderedMessages[0]?.info.id).toBe("approval:call-2")
     expect(viewModel.approvalStateByMessageId.get("approval:call-2")).toBe("pending")
   })
+
+  test("anchors completed turn footers to the last assistant row even for tool-only turns", () => {
+    const message = createCommandToolMessage("call-3:message", "call-3")
+    const viewModel = buildChatTimelineViewModel({
+      messages: [message],
+    })
+
+    expect(viewModel.latestTurnFooterMessageId).toBe("call-3:message")
+    expect(viewModel.completedFooterByMessageId.has("call-3:message")).toBe(true)
+  })
 })

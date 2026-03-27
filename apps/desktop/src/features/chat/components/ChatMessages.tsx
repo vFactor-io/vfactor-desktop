@@ -100,8 +100,8 @@ export function ChatMessages({
     renderedMessages,
     timelineBlocks,
     approvalStateByMessageId,
-    latestTurnLastAssistantTextMessage,
-    latestTurnLastAssistantTextMessageId,
+    latestTurnFooterMessage,
+    latestTurnFooterMessageId,
     latestTurnChangedFilesSummary,
     completedWorkDurationByMessageId,
     completedFooterByMessageId,
@@ -117,25 +117,26 @@ export function ChatMessages({
   const previousStatusRef = useRef(status)
 
   useEffect(() => {
+    setActiveWorkStartTime(status === "streaming" ? Date.now() : null)
+    setLastCompletedWork(null)
+    previousStatusRef.current = status
+  }, [threadKey])
+
+  useEffect(() => {
     const previousStatus = previousStatusRef.current
 
-    if (previousStatus !== "streaming" && status === "streaming") {
+    if (status === "streaming" && activeWorkStartTime == null) {
+      setActiveWorkStartTime(Date.now())
+      setLastCompletedWork(null)
+    } else if (previousStatus !== "streaming" && status === "streaming") {
       setActiveWorkStartTime(Date.now())
       setLastCompletedWork(null)
     }
 
     if (previousStatus === "streaming" && status !== "streaming" && activeWorkStartTime != null) {
-      const lastAssistantMessage = [...renderedMessages]
-        .reverse()
-        .find(
-          (message) =>
-            message.info.role === "assistant" &&
-            message.parts.some((part) => part.type === "text" && part.text.trim())
-        )
-
-      if (lastAssistantMessage) {
+      if (latestTurnFooterMessage) {
         setLastCompletedWork({
-          messageId: lastAssistantMessage.info.id,
+          messageId: latestTurnFooterMessage.info.id,
           durationMs: Date.now() - activeWorkStartTime,
         })
       }
@@ -144,13 +145,38 @@ export function ChatMessages({
     }
 
     previousStatusRef.current = status
-  }, [activeWorkStartTime, renderedMessages, status])
+  }, [activeWorkStartTime, latestTurnFooterMessage, status])
+  const resolvedCompletedFooterByMessageId = useMemo(() => {
+    const resolved = new Map(completedFooterByMessageId)
+
+    if (lastCompletedWork?.messageId) {
+      const previousFooter = resolved.get(lastCompletedWork.messageId)
+
+      resolved.set(lastCompletedWork.messageId, {
+        durationMs: lastCompletedWork.durationMs,
+        changedFilesSummary: previousFooter?.changedFilesSummary ?? latestTurnChangedFilesSummary,
+      })
+    }
+
+    return resolved
+  }, [completedFooterByMessageId, lastCompletedWork, latestTurnChangedFilesSummary])
+  const latestStreamingTextMessageId = useMemo(
+    () =>
+      [...renderedMessages]
+        .reverse()
+        .find(
+          (message) =>
+            message.info.role === "assistant" &&
+            message.parts.some((part) => part.type === "text" && part.text.trim())
+        )?.info.id ?? null,
+    [renderedMessages]
+  )
   const latestTurnDurationMs =
-    latestTurnLastAssistantTextMessageId == null
+    latestTurnFooterMessageId == null
       ? null
-      : latestTurnLastAssistantTextMessageId === lastCompletedWork?.messageId
+      : latestTurnFooterMessageId === lastCompletedWork?.messageId
         ? lastCompletedWork.durationMs
-        : (completedWorkDurationByMessageId.get(latestTurnLastAssistantTextMessageId) ?? null)
+        : (completedWorkDurationByMessageId.get(latestTurnFooterMessageId) ?? null)
   const shouldRenderLatestTurnFooter = status === "streaming" && activeWorkStartTime != null
   const [preparedThreadKey, setPreparedThreadKey] = useState(threadKey)
   const isThreadPrepared = preparedThreadKey === threadKey
@@ -204,10 +230,10 @@ export function ChatMessages({
                 : previousRole === currentRole
                   ? "mt-3"
                   : "mt-7"
-            const completedFooter = completedFooterByMessageId.get(block.message.info.id)
+            const completedFooter = resolvedCompletedFooterByMessageId.get(block.message.info.id)
             const shouldRenderInlineCompletedFooter =
               completedFooter != null &&
-              !(status === "streaming" && block.message.info.id === latestTurnLastAssistantTextMessageId)
+              !(status === "streaming" && block.message.info.id === latestTurnFooterMessageId)
 
             return (
               <div key={block.key} className={rowSpacingClass}>
@@ -215,6 +241,7 @@ export function ChatMessages({
                   message={block.message}
                   childSessions={childSessionData}
                   approvalState={approvalStateByMessageId.get(block.message.info.id) ?? null}
+                  isStreaming={status === "streaming" && block.message.info.id === latestStreamingTextMessageId}
                 />
                 {shouldRenderInlineCompletedFooter ? (
                   <AssistantTurnFooter
@@ -240,7 +267,7 @@ export function ChatMessages({
               isWorking={status === "streaming"}
               startTime={activeWorkStartTime}
               completedDurationMs={latestTurnDurationMs ?? undefined}
-              copyText={status === "streaming" ? null : getMessageText(latestTurnLastAssistantTextMessage!)}
+              copyText={status === "streaming" ? null : getMessageText(latestTurnFooterMessage!)}
               changedFilesSummary={status === "streaming" ? null : latestTurnChangedFilesSummary}
             />
           ) : null}

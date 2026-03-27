@@ -16,7 +16,7 @@ export const Conversation = ({ className, ...props }: ConversationProps) => (
       className
     )}
     initial="instant"
-    resize="instant"
+    resize="smooth"
     role="log"
     {...props}
   />
@@ -31,7 +31,7 @@ export const ConversationContent = ({
   ...props
 }: ConversationContentProps) => (
   <StickToBottom.Content
-    className={cn("flex min-h-full flex-col justify-end gap-3 p-4", className)}
+    className={cn("flex min-h-full flex-col gap-3 p-4", className)}
     {...props}
   />
 );
