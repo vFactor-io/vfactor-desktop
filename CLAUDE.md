@@ -23,36 +23,41 @@ This project is being built in phases:
 ## Commands
 
 ```bash
-bun run dev                # Run Electron app in development
-bun run build              # Build Electron app
-bun run cli "prompt"       # Run OpenCode CLI (streams by default)
-bun run cli "prompt" --stream-tools  # Stream tool activity
-bun run cli "prompt" --raw-only      # Only show raw response
-bun run cli "prompt" --json-only     # Only show raw JSON
-bun run typecheck          # TypeScript type checking
+bun run dev                        # Run the desktop app in development
+bun run desktop:dev                # Run the desktop app explicitly
+bun run site:dev                   # Run the marketing site
+bun run build                      # Build desktop + site packages
+bun run desktop:cli "prompt"       # Run OpenCode CLI (streams by default)
+bun run desktop:cli "prompt" --stream-tools  # Stream tool activity
+bun run desktop:cli "prompt" --raw-only      # Only show raw response
+bun run desktop:cli "prompt" --json-only     # Only show raw JSON
+bun run typecheck                  # TypeScript type checking for the desktop app
 ```
 
 ## Architecture
 
 ### Current (Phase 1 - UI shell)
 ```
-nucleus-desktop/
-├── src/                   # React UI shell
-├── electron/              # Electron main/preload/services
-├── package.json
-├── tsconfig.json
+nucleus/
+├── apps/
+│   ├── desktop/           # Electron shell, renderer, CLI, packaging assets
+│   └── site/              # Marketing website package
+├── package.json           # Bun workspace scripts
 └── MIGRATION.md           # Detailed migration plan
 ```
 
 ### Target (Phase 2+)
 ```
-nucleus-desktop/
-├── electron/              # Electron shell, IPC, and native services
-├── src/
-│   ├── agent/             # Agent runtime integration (TBD)
-│   └── features/          # UI features (migrated from claude-interface)
-│       ├── chat/          # Chat UI components
-│       └── shared/        # Shared UI components
+nucleus/
+├── apps/
+│   ├── desktop/
+│   │   ├── electron/      # Electron shell, IPC, and native services
+│   │   └── src/
+│   │       ├── runtime/   # ADE runtime integration (TBD)
+│   │       └── features/  # UI features (migrated from claude-interface)
+│   │           ├── chat/  # Chat UI components
+│   │           └── shared/  # Shared UI components
+│   └── site/              # Public marketing site
 └── ...
 ```
 
@@ -72,7 +77,7 @@ The UI from `claude-interface` project will be migrated here. Key components to 
 - `ai-elements/` - Message, Conversation, Loader components
 - `shared/components/ui/` - Button, Input, Dialog, etc.
 
-These components have already been decoupled from the old ACP implementation and use local types compatible with a future agent runtime.
+These components have already been decoupled from the old ACP implementation and use local types compatible with a future ADE runtime.
 
 ## Development Guidelines
 

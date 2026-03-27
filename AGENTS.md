@@ -37,36 +37,41 @@ This project is being built in phases:
 ## Commands
 
 ```bash
-bun run dev                # Run Electron app in development
-bun run build              # Build Electron app
-bun run cli "prompt"       # Run OpenCode CLI (streams by default)
-bun run cli "prompt" --stream-tools  # Stream tool activity
-bun run cli "prompt" --raw-only      # Only show raw response
-bun run cli "prompt" --json-only     # Only show raw JSON
-bun run typecheck          # TypeScript type checking
+bun run dev                        # Run the desktop app in development
+bun run desktop:dev                # Run the desktop app explicitly
+bun run site:dev                   # Run the marketing site
+bun run build                      # Build desktop + site packages
+bun run desktop:cli "prompt"       # Run OpenCode CLI (streams by default)
+bun run desktop:cli "prompt" --stream-tools  # Stream tool activity
+bun run desktop:cli "prompt" --raw-only      # Only show raw response
+bun run desktop:cli "prompt" --json-only     # Only show raw JSON
+bun run typecheck                  # TypeScript type checking for the desktop app
 ```
 
 ## Architecture
 
 ### Current (Phase 1 - UI shell)
 ```
-nucleus-desktop/
-├── src/                   # React UI shell
-├── electron/              # Electron main/preload/services
-├── package.json
-├── tsconfig.json
+nucleus/
+├── apps/
+│   ├── desktop/           # Electron shell, renderer, CLI, packaging assets
+│   └── site/              # Marketing website package
+├── package.json           # Bun workspace scripts
 └── MIGRATION.md           # Detailed migration plan
 ```
 
 ### Target (Phase 2+)
 ```
-nucleus-desktop/
-├── electron/              # Electron shell, IPC, and native services
-├── src/
-│   ├── runtime/           # ADE runtime and harness integration (TBD)
-│   └── features/          # UI features (migrated from Codex-interface)
-│       ├── chat/          # Chat/thread UI scoped to the selected project
-│       └── shared/        # Shared UI components
+nucleus/
+├── apps/
+│   ├── desktop/
+│   │   ├── electron/      # Electron shell, IPC, and native services
+│   │   └── src/
+│   │       ├── runtime/   # ADE runtime and harness integration (TBD)
+│   │       └── features/  # UI features (migrated from Codex-interface)
+│   │           ├── chat/  # Chat/thread UI scoped to the selected project
+│   │           └── shared/  # Shared UI components
+│   └── site/              # Public marketing site
 └── ...
 ```
 
@@ -109,4 +114,4 @@ These components have already been decoupled from the old ACP implementation and
 - Codex assistant turns can surface the same content twice with different ids during streaming/final reconciliation (for example provisional `item-*` ids and canonical `msg_*` ids), so chat message merges should dedupe semantically instead of assuming ids alone are stable.
 - If assistant paragraph spacing looks broken in chat, check persisted `chat.json` before changing the adapter: in this app the `\n\n` paragraph breaks survived storage, and the bug was in markdown paragraph rendering/styling rather than model output.
 - For instant first-message UX without flicker, keep a stable local session id for the UI and store the real harness thread id separately (`remoteId`); promote the optimistic session in place instead of replacing it when the adapter finishes booting the remote thread.
-- There are already in-progress extraction seams under `src/features/chat/components/composer/` and `src/features/chat/store/`; extend those instead of creating parallel refactor folders so the chat/composer architecture converges on one set of boundaries.
+- There are already in-progress extraction seams under `apps/desktop/src/features/chat/components/composer/` and `apps/desktop/src/features/chat/store/`; extend those instead of creating parallel refactor folders so the chat/composer architecture converges on one set of boundaries.

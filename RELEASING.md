@@ -15,7 +15,7 @@
 
 ## Release flow
 
-1. Bump the version in `package.json`.
+1. Bump the version in `apps/desktop/package.json`.
 2. Commit the version bump.
 3. Create and push a tag like `v0.2.0`.
 4. GitHub Actions builds macOS and Windows installers, uploads them to the GitHub Release, and publishes Electron update metadata (`latest.yml`, `latest-mac.yml`).
@@ -25,7 +25,7 @@
 To test the release configuration locally:
 
 ```bash
-bun run dist
+bun run desktop:dist
 ```
 
 ## In-app updates

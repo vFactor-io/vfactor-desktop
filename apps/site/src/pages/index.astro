@@ -1,0 +1,52 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro"
+---
+
+<BaseLayout title="Nucleus">
+  <div class="page">
+    <header class="header">
+      <h1 class="title">Nucleus</h1>
+      <p class="tagline">Your open-source AI co-worker</p>
+
+      <a href="#" class="download-btn" id="download-btn">
+        <span class="download-icon" id="download-icon"></span>
+        <span class="download-label" id="download-label">Download</span>
+      </a>
+    </header>
+
+    <div class="showcase">
+      <img
+        class="screenshot"
+        src="/app-screenshot.png"
+        alt="Nucleus Desktop — AI co-worker workspace with chat, file browser, and terminal"
+        loading="eager"
+      />
+    </div>
+  </div>
+</BaseLayout>
+
+<script>
+  const icon = document.getElementById('download-icon')!
+  const label = document.getElementById('download-label')!
+  const ua = navigator.userAgent
+
+  const apple = `<svg width="16" height="20" viewBox="0 0 170 170" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.2-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.28 2.13-9.54 3.24-12.8 3.35-4.93.21-9.84-1.96-14.75-6.52-3.13-2.73-7.04-7.41-11.75-14.04-5.03-7.08-9.17-15.29-12.41-24.65-3.47-10.2-5.21-20.07-5.21-29.61 0-10.95 2.36-20.38 7.09-28.28 3.72-6.33 8.67-11.33 14.86-14.99 6.19-3.66 12.88-5.53 20.08-5.64 3.92 0 9.06 1.21 15.43 3.59 6.35 2.39 10.43 3.61 12.22 3.61 1.34 0 5.87-1.43 13.56-4.27 7.27-2.64 13.41-3.73 18.44-3.29 13.63 1.1 23.87 6.47 30.68 16.15-12.19 7.39-18.22 17.73-18.1 31 .12 10.33 3.86 18.93 11.2 25.77 3.33 3.17 7.05 5.61 11.19 7.35-.9 2.61-1.85 5.11-2.86 7.51zM119.11 7.24c0 8.1-2.96 15.66-8.86 22.67-7.12 8.32-15.73 13.13-25.07 12.37a25.2 25.2 0 0 1-.19-3.07c0-7.78 3.38-16.1 9.39-22.89 3-3.44 6.82-6.31 11.45-8.6 4.62-2.26 8.99-3.51 13.1-3.72.12 1.1.18 2.2.18 3.24z"/></svg>`
+
+  const windows = `<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M6.555 1.375 0 2.237v5.45h6.555zM0 8.313v5.45l6.555.862V8.313zm7.278-7.06L16 0v7.687H7.278zM16 8.313v7.687l-8.722-1.252V8.313z"/></svg>`
+
+  const linux = `<svg width="16" height="18" viewBox="0 0 448 512" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M236.9 .2c-40 0-77.9 16.5-97.1 53.3C121.5 87.2 116 133.5 120.4 175c-25.8 31.4-45.2 67.2-55.6 105.7-6.3 23.2-9.7 47.3-4.1 70.8 5.5 23.1 20.2 43.3 44.1 54.5l2.9 1.4c-3.2 10.3-3.4 21.5-.2 32.1 5.1 17 18 30 34.6 35.2 16.5 5.1 34.3 1.7 48.1-8.9l.5-.4.4.5c13.9 10.6 31.7 14 48.1 8.9 16.5-5.2 29.5-18.2 34.6-35.2 3.2-10.6 3-21.8-.2-32.1l2.9-1.4c23.8-11.3 38.6-31.5 44.1-54.5 5.6-23.5 2.2-47.6-4.1-70.8-10.4-38.6-29.8-74.3-55.6-105.7 4.4-41.5-1.1-87.8-19.4-121.5C222.6 16.7 276.9.2 236.9.2zm0 32c14 0 38.9 9.3 53.9 39.9 12.5 25.5 17.8 59 16 93.7-5.6-5.9-11.5-11.5-17.8-16.8 1.8-22.8-.2-46.5-8.7-66.1-4.7-10.8-15.7-16.2-26.7-16.2h-33.5c-11 0-22 5.4-26.7 16.2-8.5 19.6-10.5 43.3-8.7 66.1-6.2 5.3-12.2 10.9-17.8 16.8-1.8-34.7 3.5-68.2 16-93.7 15-30.6 39.9-39.9 53.9-39.9z"/></svg>`
+
+  if (/Mac|iPhone|iPad|iPod/.test(ua)) {
+    icon.innerHTML = apple
+    label.textContent = 'Download for Mac'
+  } else if (/Win/.test(ua)) {
+    icon.innerHTML = windows
+    label.textContent = 'Download for Windows'
+  } else if (/Linux/.test(ua)) {
+    icon.innerHTML = linux
+    label.textContent = 'Download for Linux'
+  } else {
+    icon.innerHTML = apple
+    label.textContent = 'Download'
+  }
+</script>

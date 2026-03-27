@@ -14,27 +14,27 @@ This was overly complex. We are moving to a simpler agent runtime integration (T
 
 **Significant time was invested in the UI components** in `claude-interface`. These will be migrated:
 
-### Chat Components (`src/features/chat/`)
+### Chat Components (`apps/desktop/src/features/chat/`)
 - `ChatMessages.tsx` - Message list with user/assistant rendering
 - `ChatInput.tsx` - Prompt input with submit handling
 - `ChatContainer.tsx` - Main chat layout
 
-### Agent Activity Components (`src/features/chat/components/agent-activity/`)
+### Agent Activity Components (`apps/desktop/src/features/chat/components/agent-activity/`)
 - `AgentActivity.tsx` - Collapsible activity panel showing agent's work
 - `AgentActivityHeader.tsx` - Header with working indicator and timing
 - `AgentActivityTool.tsx` - Individual tool call cards with expand/collapse
 - `AgentActivityText.tsx` - Thinking/reasoning text blocks
 
-### AI Elements (`src/features/chat/components/ai-elements/`)
+### AI Elements (`apps/desktop/src/features/chat/components/ai-elements/`)
 - `message.tsx` - Message bubble components
 - `conversation.tsx` - Scrollable conversation container
 - `loader.tsx` - Streaming indicator
 - `prompt-input.tsx` - Input field components
 
-### Shared UI (`src/features/shared/components/ui/`)
+### Shared UI (`apps/desktop/src/features/shared/components/ui/`)
 - Button, Input, Dialog, Card, etc. (shadcn/ui based)
 
-### Layout Components (`src/features/shared/components/layout/`)
+### Layout Components (`apps/desktop/src/features/shared/components/layout/`)
 - AppLayout, AppHeader, Sidebars, TitleBar
 
 ## Migration Phases

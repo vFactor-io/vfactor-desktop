@@ -1,5 +1,6 @@
+import { existsSync } from "node:fs"
 import { app, BrowserWindow, ipcMain, nativeImage } from "electron"
-import { join } from "node:path"
+import { basename, join } from "node:path"
 import { IPC_CHANNELS } from "./ipc/channels"
 import { JsonStoreService } from "./services/store"
 import { DesktopFsService } from "./services/fs"
@@ -12,9 +13,37 @@ import { ProjectWatcherService } from "./services/projectWatcher"
 import { UpdaterService } from "./services/updater"
 
 let mainWindow: BrowserWindow | null = null
+const LEGACY_USER_DATA_DIRS = ["nucleus-desktop", "io.nucleus.desktop"] as const
 
 function getDevAppIconPath(): string {
   return join(process.cwd(), "public", "brands", "nucleus-app-icon-desktop.png")
+}
+
+function hasPersistedDesktopData(directoryPath: string): boolean {
+  return existsSync(join(directoryPath, "projects.json")) || existsSync(join(directoryPath, "chat.json"))
+}
+
+function resolveUserDataPath(): string {
+  const currentPath = app.getPath("userData")
+  const appDataPath = app.getPath("appData")
+  const fallbackPath = join(appDataPath, LEGACY_USER_DATA_DIRS[0])
+  const candidatePaths = [
+    currentPath,
+    ...LEGACY_USER_DATA_DIRS.map((directoryName) => join(appDataPath, directoryName)),
+  ]
+  const preferredPath = candidatePaths.find((candidatePath) => hasPersistedDesktopData(candidatePath))
+
+  if (preferredPath) {
+    return preferredPath
+  }
+
+  return basename(currentPath) === "desktop" ? fallbackPath : currentPath
+}
+
+const stableUserDataPath = resolveUserDataPath()
+
+if (stableUserDataPath !== app.getPath("userData")) {
+  app.setPath("userData", stableUserDataPath)
 }
 
 function sendToRenderer(channel: string, payload: unknown): void {

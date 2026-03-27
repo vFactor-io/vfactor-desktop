@@ -1,8 +1,8 @@
-# Nucleus Desktop
+# Nucleus
 
-Desktop Agentic Developer Environment (ADE) with Electron + React.
+Monorepo for the Nucleus desktop ADE and its supporting surfaces.
 
-Nucleus Desktop is a local-first coding workspace for agentic software development. Each workspace in the app is a project backed by a local folder, with chats, tools, files, and approvals scoped to that project.
+Nucleus is a local-first coding environment for supervised, agentic software development. Projects in the app are folder-backed workspaces with chats, plans, tools, files, and approvals scoped to that local context.
 
 ## Prerequisites
 
@@ -23,22 +23,27 @@ Nucleus Desktop is a local-first coding workspace for agentic software developme
 bun run dev
 ```
 
-**Preview the built app**:
+**Marketing site**:
+```bash
+bun run site:dev
+```
+
+**Preview the built desktop app**:
 ```bash
 bun run preview
 ```
 
 **CLI (OpenCode SDK, streaming by default)**:
 ```bash
-bun run cli "What files are in this repo?"
+bun run desktop:cli "What files are in this repo?"
 # Stream tool calls
-bun run cli "What files are in this repo?" --stream-tools
+bun run desktop:cli "What files are in this repo?" --stream-tools
 # Disable streaming
-bun run cli "What files are in this repo?" --no-stream
+bun run desktop:cli "What files are in this repo?" --no-stream
 # Only show raw response
-bun run cli "What files are in this repo?" --raw-only
+bun run desktop:cli "What files are in this repo?" --raw-only
 # Only show raw JSON
-bun run cli "What files are in this repo?" --json-only
+bun run desktop:cli "What files are in this repo?" --json-only
 ```
 
 **Type checking**:
@@ -46,28 +51,30 @@ bun run cli "What files are in this repo?" --json-only
 bun run typecheck
 ```
 
-**Bundle the app**:
+**Build all packages**:
 ```bash
-bun run dist
+bun run build
 ```
 
 ## Project Structure
 
 ```
-nucleus-desktop/
-├── src/                  # React renderer
-├── electron/             # Electron main/preload/services
-├── build/icons/          # Packaging icons
-├── package.json          # Dependencies, scripts, electron-builder config
-├── electron.vite.config.ts
+nucleus/
+├── apps/
+│   ├── desktop/          # Electron app, CLI, and desktop-specific assets
+│   └── site/             # Marketing website package
+├── docs/                 # Product and implementation notes
+├── package.json          # Bun workspace scripts
 └── MIGRATION.md          # Product migration notes
 ```
 
 ## Features
 
+- Bun workspace monorepo with isolated app packages
 - Desktop UI shell with React + Electron
 - Local-first project workspaces backed by folders
 - Coding-focused ADE workflows for chat, tools, and approvals
+- Marketing site package for public product storytelling
 - Shared layout system (sidebars, title bar, main content)
 - Typed preload bridge for filesystem, terminal, git, Codex, skills, and updates
 - Theming based on system preference

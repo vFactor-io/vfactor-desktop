@@ -44,5 +44,4 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Build and publish release assets
-        run: bun run release ${{ matrix.build-args }}
-          includeUpdaterJson: true
+        run: bun run --cwd apps/desktop release ${{ matrix.build-args }}
