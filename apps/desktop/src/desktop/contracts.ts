@@ -34,6 +34,66 @@ export interface GitBranchesResponse {
   upstreamBranch: string | null
   branches: string[]
   workingTreeSummary: GitWorkingTreeSummary
+  aheadCount: number
+  behindCount: number
+  hasOriginRemote: boolean
+  hasUpstream: boolean
+  defaultBranch: string | null
+  isDefaultBranch: boolean
+  isDetached: boolean
+  openPullRequest: GitPullRequest | null
+}
+
+export interface GitPullRequest {
+  number: number
+  title: string
+  url: string
+  state: "open" | "closed" | "merged"
+  baseBranch: string
+  headBranch: string
+}
+
+export type GitStackedAction = "commit" | "commit_push" | "commit_push_pr"
+
+export interface GitRunStackedActionInput {
+  action: GitStackedAction
+  commitMessage?: string
+  featureBranch?: boolean
+  filePaths?: string[]
+  prInstructions?: string | null
+}
+
+export interface GitRunStackedActionResult {
+  action: GitStackedAction
+  branch: {
+    status: "created" | "skipped_not_requested"
+    name?: string
+  }
+  commit: {
+    status: "created" | "skipped_no_changes"
+    commitSha?: string
+    subject?: string
+  }
+  push: {
+    status: "pushed" | "skipped_not_requested" | "skipped_up_to_date"
+    branch?: string
+    upstreamBranch?: string | null
+    setUpstream?: boolean
+  }
+  pr: {
+    status: "created" | "opened_existing" | "skipped_not_requested"
+    url?: string
+    number?: number
+    title?: string
+    baseBranch?: string
+    headBranch?: string
+  }
+}
+
+export interface GitPullResult {
+  status: "pulled" | "skipped_up_to_date"
+  branch: string
+  upstreamBranch: string | null
 }
 
 export interface ProjectFileSystemEvent {

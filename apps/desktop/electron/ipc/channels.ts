@@ -18,6 +18,7 @@ export const IPC_CHANNELS = {
   watcherStop: "watcher:stop",
   codexEnsureServer: "codex:ensureServer",
   codexSend: "codex:send",
+  shellOpenExternal: "shell:openExternal",
   terminalCreateSession: "terminal:createSession",
   terminalWrite: "terminal:write",
   terminalResize: "terminal:resize",
@@ -27,6 +28,8 @@ export const IPC_CHANNELS = {
   gitGetFileDiff: "git:getFileDiff",
   gitCheckoutBranch: "git:checkoutBranch",
   gitCreateAndCheckoutBranch: "git:createAndCheckoutBranch",
+  gitPull: "git:pull",
+  gitRunStackedAction: "git:runStackedAction",
   skillsList: "skills:list",
 } as const
 

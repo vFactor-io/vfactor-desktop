@@ -6,6 +6,9 @@ import type {
   GitBranchesResponse,
   GitFileChange,
   GitFileDiff,
+  GitPullResult,
+  GitRunStackedActionInput,
+  GitRunStackedActionResult,
   ProjectFileSystemEvent,
   SkillsSyncResponse,
   TerminalDataEvent,
@@ -87,6 +90,9 @@ export const desktop = {
     onMessage: (listener: (message: string) => void) => window.nucleus.codex.onMessage(listener),
     onStatus: (listener: (status: string) => void) => window.nucleus.codex.onStatus(listener),
   },
+  shell: {
+    openExternal: (url: string) => window.nucleus.shell.openExternal(url),
+  },
   terminal: {
     createSession: (sessionId: string, cwd: string, cols: number, rows: number) =>
       window.nucleus.terminal.createSession(sessionId, cwd, cols, rows),
@@ -108,6 +114,9 @@ export const desktop = {
       window.nucleus.git.checkoutBranch(projectPath, branchName),
     createAndCheckoutBranch: (projectPath: string, branchName: string) =>
       window.nucleus.git.createAndCheckoutBranch(projectPath, branchName),
+    pull: (projectPath: string) => window.nucleus.git.pull(projectPath),
+    runStackedAction: (projectPath: string, input: GitRunStackedActionInput) =>
+      window.nucleus.git.runStackedAction(projectPath, input),
   },
   skills: {
     list: () => window.nucleus.skills.list(),
@@ -121,6 +130,9 @@ export type {
   GitBranchesResponse,
   GitFileChange,
   GitFileDiff,
+  GitPullResult,
+  GitRunStackedActionInput,
+  GitRunStackedActionResult,
   ProjectFileSystemEvent,
   SkillsSyncResponse,
   TerminalDataEvent,

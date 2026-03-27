@@ -20,7 +20,8 @@ interface SettingsPageProps {
 const SECTION_COPY: Record<SettingsSectionId, { title: string; description: string }> = {
   git: {
     title: "Git",
-    description: "A built-in PR workflow message is generated automatically from git state. Add optional extra instructions here.",
+    description:
+      "Nucleus can auto-generate pull request content from local git state. Add optional extra instructions here.",
   },
   updates: {
     title: "Updates",
@@ -45,7 +46,8 @@ function GitSettingsSection() {
           <Field>
             <FieldTitle>Additional PR instructions</FieldTitle>
             <FieldDescription>
-              Appended after the built-in PR workflow message when the toolbar Create PR button is clicked.
+              Appended to the prompt used when the git toolbar auto-generates a pull request title
+              and description.
             </FieldDescription>
             <Textarea
               value={createPrInstructions}
