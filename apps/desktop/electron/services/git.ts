@@ -85,10 +85,15 @@ async function runCommandWithInput(
   return { stdout: "", stderr: "" }
 }
 
-async function runGitCommandRaw(projectPath: string, args: string[]): Promise<string> {
+async function runGitCommandRaw(
+  projectPath: string,
+  args: string[],
+  env?: NodeJS.ProcessEnv
+): Promise<string> {
   try {
     const { stdout } = await execFileAsync("git", ["-C", projectPath, ...args], {
       encoding: "utf8",
+      env,
       maxBuffer: 10 * 1024 * 1024,
     })
     return stdout
@@ -99,8 +104,12 @@ async function runGitCommandRaw(projectPath: string, args: string[]): Promise<st
   }
 }
 
-async function runGitCommand(projectPath: string, args: string[]): Promise<string> {
-  return (await runGitCommandRaw(projectPath, args)).trim()
+async function runGitCommand(
+  projectPath: string,
+  args: string[],
+  env?: NodeJS.ProcessEnv
+): Promise<string> {
+  return (await runGitCommandRaw(projectPath, args, env)).trim()
 }
 
 async function runGhCommand(projectPath: string, args: string[]): Promise<string> {
@@ -359,6 +368,11 @@ function withSpecificPathspecs(args: string[], repoRelativePaths: string[]): str
   }
 
   return [...args, "--", ...repoRelativePaths]
+}
+
+type CommitTarget = {
+  repoRoot: string
+  pathspecs: string[] | null
 }
 
 function toProjectRelativePath(filePath: string, scopePath: string | null): string {
@@ -890,37 +904,77 @@ async function prepareCommitContext(
   projectPath: string,
   filePaths?: string[]
 ): Promise<{ stagedSummary: string; stagedPatch: string } | null> {
+  const commitTarget = await resolveCommitTarget(projectPath, filePaths)
+  const tempDir = await mkdtemp(path.join(tmpdir(), "nucleus-git-index-"))
+  const env = {
+    ...process.env,
+    GIT_INDEX_FILE: path.join(tempDir, "index"),
+  }
+
+  try {
+    if (await gitHeadExists(commitTarget.repoRoot)) {
+      await runGitCommand(commitTarget.repoRoot, ["read-tree", "HEAD"], env)
+    }
+
+    await runGitCommand(
+      commitTarget.repoRoot,
+      withCommitPathspec(["add", "-A"], commitTarget.pathspecs),
+      env
+    )
+
+    const stagedSummary = (
+      await runGitCommand(
+        commitTarget.repoRoot,
+        withCommitPathspec(["diff", "--cached", "--name-status"], commitTarget.pathspecs),
+        env
+      )
+    ).trim()
+
+    if (!stagedSummary) {
+      return null
+    }
+
+    const stagedPatch = await runGitCommandRaw(
+      commitTarget.repoRoot,
+      withCommitPathspec(["diff", "--cached", "--patch", "--minimal"], commitTarget.pathspecs),
+      env
+    )
+
+    return {
+      stagedSummary,
+      stagedPatch,
+    }
+  } finally {
+    await rm(tempDir, { recursive: true, force: true })
+  }
+}
+
+async function resolveCommitTarget(
+  projectPath: string,
+  filePaths?: string[]
+): Promise<CommitTarget> {
   const { repoRoot, scopePath } = await getRepoContext(projectPath)
   const repoRelativePaths = (filePaths ?? []).map((filePath) => toRepoRelativePath(filePath, scopePath))
 
   if (repoRelativePaths.length > 0) {
-    try {
-      await runGitCommand(repoRoot, ["reset"])
-    } catch {
-      // Best-effort reset to mirror a fresh selected-file commit.
+    return {
+      repoRoot,
+      pathspecs: repoRelativePaths,
     }
-    await runGitCommand(repoRoot, withSpecificPathspecs(["add", "-A"], repoRelativePaths))
-  } else {
-    await runGitCommand(repoRoot, withOptionalPathspec(["add", "-A"], scopePath))
   }
-
-  const stagedSummary = (
-    await runGitCommand(repoRoot, withOptionalPathspec(["diff", "--cached", "--name-status"], scopePath))
-  ).trim()
-
-  if (!stagedSummary) {
-    return null
-  }
-
-  const stagedPatch = await runGitCommandRaw(
-    repoRoot,
-    withOptionalPathspec(["diff", "--cached", "--patch", "--minimal"], scopePath)
-  )
 
   return {
-    stagedSummary,
-    stagedPatch,
+    repoRoot,
+    pathspecs: scopePath ? [scopePath] : null,
   }
+}
+
+function withCommitPathspec(args: string[], pathspecs: string[] | null): string[] {
+  if (!pathspecs || pathspecs.length === 0) {
+    return args
+  }
+
+  return withSpecificPathspecs(args, pathspecs)
 }
 
 function buildCommitPrompt(input: {
@@ -1044,6 +1098,11 @@ async function resolveCommitSuggestion(input: {
   includeBranch?: boolean
   filePaths?: string[]
 }): Promise<(CommitSuggestion & { commitMessage: string }) | null> {
+  const context = await prepareCommitContext(input.projectPath, input.filePaths)
+  if (!context) {
+    return null
+  }
+
   const custom = parseCommitMessage(input.commitMessage)
   if (custom) {
     return {
@@ -1051,11 +1110,6 @@ async function resolveCommitSuggestion(input: {
       ...(input.includeBranch ? { branch: sanitizeBranchName(custom.subject) } : {}),
       commitMessage: [custom.subject, custom.body].filter(Boolean).join("\n\n"),
     }
-  }
-
-  const context = await prepareCommitContext(input.projectPath, input.filePaths)
-  if (!context) {
-    return null
   }
 
   const generated = await runCodexJson<{
@@ -1110,11 +1164,14 @@ async function resolveCommitSuggestion(input: {
 
 async function createAndCheckoutFeatureBranch(
   projectPath: string,
-  suggestion: CommitSuggestion
+  suggestion: CommitSuggestion | null,
+  currentBranch: string | null
 ): Promise<string> {
   const existingBranches = await listLocalBranchNames(projectPath)
   const preferred =
-    suggestion.branch ?? (sanitizeBranchName(suggestion.subject) || "update-changes")
+    suggestion?.branch ??
+    (suggestion ? sanitizeBranchName(suggestion.subject) : sanitizeBranchName(`${currentBranch ?? ""}-update`)) ??
+    "update-changes"
   const branchName = ensureUniqueBranchName(preferred, existingBranches)
 
   await runGitCommand(projectPath, ["switch", "-c", branchName])
@@ -1124,15 +1181,22 @@ async function createAndCheckoutFeatureBranch(
 async function commitChanges(
   projectPath: string,
   subject: string,
-  body: string
+  body: string,
+  filePaths?: string[]
 ): Promise<{ commitSha: string }> {
+  const commitTarget = await resolveCommitTarget(projectPath, filePaths)
+  await runGitCommand(
+    commitTarget.repoRoot,
+    withCommitPathspec(["add", "-A"], commitTarget.pathspecs)
+  )
+
   const args = ["commit", "-m", subject]
   if (body.trim()) {
     args.push("-m", body.trim())
   }
 
-  await runGitCommand(projectPath, args)
-  const commitSha = await runGitCommand(projectPath, ["rev-parse", "HEAD"])
+  await runGitCommand(commitTarget.repoRoot, withCommitPathspec(args, commitTarget.pathspecs))
+  const commitSha = await runGitCommand(commitTarget.repoRoot, ["rev-parse", "HEAD"])
   return { commitSha }
 }
 
@@ -1415,11 +1479,11 @@ export class GitService {
         filePaths: input.filePaths,
       })
 
-      if (!suggestion) {
+      if (!suggestion && input.action === "commit") {
         throw new Error("There are no changes to commit on a new branch.")
       }
 
-      branchName = await createAndCheckoutFeatureBranch(trimmedPath, suggestion)
+      branchName = await createAndCheckoutFeatureBranch(trimmedPath, suggestion, branchName)
       branchResult = {
         status: "created",
         name: branchName,
@@ -1445,7 +1509,12 @@ export class GitService {
     }
 
     if (suggestion) {
-      const committed = await commitChanges(trimmedPath, suggestion.subject, suggestion.body)
+      const committed = await commitChanges(
+        trimmedPath,
+        suggestion.subject,
+        suggestion.body,
+        input.filePaths
+      )
       commitResult = {
         status: "created",
         commitSha: committed.commitSha,
