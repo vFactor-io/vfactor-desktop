@@ -1,125 +1,429 @@
-import { useEffect, useState } from "react"
-import { desktop, type GitBranchesResponse } from "@/desktop/client"
-import { GitPullRequest } from "@/components/icons"
-import { useChatComposerState, useChatProjectState } from "@/features/chat/hooks/useChat"
+import { useEffect, useMemo, useState } from "react"
+
+import { desktop } from "@/desktop/client"
 import {
-  buildCreatePrMessage,
-  DEFAULT_PR_TARGET_BRANCH,
-} from "@/features/settings/createPrMessage"
+  CaretDown,
+  CloudUpload,
+  GitCommit,
+  GitPullRequest,
+  InformationCircle,
+  Refresh,
+} from "@/components/icons"
+import { useChatProjectState } from "@/features/chat/hooks/useChat"
+import { normalizeCreatePrInstructions, useSettingsStore } from "@/features/settings/store/settingsStore"
 import {
-  normalizeCreatePrInstructions,
-  useSettingsStore,
-} from "@/features/settings/store/settingsStore"
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/features/shared/components/ui/alert-dialog"
 import { Button } from "@/features/shared/components/ui/button"
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/features/shared/components/ui/tooltip"
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/features/shared/components/ui/dropdown-menu"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/features/shared/components/ui/tooltip"
+import { useProjectGitBranches, useProjectGitChanges } from "@/features/shared/hooks"
 import { cn } from "@/lib/utils"
+import { CommitChangesDialog } from "./CommitChangesDialog"
+import {
+  buildMenuItems,
+  type GitActionIconName,
+  requiresDefaultBranchConfirmation,
+  resolveQuickAction,
+  summarizeGitResult,
+} from "./gitActionsLogic"
+
+interface SourceControlActionGroupProps {
+  className?: string
+  projectPath?: string | null
+}
+
+interface PendingDefaultBranchAction {
+  action: "commit_push" | "commit_push_pr"
+  label: string
+}
+
+function formatGitActionError(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message : fallback
+
+  return message
+    .replace(/^Error invoking remote method '[^']+':\s*/i, "")
+    .replace(/^Error:\s*/i, "")
+    .trim()
+}
+
+function GitActionIcon({ icon }: { icon: GitActionIconName }) {
+  if (icon === "commit") {
+    return <GitCommit size={16} />
+  }
+  if (icon === "push") {
+    return <CloudUpload size={16} />
+  }
+  if (icon === "pr") {
+    return <GitPullRequest size={16} />
+  }
+  return <InformationCircle size={16} />
+}
 
 export function SourceControlActionGroup({
   className,
-}: {
-  className?: string
-}) {
-  const { selectedProjectId, selectedProject, activeSessionId } = useChatProjectState()
+  projectPath,
+}: SourceControlActionGroupProps) {
+  const { selectedProject } = useChatProjectState()
+  const resolvedProjectPath = projectPath ?? selectedProject?.path ?? null
   const createPrInstructions = useSettingsStore((state) => state.createPrInstructions)
   const initializeSettings = useSettingsStore((state) => state.initialize)
-  const [isPreparing, setIsPreparing] = useState(false)
-  const { submit, status } = useChatComposerState({
-    selectedProjectId,
-    selectedProjectPath: selectedProject?.path ?? null,
-    activeSessionId,
-  })
+  const { branchData, isLoading: isBranchLoading, loadError: branchLoadError, refresh: refreshBranches } =
+    useProjectGitBranches(resolvedProjectPath, { enabled: Boolean(resolvedProjectPath) })
+  const { changes, isLoading: isChangesLoading, loadError: changesLoadError, refresh: refreshChanges } =
+    useProjectGitChanges(resolvedProjectPath, { enabled: Boolean(resolvedProjectPath) })
+
+  const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false)
+  const [pendingDefaultBranchAction, setPendingDefaultBranchAction] =
+    useState<PendingDefaultBranchAction | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null)
+  const [feedbackTone, setFeedbackTone] = useState<"error" | "neutral">("neutral")
 
   useEffect(() => {
     void initializeSettings()
   }, [initializeSettings])
 
-  const handleCreatePr = async () => {
-    if (!selectedProject?.path) {
+  const hasChanges = changes.length > 0
+  const isBusy = isSubmitting || isBranchLoading || isChangesLoading
+  const branchStatus = branchData
+  const quickAction = useMemo(
+    () => resolveQuickAction(branchStatus, hasChanges, isBusy),
+    [branchStatus, hasChanges, isBusy]
+  )
+  const menuItems = useMemo(
+    () => buildMenuItems(branchStatus, hasChanges, isBusy),
+    [branchStatus, hasChanges, isBusy]
+  )
+  const actionError = branchLoadError ?? changesLoadError
+  const actionHint = actionError || quickAction.hint || null
+
+  if (!resolvedProjectPath) {
+    return null
+  }
+
+  const refreshGitState = async () => {
+    await Promise.all([refreshBranches({ quiet: true }), refreshChanges({ quiet: true })])
+  }
+
+  const openPullRequest = async () => {
+    const prUrl = branchStatus?.openPullRequest?.url
+    if (!prUrl) {
+      setFeedbackTone("error")
+      setFeedbackMessage("No open pull request found for this branch.")
       return
     }
 
-    setIsPreparing(true)
-
     try {
-      const branchData = await desktop.git.getBranches(selectedProject.path)
-
-      const message = buildCreatePrMessage(
-        {
-          currentBranch: branchData.currentBranch,
-          targetBranch: DEFAULT_PR_TARGET_BRANCH,
-          upstreamBranch: branchData.upstreamBranch,
-          uncommittedChanges: branchData.workingTreeSummary.changedFiles,
-        },
-        normalizeCreatePrInstructions(createPrInstructions),
-      )
-
-      await submit(message)
+      await desktop.shell.openExternal(prUrl)
+      setFeedbackTone("neutral")
+      setFeedbackMessage(null)
     } catch (error) {
-      console.error("Failed to prepare PR message:", error)
-
-      const fallbackMessage = buildCreatePrMessage(
-        {
-          currentBranch: "unknown",
-          targetBranch: DEFAULT_PR_TARGET_BRANCH,
-          upstreamBranch: null,
-          uncommittedChanges: 0,
-        },
-        normalizeCreatePrInstructions(createPrInstructions),
-      )
-
-      await submit(fallbackMessage)
-    } finally {
-      setIsPreparing(false)
+      setFeedbackTone("error")
+      setFeedbackMessage(formatGitActionError(error, "Unable to open the pull request."))
     }
   }
 
-  const isAgentRunning = status === "streaming" || isPreparing
-  const isDisabled = !selectedProject || isAgentRunning
-  const disabledReason = isAgentRunning
-    ? "The agent needs to finish running, or you need to cancel it before you can create a PR."
-    : null
+  const runGitAction = async (
+    action: "commit" | "commit_push" | "commit_push_pr",
+    options?: {
+      commitMessage?: string
+      filePaths?: string[]
+      featureBranch?: boolean
+      skipDefaultBranchPrompt?: boolean
+    }
+  ): Promise<boolean> => {
+    if (
+      !options?.skipDefaultBranchPrompt &&
+      branchStatus &&
+      requiresDefaultBranchConfirmation(action, branchStatus.isDefaultBranch)
+    ) {
+      setPendingDefaultBranchAction({
+        action,
+        label:
+          action === "commit_push_pr" ? "Commit, push, and create a PR on the default branch?" : "Commit and push on the default branch?",
+      })
+      return false
+    }
 
-  const button = (
+    setIsSubmitting(true)
+    setFeedbackMessage(null)
+
+    try {
+      const result = await desktop.git.runStackedAction(resolvedProjectPath, {
+        action,
+        ...(options?.commitMessage ? { commitMessage: options.commitMessage } : {}),
+        ...(options?.filePaths ? { filePaths: options.filePaths } : {}),
+        ...(options?.featureBranch ? { featureBranch: true } : {}),
+        ...(createPrInstructions.trim()
+          ? { prInstructions: normalizeCreatePrInstructions(createPrInstructions) }
+          : {}),
+      })
+
+      await refreshGitState()
+      if (result.pr.status === "created" || result.pr.status === "opened_existing") {
+        setFeedbackTone("neutral")
+        setFeedbackMessage(null)
+      } else {
+        setFeedbackTone("neutral")
+        setFeedbackMessage(summarizeGitResult(result))
+      }
+      return true
+    } catch (error) {
+      setFeedbackTone("error")
+      setFeedbackMessage(formatGitActionError(error, "Git action failed."))
+      return false
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handlePull = async () => {
+    setIsSubmitting(true)
+    setFeedbackMessage(null)
+
+    try {
+      const result = await desktop.git.pull(resolvedProjectPath)
+      await refreshGitState()
+      setFeedbackTone("neutral")
+      setFeedbackMessage(
+        result.status === "pulled"
+          ? `Pulled ${result.branch}`
+          : `${result.branch} is already up to date`
+      )
+    } catch (error) {
+      setFeedbackTone("error")
+      setFeedbackMessage(formatGitActionError(error, "Pull failed."))
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const runQuickAction = async () => {
+    if (quickAction.kind === "open_pr") {
+      await openPullRequest()
+      return
+    }
+
+    if (quickAction.kind === "run_pull") {
+      await handlePull()
+      return
+    }
+
+    if (quickAction.kind === "run_action" && quickAction.action) {
+      await runGitAction(quickAction.action)
+      return
+    }
+
+    if (quickAction.hint) {
+      setFeedbackTone("neutral")
+      setFeedbackMessage(quickAction.hint)
+    }
+  }
+
+  const handleMenuItem = async (item: (typeof menuItems)[number]) => {
+    setIsMenuOpen(false)
+
+    if (item.disabled) {
+      return
+    }
+
+    if (item.openDialog) {
+      setIsCommitDialogOpen(true)
+      return
+    }
+
+    if (item.opensPr) {
+      await openPullRequest()
+      return
+    }
+
+    if (item.action) {
+      await runGitAction(item.action)
+    }
+  }
+
+  const quickActionIcon =
+    quickAction.kind === "run_pull" ? (
+      <Refresh size={16} />
+    ) : (
+      <GitActionIcon
+        icon={
+          quickAction.label.toLowerCase().includes("pr")
+            ? "pr"
+            : quickAction.label.toLowerCase().includes("push")
+              ? "push"
+              : quickAction.label.toLowerCase().includes("commit")
+                ? "commit"
+                : "info"
+        }
+      />
+    )
+
+  const renderQuickButton = (
     <Button
       type="button"
-      variant="default"
+      variant="outline"
       size="sm"
-      onClick={() => void handleCreatePr()}
-      disabled={isDisabled}
+      onClick={() => void runQuickAction()}
+      disabled={isBusy || quickAction.disabled}
       className={cn(
-        "h-7 rounded-lg border-transparent shadow-none disabled:opacity-100",
-        isDisabled
-          ? "cursor-not-allowed bg-muted text-muted-foreground"
-          : "bg-cta text-cta-foreground hover:bg-cta/90",
-        className,
+        "h-7 rounded-r-none border-r-0 shadow-none",
+        feedbackTone === "error" && feedbackMessage ? "border-destructive/50" : undefined,
+        className
       )}
     >
-      <GitPullRequest size={16} />
-      <span>{isAgentRunning ? "Create PR" : "Create PR"}</span>
+      {quickActionIcon}
+      <span>{isSubmitting ? "Working..." : quickAction.label}</span>
     </Button>
   )
 
-  if (!disabledReason) {
-    return button
-  }
-
   return (
-    <TooltipProvider delay={150}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="inline-flex">
-            {button}
-          </span>
-        </TooltipTrigger>
-        <TooltipContent side="bottom" align="end" className="max-w-64 text-sm leading-5">
-          {disabledReason}
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <>
+      <div className="flex items-center">
+        <div className="inline-flex items-center gap-0">
+          {actionHint ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex">{renderQuickButton}</span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" align="end" className="max-w-72 text-sm leading-5">
+                {actionHint}
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            renderQuickButton
+          )}
+
+          <DropdownMenu open={isMenuOpen} onOpenChange={setIsMenuOpen}>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-sm"
+                  className="h-7 w-8 rounded-l-none shadow-none"
+                  aria-label="Open git actions menu"
+                  disabled={isBusy}
+                />
+              }
+            >
+              <CaretDown size={14} />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              sideOffset={8}
+              className="w-48 border border-border/70 bg-card p-1 shadow-lg"
+            >
+              {menuItems.map((item) => (
+                <DropdownMenuItem
+                  key={item.id}
+                  disabled={item.disabled}
+                  onClick={() => void handleMenuItem(item)}
+                  className="min-h-8 gap-2 px-2 py-1"
+                >
+                  <GitActionIcon icon={item.icon} />
+                  <span>{item.label}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+
+      <CommitChangesDialog
+        open={isCommitDialogOpen}
+        onOpenChange={setIsCommitDialogOpen}
+        currentBranch={branchStatus?.currentBranch ?? "unknown"}
+        isDefaultBranch={branchStatus?.isDefaultBranch ?? false}
+        changes={changes}
+        isSubmitting={isSubmitting}
+        onConfirm={async ({ commitMessage, filePaths }) => {
+          const didSucceed = await runGitAction("commit", { commitMessage, filePaths })
+          if (didSucceed) {
+            setIsCommitDialogOpen(false)
+          }
+        }}
+        onConfirmOnNewBranch={async ({ commitMessage, filePaths }) => {
+          const didSucceed = await runGitAction("commit", {
+            commitMessage,
+            filePaths,
+            featureBranch: true,
+            skipDefaultBranchPrompt: true,
+          })
+          if (didSucceed) {
+            setIsCommitDialogOpen(false)
+          }
+        }}
+      />
+
+      <AlertDialog
+        open={pendingDefaultBranchAction !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingDefaultBranchAction(null)
+          }
+        }}
+      >
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Run this action on the default branch?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDefaultBranchAction?.label ??
+                "This action targets the default branch. You can continue there or create a new feature branch first."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isSubmitting}>Abort</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isSubmitting || pendingDefaultBranchAction == null}
+              onClick={async () => {
+                const pendingAction = pendingDefaultBranchAction
+                setPendingDefaultBranchAction(null)
+                if (!pendingAction) {
+                  return
+                }
+
+                await runGitAction(pendingAction.action, {
+                  skipDefaultBranchPrompt: true,
+                })
+              }}
+            >
+              Continue
+            </AlertDialogAction>
+            <AlertDialogAction
+              disabled={isSubmitting || pendingDefaultBranchAction == null}
+              onClick={async () => {
+                const pendingAction = pendingDefaultBranchAction
+                setPendingDefaultBranchAction(null)
+                if (!pendingAction) {
+                  return
+                }
+
+                await runGitAction(pendingAction.action, {
+                  featureBranch: true,
+                  skipDefaultBranchPrompt: true,
+                })
+              }}
+            >
+              Checkout feature branch
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }

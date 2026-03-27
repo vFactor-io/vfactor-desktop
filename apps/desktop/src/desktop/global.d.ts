@@ -6,6 +6,9 @@ import type {
   GitBranchesResponse,
   GitFileChange,
   GitFileDiff,
+  GitPullResult,
+  GitRunStackedActionInput,
+  GitRunStackedActionResult,
   ProjectFileSystemEvent,
   SkillsSyncResponse,
   TerminalDataEvent,
@@ -61,6 +64,9 @@ declare global {
         onMessage: (listener: (message: string) => void) => () => void
         onStatus: (listener: (status: string) => void) => () => void
       }
+      shell: {
+        openExternal: (url: string) => Promise<void>
+      }
       terminal: {
         createSession: (
           sessionId: string,
@@ -90,6 +96,11 @@ declare global {
           projectPath: string,
           branchName: string
         ) => Promise<GitBranchesResponse>
+        pull: (projectPath: string) => Promise<GitPullResult>
+        runStackedAction: (
+          projectPath: string,
+          input: GitRunStackedActionInput
+        ) => Promise<GitRunStackedActionResult>
       }
       skills: {
         list: () => Promise<SkillsSyncResponse>

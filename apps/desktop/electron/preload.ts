@@ -7,6 +7,9 @@ import type {
   GitBranchesResponse,
   GitFileChange,
   GitFileDiff,
+  GitPullResult,
+  GitRunStackedActionInput,
+  GitRunStackedActionResult,
   ProjectFileSystemEvent,
   SkillsSyncResponse,
   TerminalDataEvent,
@@ -94,6 +97,10 @@ contextBridge.exposeInMainWorld("nucleus", {
     onStatus: (listener: (status: string) => void) =>
       subscribe(EVENT_CHANNELS.codexStatus, listener),
   },
+  shell: {
+    openExternal: (url: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.shellOpenExternal, url) as Promise<void>,
+  },
   terminal: {
     createSession: (sessionId: string, cwd: string, cols: number, rows: number) =>
       ipcRenderer.invoke(
@@ -138,6 +145,14 @@ contextBridge.exposeInMainWorld("nucleus", {
         projectPath,
         branchName
       ) as Promise<GitBranchesResponse>,
+    pull: (projectPath: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.gitPull, projectPath) as Promise<GitPullResult>,
+    runStackedAction: (projectPath: string, input: GitRunStackedActionInput) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.gitRunStackedAction,
+        projectPath,
+        input
+      ) as Promise<GitRunStackedActionResult>,
   },
   skills: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.skillsList) as Promise<SkillsSyncResponse>,

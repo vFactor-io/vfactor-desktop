@@ -1,17 +1,89 @@
-import { execFile } from "node:child_process"
-import { promisify } from "node:util"
+import { execFile, spawn } from "node:child_process"
 import { existsSync, realpathSync, statSync } from "node:fs"
-import { readFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import path from "node:path"
+import { promisify } from "node:util"
+
 import type {
   GitBranchesResponse,
   GitFileChange,
   GitFileDiff,
   GitFileStatus,
+  GitPullRequest,
+  GitPullResult,
+  GitRunStackedActionInput,
+  GitRunStackedActionResult,
   GitWorkingTreeSummary,
 } from "../../src/desktop/contracts"
 
 const execFileAsync = promisify(execFile)
+const CODEX_REASONING_EFFORT = "low"
+
+type CommitSuggestion = {
+  subject: string
+  body: string
+  branch?: string
+}
+
+type RangeContext = {
+  commitSummary: string
+  diffSummary: string
+  diffPatch: string
+}
+
+async function runCommandWithInput(
+  command: string,
+  args: string[],
+  options: {
+    cwd: string
+    input?: string
+    env?: NodeJS.ProcessEnv
+  }
+): Promise<{ stdout: string; stderr: string }> {
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env: options.env ?? process.env,
+      shell: process.platform === "win32",
+      stdio: "pipe",
+    })
+
+    let stdout = ""
+    let stderr = ""
+
+    child.stdout.setEncoding("utf8")
+    child.stderr.setEncoding("utf8")
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk
+    })
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk
+    })
+
+    child.on("error", reject)
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve()
+        return
+      }
+
+      reject(
+        new Error(
+          stderr.trim() || stdout.trim() || `${command} ${args.join(" ")} failed with code ${code}`
+        )
+      )
+    })
+
+    if (options.input) {
+      child.stdin.write(options.input)
+    }
+    child.stdin.end()
+  })
+
+  return { stdout: "", stderr: "" }
+}
 
 async function runGitCommandRaw(projectPath: string, args: string[]): Promise<string> {
   try {
@@ -31,6 +103,21 @@ async function runGitCommand(projectPath: string, args: string[]): Promise<strin
   return (await runGitCommandRaw(projectPath, args)).trim()
 }
 
+async function runGhCommand(projectPath: string, args: string[]): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync("gh", args, {
+      cwd: projectPath,
+      encoding: "utf8",
+      maxBuffer: 10 * 1024 * 1024,
+    })
+    return stdout.trim()
+  } catch (error) {
+    const execError = error as Error & { stderr?: string }
+    const stderr = execError.stderr?.trim()
+    throw new Error(stderr || `gh ${args.join(" ")} failed`)
+  }
+}
+
 function ensureGitProjectPath(projectPath: string): string {
   const trimmedPath = projectPath.trim()
   if (!trimmedPath) {
@@ -46,6 +133,20 @@ function ensureGitProjectPath(projectPath: string): string {
   }
 
   return trimmedPath
+}
+
+async function getRepoContext(projectPath: string): Promise<{
+  projectPath: string
+  repoRoot: string
+  scopePath: string | null
+}> {
+  const normalizedProjectPath = ensureGitProjectPath(projectPath)
+  const repoRoot = await runGitCommand(normalizedProjectPath, ["rev-parse", "--show-toplevel"])
+  return {
+    projectPath: normalizedProjectPath,
+    repoRoot,
+    scopePath: getGitScopePath(repoRoot, normalizedProjectPath),
+  }
 }
 
 function parseGitShortstat(shortstat: string): GitWorkingTreeSummary {
@@ -101,27 +202,21 @@ function mapGitStatusCode(code: string): GitFileStatus {
   if (code.includes("?")) {
     return "untracked"
   }
-
   if (code.includes("R")) {
     return "renamed"
   }
-
   if (code.includes("C")) {
     return "copied"
   }
-
   if (code.includes("A")) {
     return "added"
   }
-
   if (code.includes("D")) {
     return "deleted"
   }
-
   if (code.includes("!")) {
     return "ignored"
   }
-
   return "modified"
 }
 
@@ -140,18 +235,12 @@ function parseGitStatusEntries(output: string): GitFileChange[] {
     }
 
     if (entry.startsWith("? ")) {
-      changes.push({
-        path: entry.slice(2),
-        status: "untracked",
-      })
+      changes.push({ path: entry.slice(2), status: "untracked" })
       continue
     }
 
     if (entry.startsWith("! ")) {
-      changes.push({
-        path: entry.slice(2),
-        status: "ignored",
-      })
+      changes.push({ path: entry.slice(2), status: "ignored" })
       continue
     }
 
@@ -202,7 +291,9 @@ function parseGitStatusEntries(output: string): GitFileChange[] {
   return changes
 }
 
-function parseGitNumstatEntries(output: string): Map<string, Pick<GitFileChange, "additions" | "deletions">> {
+function parseGitNumstatEntries(
+  output: string
+): Map<string, Pick<GitFileChange, "additions" | "deletions">> {
   const stats = new Map<string, Pick<GitFileChange, "additions" | "deletions">>()
 
   if (!output) {
@@ -262,6 +353,14 @@ function withOptionalPathspec(args: string[], scopePath: string | null): string[
   return [...args, "--", scopePath]
 }
 
+function withSpecificPathspecs(args: string[], repoRelativePaths: string[]): string[] {
+  if (repoRelativePaths.length === 0) {
+    return args
+  }
+
+  return [...args, "--", ...repoRelativePaths]
+}
+
 function toProjectRelativePath(filePath: string, scopePath: string | null): string {
   if (!scopePath) {
     return filePath
@@ -301,16 +400,13 @@ async function readHeadFile(repoRoot: string, repoRelativePath: string): Promise
 }
 
 async function getChangedFiles(projectPath: string): Promise<GitFileChange[]> {
-  const repoRoot = await runGitCommand(projectPath, ["rev-parse", "--show-toplevel"])
-  const scopePath = getGitScopePath(repoRoot, projectPath)
+  const { repoRoot, scopePath } = await getRepoContext(projectPath)
   const statusOutput = await runGitCommand(
     repoRoot,
-    withOptionalPathspec([
-    "status",
-    "--porcelain=v2",
-    "-z",
-    "--untracked-files=all",
-    ], scopePath)
+    withOptionalPathspec(
+      ["status", "--porcelain=v2", "-z", "--untracked-files=all"],
+      scopePath
+    )
   )
 
   const changes = parseGitStatusEntries(statusOutput).filter((change) => change.status !== "ignored")
@@ -323,7 +419,10 @@ async function getChangedFiles(projectPath: string): Promise<GitFileChange[]> {
       return withOptionalPathspec(["diff", "--numstat", "-z", "--find-renames", "HEAD"], scopePath)
     }
 
-    return withOptionalPathspec(["diff", "--numstat", "-z", "--find-renames", "--cached"], scopePath)
+    return withOptionalPathspec(
+      ["diff", "--numstat", "-z", "--find-renames", "--cached"],
+      scopePath
+    )
   })()
 
   const numstatOutput = await (async () => {
@@ -352,19 +451,15 @@ async function getFileDiff(
   filePath: string,
   previousPath?: string | null
 ): Promise<GitFileDiff> {
-  const trimmedPath = ensureGitProjectPath(projectPath)
-  const repoRoot = await runGitCommand(trimmedPath, ["rev-parse", "--show-toplevel"])
-  const scopePath = getGitScopePath(repoRoot, trimmedPath)
+  const { repoRoot, scopePath } = await getRepoContext(projectPath)
   const repoRelativePath = toRepoRelativePath(filePath, scopePath)
   const previousRepoRelativePath = previousPath
     ? toRepoRelativePath(previousPath, scopePath)
     : repoRelativePath
-  const hasHead = await gitHeadExists(trimmedPath)
+  const hasHead = await gitHeadExists(projectPath)
 
   const modified = await readWorkingTreeFile(repoRoot, repoRelativePath)
-  const original = hasHead
-    ? await readHeadFile(repoRoot, previousRepoRelativePath)
-    : ""
+  const original = hasHead ? await readHeadFile(repoRoot, previousRepoRelativePath) : ""
 
   let status: GitFileStatus = "modified"
 
@@ -419,30 +514,116 @@ async function getWorkingTreeSummary(projectPath: string): Promise<GitWorkingTre
   }
 }
 
-async function getGitBranchesResponse(projectPath: string): Promise<GitBranchesResponse> {
-  const trimmedPath = ensureGitProjectPath(projectPath)
-  await runGitCommand(trimmedPath, ["rev-parse", "--show-toplevel"])
-
-  let currentBranch = await runGitCommand(trimmedPath, ["branch", "--show-current"])
-  if (!currentBranch) {
-    const commit = await runGitCommand(trimmedPath, ["rev-parse", "--short", "HEAD"])
-    currentBranch = `detached@${commit}`
-  }
-
-  let upstreamBranch: string | null = null
+async function getAheadBehind(projectPath: string): Promise<{ aheadCount: number; behindCount: number }> {
   try {
-    upstreamBranch = await runGitCommand(trimmedPath, [
-      "rev-parse",
-      "--abbrev-ref",
-      "--symbolic-full-name",
-      "@{upstream}",
-    ])
-    upstreamBranch = upstreamBranch || null
+    const raw = await runGitCommand(projectPath, ["rev-list", "--left-right", "--count", "@{upstream}...HEAD"])
+    const [behindRaw, aheadRaw] = raw.split(/\s+/)
+    return {
+      behindCount: Number.parseInt(behindRaw ?? "0", 10) || 0,
+      aheadCount: Number.parseInt(aheadRaw ?? "0", 10) || 0,
+    }
   } catch {
-    upstreamBranch = null
+    return { aheadCount: 0, behindCount: 0 }
+  }
+}
+
+async function hasOriginRemote(projectPath: string): Promise<boolean> {
+  try {
+    await runGitCommand(projectPath, ["remote", "get-url", "origin"])
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function getRemoteUrl(projectPath: string, remoteName: string): Promise<string | null> {
+  try {
+    return await runGitCommand(projectPath, ["remote", "get-url", remoteName])
+  } catch {
+    return null
+  }
+}
+
+function parseGitHubRemoteSlug(remoteUrl: string | null): { owner: string; repo: string } | null {
+  if (!remoteUrl) {
+    return null
   }
 
-  const branchesOutput = await runGitCommand(trimmedPath, [
+  const normalized = remoteUrl.trim().replace(/\.git$/i, "")
+
+  const sshMatch = normalized.match(/^git@github\.com:([^/]+)\/(.+)$/i)
+  if (sshMatch?.[1] && sshMatch[2]) {
+    return { owner: sshMatch[1], repo: sshMatch[2] }
+  }
+
+  const httpsMatch = normalized.match(/^https?:\/\/github\.com\/([^/]+)\/(.+)$/i)
+  if (httpsMatch?.[1] && httpsMatch[2]) {
+    return { owner: httpsMatch[1], repo: httpsMatch[2] }
+  }
+
+  const sshUrlMatch = normalized.match(/^ssh:\/\/git@github\.com\/([^/]+)\/(.+)$/i)
+  if (sshUrlMatch?.[1] && sshUrlMatch[2]) {
+    return { owner: sshUrlMatch[1], repo: sshUrlMatch[2] }
+  }
+
+  return null
+}
+
+function getRemoteNameFromBranchRef(branchRef: string | null | undefined): string | null {
+  if (!branchRef) {
+    return null
+  }
+
+  const slashIndex = branchRef.indexOf("/")
+  if (slashIndex <= 0) {
+    return null
+  }
+
+  return branchRef.slice(0, slashIndex)
+}
+
+async function resolvePullRequestHeadRef(
+  projectPath: string,
+  branchName: string,
+  remoteName: string | null
+): Promise<string> {
+  const remoteUrl = await getRemoteUrl(projectPath, remoteName ?? "origin")
+  const remoteSlug = parseGitHubRemoteSlug(remoteUrl)
+  if (!remoteSlug) {
+    return branchName
+  }
+
+  return `${remoteSlug.owner}:${branchName}`
+}
+
+async function ensureRemoteBranchExists(
+  projectPath: string,
+  branchName: string,
+  remoteName: string | null
+): Promise<void> {
+  const targetRemote = remoteName ?? "origin"
+
+  try {
+    const output = await runGitCommand(projectPath, [
+      "ls-remote",
+      "--heads",
+      targetRemote,
+      branchName,
+    ])
+    if (output.trim()) {
+      return
+    }
+  } catch {
+    // Fall through to the explicit error below.
+  }
+
+  throw new Error(
+    `The branch "${branchName}" is not available on ${targetRemote} yet. Push it successfully before creating a pull request.`
+  )
+}
+
+async function listLocalAndRemoteBranches(projectPath: string): Promise<string[]> {
+  const branchesOutput = await runGitCommand(projectPath, [
     "for-each-ref",
     "--sort=refname",
     "--format=%(refname:short)",
@@ -450,7 +631,7 @@ async function getGitBranchesResponse(projectPath: string): Promise<GitBranchesR
     "refs/remotes",
   ])
 
-  const branches = Array.from(
+  return Array.from(
     new Set(
       branchesOutput
         .split("\n")
@@ -459,12 +640,195 @@ async function getGitBranchesResponse(projectPath: string): Promise<GitBranchesR
         .sort()
     )
   )
+}
+
+async function getCurrentUpstreamBranch(projectPath: string): Promise<string | null> {
+  try {
+    const upstreamBranch = await runGitCommand(projectPath, [
+      "rev-parse",
+      "--abbrev-ref",
+      "--symbolic-full-name",
+      "@{upstream}",
+    ])
+    return upstreamBranch || null
+  } catch {
+    return null
+  }
+}
+
+async function listLocalBranchNames(projectPath: string): Promise<string[]> {
+  const output = await runGitCommand(projectPath, [
+    "for-each-ref",
+    "--sort=refname",
+    "--format=%(refname:short)",
+    "refs/heads",
+  ])
+
+  return output
+    .split("\n")
+    .map((value) => value.trim())
+    .filter(Boolean)
+}
+
+async function resolveDefaultBranch(projectPath: string, branches: string[]): Promise<string | null> {
+  try {
+    const originHead = await runGitCommand(projectPath, ["symbolic-ref", "refs/remotes/origin/HEAD"])
+    const normalized = originHead.replace(/^refs\/remotes\/origin\//, "").trim()
+    if (normalized) {
+      return normalized
+    }
+  } catch {
+    // Ignore and fall back to heuristics.
+  }
+
+  if (branches.includes("main")) {
+    return "main"
+  }
+
+  if (branches.includes("master")) {
+    return "master"
+  }
+
+  const firstLocalBranch = branches.find((branch) => !branch.includes("/"))
+  return firstLocalBranch ?? null
+}
+
+function normalizePullRequestState(rawState: string | null | undefined): GitPullRequest["state"] {
+  if (rawState === "merged" || rawState === "MERGED") {
+    return "merged"
+  }
+  if (rawState === "closed" || rawState === "CLOSED") {
+    return "closed"
+  }
+  return "open"
+}
+
+function mapPullRequest(raw: {
+  number: number
+  title: string
+  url: string
+  state?: string | null
+  baseRefName: string
+  headRefName: string
+}): GitPullRequest {
+  return {
+    number: raw.number,
+    title: raw.title,
+    url: raw.url,
+    state: normalizePullRequestState(raw.state),
+    baseBranch: raw.baseRefName,
+    headBranch: raw.headRefName,
+  }
+}
+
+async function queryPullRequests(
+  projectPath: string,
+  args: string[]
+): Promise<Array<{
+  number: number
+  title: string
+  url: string
+  state?: string | null
+  baseRefName: string
+  headRefName: string
+}>> {
+  const output = await runGhCommand(projectPath, args)
+  return JSON.parse(output) as Array<{
+    number: number
+    title: string
+    url: string
+    state?: string | null
+    baseRefName: string
+    headRefName: string
+  }>
+}
+
+async function getOpenPullRequest(projectPath: string, branchName: string): Promise<GitPullRequest | null> {
+  const upstreamBranch = await getCurrentUpstreamBranch(projectPath)
+  const remoteName = getRemoteNameFromBranchRef(upstreamBranch)
+  const qualifiedHeadRef = await resolvePullRequestHeadRef(projectPath, branchName, remoteName)
+  const candidateHeads = Array.from(new Set([branchName, qualifiedHeadRef]))
+
+  for (const headRef of candidateHeads) {
+    try {
+      const parsed = await queryPullRequests(projectPath, [
+        "pr",
+        "list",
+        "--head",
+        headRef,
+        "--state",
+        "open",
+        "--limit",
+        "1",
+        "--json",
+        "number,title,url,state,baseRefName,headRefName",
+      ])
+
+      if (parsed.length > 0) {
+        return mapPullRequest(parsed[0])
+      }
+    } catch {
+      // Try the next lookup shape.
+    }
+  }
+
+  try {
+    const output = await runGhCommand(projectPath, [
+      "pr",
+      "view",
+      branchName,
+      "--json",
+      "number,title,url,state,baseRefName,headRefName",
+    ])
+
+    const parsed = JSON.parse(output) as {
+      number: number
+      title: string
+      url: string
+      state?: string | null
+      baseRefName: string
+      headRefName: string
+    }
+
+    return mapPullRequest(parsed)
+  } catch {
+    return null
+  }
+}
+
+async function getGitBranchesResponse(projectPath: string): Promise<GitBranchesResponse> {
+  const trimmedPath = ensureGitProjectPath(projectPath)
+  await runGitCommand(trimmedPath, ["rev-parse", "--show-toplevel"])
+
+  let currentBranch = await runGitCommand(trimmedPath, ["branch", "--show-current"])
+  let isDetached = false
+  if (!currentBranch) {
+    const commit = await runGitCommand(trimmedPath, ["rev-parse", "--short", "HEAD"])
+    currentBranch = `detached@${commit}`
+    isDetached = true
+  }
+
+  const upstreamBranch = await getCurrentUpstreamBranch(trimmedPath)
+
+  const branches = await listLocalAndRemoteBranches(trimmedPath)
+  const defaultBranch = await resolveDefaultBranch(trimmedPath, branches)
+  const { aheadCount, behindCount } = await getAheadBehind(trimmedPath)
+  const originRemote = await hasOriginRemote(trimmedPath)
+  const openPullRequest = isDetached ? null : await getOpenPullRequest(trimmedPath, currentBranch)
 
   return {
     currentBranch,
     upstreamBranch,
     branches,
     workingTreeSummary: await getWorkingTreeSummary(trimmedPath),
+    aheadCount,
+    behindCount,
+    hasOriginRemote: originRemote,
+    hasUpstream: upstreamBranch !== null,
+    defaultBranch,
+    isDefaultBranch: !isDetached && defaultBranch !== null && currentBranch === defaultBranch,
+    isDetached,
+    openPullRequest,
   }
 }
 
@@ -472,6 +836,446 @@ export async function resolveGitDirectory(projectPath: string): Promise<string> 
   const trimmedPath = ensureGitProjectPath(projectPath)
   await runGitCommand(trimmedPath, ["rev-parse", "--show-toplevel"])
   return runGitCommand(trimmedPath, ["rev-parse", "--absolute-git-dir"])
+}
+
+function parseCommitMessage(input: string | undefined): CommitSuggestion | null {
+  const trimmed = input?.trim()
+  if (!trimmed) {
+    return null
+  }
+
+  const lines = trimmed.split(/\r?\n/)
+  const subject = sanitizeCommitSubject(lines[0] ?? "")
+  const body = lines.slice(1).join("\n").trim()
+
+  if (!subject) {
+    return null
+  }
+
+  return { subject, body }
+}
+
+function sanitizeCommitSubject(subject: string): string {
+  return subject.replace(/\s+/g, " ").trim().replace(/\.$/, "").slice(0, 72).trim()
+}
+
+function sanitizeBranchName(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-")
+    .slice(0, 48)
+}
+
+function ensureUniqueBranchName(base: string, existingBranches: string[]): string {
+  const normalizedBase = sanitizeBranchName(base) || "update-changes"
+  const existing = new Set(existingBranches)
+
+  if (!existing.has(normalizedBase)) {
+    return normalizedBase
+  }
+
+  for (let attempt = 2; attempt < 100; attempt += 1) {
+    const candidate = `${normalizedBase}-${attempt}`
+    if (!existing.has(candidate)) {
+      return candidate
+    }
+  }
+
+  return `${normalizedBase}-${Date.now().toString(36)}`
+}
+
+async function prepareCommitContext(
+  projectPath: string,
+  filePaths?: string[]
+): Promise<{ stagedSummary: string; stagedPatch: string } | null> {
+  const { repoRoot, scopePath } = await getRepoContext(projectPath)
+  const repoRelativePaths = (filePaths ?? []).map((filePath) => toRepoRelativePath(filePath, scopePath))
+
+  if (repoRelativePaths.length > 0) {
+    try {
+      await runGitCommand(repoRoot, ["reset"])
+    } catch {
+      // Best-effort reset to mirror a fresh selected-file commit.
+    }
+    await runGitCommand(repoRoot, withSpecificPathspecs(["add", "-A"], repoRelativePaths))
+  } else {
+    await runGitCommand(repoRoot, withOptionalPathspec(["add", "-A"], scopePath))
+  }
+
+  const stagedSummary = (
+    await runGitCommand(repoRoot, withOptionalPathspec(["diff", "--cached", "--name-status"], scopePath))
+  ).trim()
+
+  if (!stagedSummary) {
+    return null
+  }
+
+  const stagedPatch = await runGitCommandRaw(
+    repoRoot,
+    withOptionalPathspec(["diff", "--cached", "--patch", "--minimal"], scopePath)
+  )
+
+  return {
+    stagedSummary,
+    stagedPatch,
+  }
+}
+
+function buildCommitPrompt(input: {
+  branch: string | null
+  stagedSummary: string
+  stagedPatch: string
+  includeBranch: boolean
+}): string {
+  return [
+    "You write concise git commit messages.",
+    input.includeBranch
+      ? 'Return JSON with keys: "subject", "body", "branch".'
+      : 'Return JSON with keys: "subject", "body".',
+    "Rules:",
+    "- subject must be imperative and at most 72 characters",
+    "- subject must not end with a period",
+    "- body can be an empty string or a few short bullet points",
+    ...(input.includeBranch
+      ? ["- branch must be a short semantic branch name fragment for the change"]
+      : []),
+    "",
+    `Branch: ${input.branch ?? "(detached)"}`,
+    "",
+    "Staged files:",
+    input.stagedSummary.slice(0, 6000),
+    "",
+    "Staged patch:",
+    input.stagedPatch.slice(0, 40000),
+  ].join("\n")
+}
+
+function buildPrPrompt(input: {
+  baseBranch: string
+  headBranch: string
+  commitSummary: string
+  diffSummary: string
+  diffPatch: string
+  extraInstructions?: string | null
+}): string {
+  return [
+    "You write GitHub pull request content.",
+    'Return JSON with keys: "title", "body".',
+    "Rules:",
+    "- title should be concise and specific",
+    "- body must be markdown and include headings '## Summary' and '## Testing'",
+    "- under Summary, use short bullet points",
+    "- under Testing, include concrete checks or 'Not run'",
+    ...(input.extraInstructions?.trim()
+      ? ["- follow any extra instructions exactly when they do not conflict with the rules below"]
+      : []),
+    "",
+    `Base branch: ${input.baseBranch}`,
+    `Head branch: ${input.headBranch}`,
+    "",
+    "Commits:",
+    input.commitSummary.slice(0, 12000),
+    "",
+    "Diff stat:",
+    input.diffSummary.slice(0, 12000),
+    "",
+    "Diff patch:",
+    input.diffPatch.slice(0, 40000),
+    ...(input.extraInstructions?.trim()
+      ? ["", "Additional instructions:", input.extraInstructions.trim().slice(0, 4000)]
+      : []),
+  ].join("\n")
+}
+
+async function runCodexJson<T>(
+  projectPath: string,
+  prompt: string,
+  schema: Record<string, unknown>
+): Promise<T> {
+  const tempDir = await mkdtemp(path.join(tmpdir(), "nucleus-git-"))
+  const schemaPath = path.join(tempDir, "schema.json")
+  const outputPath = path.join(tempDir, "output.json")
+
+  try {
+    await writeFile(schemaPath, JSON.stringify(schema), "utf8")
+    await writeFile(outputPath, "", "utf8")
+
+    await runCommandWithInput(
+      "codex",
+      [
+        "exec",
+        "--ephemeral",
+        "-s",
+        "read-only",
+        "--config",
+        `model_reasoning_effort="${CODEX_REASONING_EFFORT}"`,
+        "--output-schema",
+        schemaPath,
+        "--output-last-message",
+        outputPath,
+        "-",
+      ],
+      {
+        cwd: projectPath,
+        input: prompt,
+        env: process.env,
+      }
+    )
+
+    const raw = await readFile(outputPath, "utf8")
+    return JSON.parse(raw) as T
+  } catch (error) {
+    throw new Error(
+      error instanceof Error
+        ? `Failed to generate git text with Codex: ${error.message}`
+        : "Failed to generate git text with Codex."
+    )
+  } finally {
+    await rm(tempDir, { recursive: true, force: true })
+  }
+}
+
+async function resolveCommitSuggestion(input: {
+  projectPath: string
+  currentBranch: string | null
+  commitMessage?: string
+  includeBranch?: boolean
+  filePaths?: string[]
+}): Promise<(CommitSuggestion & { commitMessage: string }) | null> {
+  const custom = parseCommitMessage(input.commitMessage)
+  if (custom) {
+    return {
+      ...custom,
+      ...(input.includeBranch ? { branch: sanitizeBranchName(custom.subject) } : {}),
+      commitMessage: [custom.subject, custom.body].filter(Boolean).join("\n\n"),
+    }
+  }
+
+  const context = await prepareCommitContext(input.projectPath, input.filePaths)
+  if (!context) {
+    return null
+  }
+
+  const generated = await runCodexJson<{
+    subject: string
+    body: string
+    branch?: string
+  }>(
+    input.projectPath,
+    buildCommitPrompt({
+      branch: input.currentBranch,
+      stagedSummary: context.stagedSummary,
+      stagedPatch: context.stagedPatch,
+      includeBranch: input.includeBranch === true,
+    }),
+    input.includeBranch
+      ? {
+          type: "object",
+          additionalProperties: false,
+          required: ["subject", "body", "branch"],
+          properties: {
+            subject: { type: "string" },
+            body: { type: "string" },
+            branch: { type: "string" },
+          },
+        }
+      : {
+          type: "object",
+          additionalProperties: false,
+          required: ["subject", "body"],
+          properties: {
+            subject: { type: "string" },
+            body: { type: "string" },
+          },
+        }
+  )
+
+  const subject = sanitizeCommitSubject(generated.subject)
+  if (!subject) {
+    throw new Error("Codex returned an empty commit subject.")
+  }
+
+  const body = generated.body?.trim() ?? ""
+  return {
+    subject,
+    body,
+    ...(input.includeBranch
+      ? { branch: sanitizeBranchName(generated.branch ?? generated.subject) || "update-changes" }
+      : {}),
+    commitMessage: [subject, body].filter(Boolean).join("\n\n"),
+  }
+}
+
+async function createAndCheckoutFeatureBranch(
+  projectPath: string,
+  suggestion: CommitSuggestion
+): Promise<string> {
+  const existingBranches = await listLocalBranchNames(projectPath)
+  const preferred =
+    suggestion.branch ?? (sanitizeBranchName(suggestion.subject) || "update-changes")
+  const branchName = ensureUniqueBranchName(preferred, existingBranches)
+
+  await runGitCommand(projectPath, ["switch", "-c", branchName])
+  return branchName
+}
+
+async function commitChanges(
+  projectPath: string,
+  subject: string,
+  body: string
+): Promise<{ commitSha: string }> {
+  const args = ["commit", "-m", subject]
+  if (body.trim()) {
+    args.push("-m", body.trim())
+  }
+
+  await runGitCommand(projectPath, args)
+  const commitSha = await runGitCommand(projectPath, ["rev-parse", "HEAD"])
+  return { commitSha }
+}
+
+async function pushCurrentBranch(
+  projectPath: string,
+  branchName: string
+): Promise<GitRunStackedActionResult["push"]> {
+  const branchData = await getGitBranchesResponse(projectPath)
+
+  if (branchData.hasUpstream && branchData.aheadCount === 0 && branchData.behindCount === 0) {
+    return {
+      status: "skipped_up_to_date",
+      branch: branchName,
+      upstreamBranch: branchData.upstreamBranch,
+    }
+  }
+
+  if (!branchData.hasUpstream) {
+    if (!branchData.hasOriginRemote) {
+      throw new Error('Cannot push because this project has no "origin" remote configured.')
+    }
+
+    await runGitCommand(projectPath, ["push", "-u", "origin", branchName])
+    return {
+      status: "pushed",
+      branch: branchName,
+      upstreamBranch: `origin/${branchName}`,
+      setUpstream: true,
+    }
+  }
+
+  await runGitCommand(projectPath, ["push"])
+  return {
+    status: "pushed",
+    branch: branchName,
+    upstreamBranch: branchData.upstreamBranch,
+    setUpstream: false,
+  }
+}
+
+async function readRangeContext(projectPath: string, baseBranch: string): Promise<RangeContext> {
+  const { repoRoot, scopePath } = await getRepoContext(projectPath)
+  const range = `${baseBranch}..HEAD`
+
+  const [commitSummary, diffSummary, diffPatch] = await Promise.all([
+    runGitCommand(repoRoot, withOptionalPathspec(["log", "--oneline", range], scopePath)).catch(
+      () => ""
+    ),
+    runGitCommand(repoRoot, withOptionalPathspec(["diff", "--stat", range], scopePath)).catch(
+      () => ""
+    ),
+    runGitCommandRaw(
+      repoRoot,
+      withOptionalPathspec(["diff", "--patch", "--minimal", range], scopePath)
+    ).catch(() => ""),
+  ])
+
+  return {
+    commitSummary,
+    diffSummary,
+    diffPatch,
+  }
+}
+
+async function createPullRequest(
+  projectPath: string,
+  branchName: string,
+  prInstructions?: string | null
+): Promise<GitRunStackedActionResult["pr"]> {
+  const existing = await getOpenPullRequest(projectPath, branchName)
+  if (existing) {
+    return {
+      status: "opened_existing",
+      url: existing.url,
+      number: existing.number,
+      title: existing.title,
+      baseBranch: existing.baseBranch,
+      headBranch: existing.headBranch,
+    }
+  }
+
+  const branchData = await getGitBranchesResponse(projectPath)
+  const baseBranch = branchData.defaultBranch
+  if (!baseBranch) {
+    throw new Error("Unable to determine the default branch for this project.")
+  }
+
+  const remoteName = getRemoteNameFromBranchRef(branchData.upstreamBranch)
+  await ensureRemoteBranchExists(projectPath, branchName, remoteName)
+  const headRef = await resolvePullRequestHeadRef(projectPath, branchName, remoteName)
+
+  const rangeContext = await readRangeContext(projectPath, baseBranch)
+  const generated = await runCodexJson<{ title: string; body: string }>(
+    projectPath,
+    buildPrPrompt({
+      baseBranch,
+      headBranch: branchName,
+      commitSummary: rangeContext.commitSummary,
+      diffSummary: rangeContext.diffSummary,
+      diffPatch: rangeContext.diffPatch,
+      extraInstructions: prInstructions,
+    }),
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["title", "body"],
+      properties: {
+        title: { type: "string" },
+        body: { type: "string" },
+      },
+    }
+  )
+
+  await runGhCommand(projectPath, [
+    "pr",
+    "create",
+    "--base",
+    baseBranch,
+    "--head",
+    headRef,
+    "--title",
+    generated.title.trim(),
+    "--body",
+    generated.body.trim(),
+  ])
+
+  const created = await getOpenPullRequest(projectPath, branchName)
+  return {
+    status: "created",
+    ...(created
+      ? {
+          url: created.url,
+          number: created.number,
+          title: created.title,
+          baseBranch: created.baseBranch,
+          headBranch: created.headBranch,
+        }
+      : {
+          title: generated.title.trim(),
+          baseBranch,
+          headBranch: branchName,
+        }),
+  }
 }
 
 function localBranchNameForRemote(branchName: string): string {
@@ -557,5 +1361,112 @@ export class GitService {
     await runGitCommand(trimmedPath, ["switch", "-c", nextBranch])
 
     return getGitBranchesResponse(trimmedPath)
+  }
+
+  async pull(projectPath: string): Promise<GitPullResult> {
+    const branchData = await getGitBranchesResponse(projectPath)
+    if (branchData.isDetached) {
+      throw new Error("Cannot pull from detached HEAD.")
+    }
+    if (!branchData.hasUpstream) {
+      throw new Error("Current branch has no upstream configured. Push with upstream first.")
+    }
+
+    const beforeSha = await runGitCommand(projectPath, ["rev-parse", "HEAD"])
+    await runGitCommand(projectPath, ["pull", "--ff-only"])
+    const afterSha = await runGitCommand(projectPath, ["rev-parse", "HEAD"])
+
+    return {
+      status: beforeSha === afterSha ? "skipped_up_to_date" : "pulled",
+      branch: branchData.currentBranch,
+      upstreamBranch: branchData.upstreamBranch,
+    }
+  }
+
+  async runStackedAction(
+    projectPath: string,
+    input: GitRunStackedActionInput
+  ): Promise<GitRunStackedActionResult> {
+    const trimmedPath = ensureGitProjectPath(projectPath)
+    const initial = await getGitBranchesResponse(trimmedPath)
+    const wantsPush = input.action !== "commit"
+    const wantsPr = input.action === "commit_push_pr"
+
+    if (!input.featureBranch && initial.isDetached && wantsPush) {
+      throw new Error("Cannot push from detached HEAD.")
+    }
+
+    if (!input.featureBranch && initial.isDetached && wantsPr) {
+      throw new Error("Cannot create a pull request from detached HEAD.")
+    }
+
+    let branchName = initial.isDetached ? null : initial.currentBranch
+    let branchResult: GitRunStackedActionResult["branch"] = {
+      status: "skipped_not_requested",
+    }
+    let suggestion: (CommitSuggestion & { commitMessage: string }) | null = null
+
+    if (input.featureBranch) {
+      suggestion = await resolveCommitSuggestion({
+        projectPath: trimmedPath,
+        currentBranch: branchName,
+        commitMessage: input.commitMessage,
+        includeBranch: true,
+        filePaths: input.filePaths,
+      })
+
+      if (!suggestion) {
+        throw new Error("There are no changes to commit on a new branch.")
+      }
+
+      branchName = await createAndCheckoutFeatureBranch(trimmedPath, suggestion)
+      branchResult = {
+        status: "created",
+        name: branchName,
+      }
+    }
+
+    if (!branchName && wantsPush) {
+      throw new Error("Cannot push without an active branch.")
+    }
+
+    let commitResult: GitRunStackedActionResult["commit"] = {
+      status: "skipped_no_changes",
+    }
+
+    if (!suggestion) {
+      suggestion = await resolveCommitSuggestion({
+        projectPath: trimmedPath,
+        currentBranch: branchName,
+        commitMessage: input.commitMessage,
+        includeBranch: false,
+        filePaths: input.filePaths,
+      })
+    }
+
+    if (suggestion) {
+      const committed = await commitChanges(trimmedPath, suggestion.subject, suggestion.body)
+      commitResult = {
+        status: "created",
+        commitSha: committed.commitSha,
+        subject: suggestion.subject,
+      }
+    }
+
+    const pushResult = wantsPush
+      ? await pushCurrentBranch(trimmedPath, branchName ?? initial.currentBranch)
+      : { status: "skipped_not_requested" as const }
+
+    const prResult = wantsPr
+      ? await createPullRequest(trimmedPath, branchName ?? initial.currentBranch, input.prInstructions)
+      : { status: "skipped_not_requested" as const }
+
+    return {
+      action: input.action,
+      branch: branchResult,
+      commit: commitResult,
+      push: pushResult,
+      pr: prResult,
+    }
   }
 }

@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs"
-import { app, BrowserWindow, ipcMain, nativeImage } from "electron"
+import { app, BrowserWindow, ipcMain, nativeImage, shell } from "electron"
 import { basename, join } from "node:path"
 import { IPC_CHANNELS } from "./ipc/channels"
 import { JsonStoreService } from "./services/store"
@@ -177,6 +177,9 @@ function registerIpcHandlers(storeService: JsonStoreService): void {
   ipcMain.handle(IPC_CHANNELS.codexSend, (_event, message: string) =>
     codexServerService.send(message)
   )
+  ipcMain.handle(IPC_CHANNELS.shellOpenExternal, (_event, url: string) =>
+    shell.openExternal(url).then(() => undefined)
+  )
 
   ipcMain.handle(
     IPC_CHANNELS.terminalCreateSession,
@@ -213,6 +216,14 @@ function registerIpcHandlers(storeService: JsonStoreService): void {
     IPC_CHANNELS.gitCreateAndCheckoutBranch,
     (_event, projectPath: string, branchName: string) =>
       gitService.createAndCheckoutBranch(projectPath, branchName)
+  )
+  ipcMain.handle(IPC_CHANNELS.gitPull, (_event, projectPath: string) =>
+    gitService.pull(projectPath)
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.gitRunStackedAction,
+    (_event, projectPath: string, input: Parameters<GitService["runStackedAction"]>[1]) =>
+      gitService.runStackedAction(projectPath, input)
   )
 
   ipcMain.handle(IPC_CHANNELS.skillsList, () => skillsService.list())
