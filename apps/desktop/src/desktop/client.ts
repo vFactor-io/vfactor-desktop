@@ -3,6 +3,7 @@ import type {
   AppUpdateInfo,
   CopyPathsIntoDirectoryOptions,
   DesktopDirEntry,
+  GitActionProgressEvent,
   GitBranchesResponse,
   GitFileChange,
   GitFileDiff,
@@ -117,6 +118,8 @@ export const desktop = {
     pull: (projectPath: string) => window.nucleus.git.pull(projectPath),
     runStackedAction: (projectPath: string, input: GitRunStackedActionInput) =>
       window.nucleus.git.runStackedAction(projectPath, input),
+    onActionProgress: (listener: (event: GitActionProgressEvent) => void) =>
+      window.nucleus.git.onActionProgress(listener),
   },
   skills: {
     list: () => window.nucleus.skills.list(),
@@ -127,6 +130,7 @@ export type {
   AppUpdateDownloadEvent,
   AppUpdateInfo,
   DesktopDirEntry,
+  GitActionProgressEvent,
   GitBranchesResponse,
   GitFileChange,
   GitFileDiff,

@@ -65,6 +65,49 @@ function createApprovalPromptState(itemId?: string): RuntimePromptState {
   }
 }
 
+function createFileChangeMessage({
+  id,
+  turnId = "turn-1",
+  createdAt = 1,
+  changes,
+}: {
+  id: string
+  turnId?: string
+  createdAt?: number
+  changes: Array<{ path: string; diff: string }>
+}): MessageWithParts {
+  return {
+    info: {
+      id,
+      sessionId: "session-1",
+      role: "assistant",
+      createdAt,
+      turnId,
+      itemType: "fileChange",
+    },
+    parts: [
+      {
+        id: `${id}:tool`,
+        type: "tool",
+        messageId: id,
+        sessionId: "session-1",
+        tool: "fileChange",
+        state: {
+          status: "completed",
+          input: {},
+          output: {
+            changes: changes.map((change) => ({
+              path: change.path,
+              kind: { type: "update" },
+              diff: change.diff,
+            })),
+          },
+        },
+      },
+    ],
+  }
+}
+
 describe("buildChatTimelineViewModel", () => {
   test("highlights the existing tool row when the approval references a streamed tool item", () => {
     const message = createCommandToolMessage("call-1:message", "call-1")
@@ -96,5 +139,45 @@ describe("buildChatTimelineViewModel", () => {
 
     expect(viewModel.latestTurnFooterMessageId).toBe("call-3:message")
     expect(viewModel.completedFooterByMessageId.has("call-3:message")).toBe(true)
+  })
+
+  test("builds per-file footer entries for changed files", () => {
+    const message = createFileChangeMessage({
+      id: "change-1",
+      changes: [
+        {
+          path: "src/ChatMessages.tsx",
+          diff: ["--- a/src/ChatMessages.tsx", "+++ b/src/ChatMessages.tsx", "+const a = 1", "-const b = 2"].join("\n"),
+        },
+        {
+          path: "src/timelineViewModel.ts",
+          diff: ["--- a/src/timelineViewModel.ts", "+++ b/src/timelineViewModel.ts", "+export {}", "+type X = 1"].join("\n"),
+        },
+      ],
+    })
+
+    const viewModel = buildChatTimelineViewModel({
+      messages: [message],
+    })
+
+    expect(viewModel.latestTurnChangedFilesSummary).toMatchObject({
+      fileCount: 2,
+      added: 3,
+      removed: 1,
+      entries: [
+        {
+          path: "src/ChatMessages.tsx",
+          label: "ChatMessages.tsx",
+          added: 1,
+          removed: 1,
+        },
+        {
+          path: "src/timelineViewModel.ts",
+          label: "timelineViewModel.ts",
+          added: 2,
+          removed: 0,
+        },
+      ],
+    })
   })
 })

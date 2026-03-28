@@ -3,6 +3,7 @@ import type {
   AppUpdateInfo,
   CopyPathsIntoDirectoryOptions,
   DesktopDirEntry,
+  GitActionProgressEvent,
   GitBranchesResponse,
   GitFileChange,
   GitFileDiff,
@@ -101,6 +102,7 @@ declare global {
           projectPath: string,
           input: GitRunStackedActionInput
         ) => Promise<GitRunStackedActionResult>
+        onActionProgress: (listener: (event: GitActionProgressEvent) => void) => () => void
       }
       skills: {
         list: () => Promise<SkillsSyncResponse>

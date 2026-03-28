@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs"
 import { app, BrowserWindow, ipcMain, nativeImage, shell } from "electron"
 import { basename, join } from "node:path"
-import { IPC_CHANNELS } from "./ipc/channels"
+import { EVENT_CHANNELS, IPC_CHANNELS } from "./ipc/channels"
 import { JsonStoreService } from "./services/store"
 import { DesktopFsService } from "./services/fs"
 import { DialogService } from "./services/dialog"
@@ -223,7 +223,9 @@ function registerIpcHandlers(storeService: JsonStoreService): void {
   ipcMain.handle(
     IPC_CHANNELS.gitRunStackedAction,
     (_event, projectPath: string, input: Parameters<GitService["runStackedAction"]>[1]) =>
-      gitService.runStackedAction(projectPath, input)
+      gitService.runStackedAction(projectPath, input, (progress) =>
+        sendToRenderer(EVENT_CHANNELS.gitActionProgress, progress)
+      )
   )
 
   ipcMain.handle(IPC_CHANNELS.skillsList, () => skillsService.list())

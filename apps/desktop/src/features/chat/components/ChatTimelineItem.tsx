@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
-import { useStickToBottomContext } from "use-stick-to-bottom"
+import { useMemo, useRef, useState, type ReactNode } from "react"
 import {
   Bash,
   CaretDown,
@@ -29,12 +28,16 @@ import {
 } from "./ai-elements/message"
 import type { ChildSessionData } from "./agent-activity/AgentActivitySubagent"
 import { getFileChangeEntries, getToolPart } from "./timelineActivity"
+import {
+  useViewportAnchorToggle,
+} from "./useViewportAnchorToggle"
 
 interface ChatTimelineItemProps {
   message: MessageWithParts
   childSessions?: Map<string, ChildSessionData>
   approvalState?: RuntimeApprovalDisplayState | null
   isStreaming?: boolean
+  withinGroup?: boolean
 }
 
 function getMessageText(parts: RuntimeMessagePart[]): string {
@@ -49,12 +52,39 @@ function TimelineTextBlock({
   text,
   tone = "default",
   isStreaming = false,
+  withinGroup = false,
 }: {
   eyebrow?: string
   text: string
   tone?: "default" | "muted" | "accent"
   isStreaming?: boolean
+  withinGroup?: boolean
 }) {
+  if (withinGroup) {
+    const toneClass =
+      tone === "muted"
+        ? "text-muted-foreground"
+        : tone === "accent"
+          ? "text-secondary-foreground/80"
+          : "text-secondary-foreground/72"
+
+    return (
+      <div className={cn("w-full py-1", toneClass)}>
+        {eyebrow ? (
+          <div className="mb-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+            {eyebrow}
+          </div>
+        ) : null}
+        <MessageResponse
+          isStreaming={isStreaming}
+          className="leading-relaxed [&>p]:mb-4 last:[&>p]:mb-0"
+        >
+          {text}
+        </MessageResponse>
+      </div>
+    )
+  }
+
   if (tone === "default") {
     return (
       <MessageComponent from="assistant">
@@ -443,71 +473,7 @@ function InlineActivityRow({
   const canExpand = Boolean(details)
   const [isOpen, setIsOpen] = useState(false)
   const buttonRef = useRef<HTMLButtonElement>(null)
-  const releaseAnchorTimeoutRef = useRef<number | null>(null)
-  const stickToBottom = useStickToBottomContext()
-
-  const releaseAnchorLock = useCallback(() => {
-    if (releaseAnchorTimeoutRef.current != null) {
-      window.clearTimeout(releaseAnchorTimeoutRef.current)
-      releaseAnchorTimeoutRef.current = null
-    }
-
-    stickToBottom.targetScrollTop = null
-  }, [stickToBottom])
-
-  useEffect(
-    () => () => {
-      releaseAnchorLock()
-    },
-    [releaseAnchorLock]
-  )
-
-  const handleToggle = useCallback(() => {
-    const button = buttonRef.current
-    const scrollElement = stickToBottom.scrollRef.current
-
-    if (!button || !scrollElement) {
-      setIsOpen((v) => !v)
-      return
-    }
-
-    releaseAnchorLock()
-
-    const topBefore = button.getBoundingClientRect().top
-
-    // For this toggle only, override the bottom target so the clicked button
-    // stays anchored in the same viewport position while the content resizes.
-    stickToBottom.targetScrollTop = (_targetScrollTop, { scrollElement }) => {
-      const drift = button.getBoundingClientRect().top - topBefore
-      return scrollElement.scrollTop + drift
-    }
-
-    setIsOpen((v) => !v)
-
-    // Let the resize observer and any instant scroll settle, then make one
-    // final correction with the real scroll container before releasing the
-    // temporary anchor override.
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        const drift = button.getBoundingClientRect().top - topBefore
-
-        if (Math.abs(drift) > 1) {
-          const maxScrollTop = scrollElement.scrollHeight - scrollElement.clientHeight
-          const nextScrollTop = Math.max(0, Math.min(scrollElement.scrollTop + drift, maxScrollTop))
-
-          scrollElement.scrollTop = nextScrollTop
-          stickToBottom.state.lastScrollTop = nextScrollTop
-          stickToBottom.state.ignoreScrollToTop = nextScrollTop
-        }
-
-        releaseAnchorTimeoutRef.current = window.setTimeout(() => {
-          releaseAnchorTimeoutRef.current = null
-          releaseAnchorLock()
-        }, 0)
-      })
-    })
-
-  }, [releaseAnchorLock, stickToBottom])
+  const preserveViewportOnToggle = useViewportAnchorToggle()
 
   const approvalTone =
     approvalState === "pending"
@@ -538,7 +504,10 @@ function InlineActivityRow({
         <button
           ref={buttonRef}
           type="button"
-          onClick={handleToggle}
+          onClick={() =>
+            preserveViewportOnToggle(buttonRef.current, () => {
+              setIsOpen((v) => !v)
+            })}
           className="relative z-10 inline-flex max-w-full items-center gap-1.5 align-top text-left"
         >
           {IconComponent ? (
@@ -662,6 +631,7 @@ export function ChatTimelineItem({
   childSessions,
   approvalState = null,
   isStreaming = false,
+  withinGroup = false,
 }: ChatTimelineItemProps) {
   const text = getMessageText(message.parts)
   const toolPart = getToolPart(message.parts)
@@ -686,6 +656,7 @@ export function ChatTimelineItem({
         message={message}
         toolPart={toolPart}
         childSessions={childSessions}
+        withinGroup={withinGroup}
         approvalState={approvalState}
       />
     )
@@ -703,6 +674,7 @@ export function ChatTimelineItem({
       <TimelineTextBlock
         text={text}
         isStreaming={isStreaming}
+        withinGroup={withinGroup}
       />
     )
   }
@@ -714,6 +686,7 @@ export function ChatTimelineItem({
         text={text}
         tone="accent"
         isStreaming={isStreaming}
+        withinGroup={withinGroup}
       />
     )
   }
@@ -725,6 +698,7 @@ export function ChatTimelineItem({
         text={text}
         tone="accent"
         isStreaming={isStreaming}
+        withinGroup={withinGroup}
       />
     )
   }
@@ -736,6 +710,7 @@ export function ChatTimelineItem({
         text={text}
         tone="muted"
         isStreaming={isStreaming}
+        withinGroup={withinGroup}
       />
     )
   }
@@ -745,6 +720,7 @@ export function ChatTimelineItem({
       <TimelineTextBlock
         text={text}
         isStreaming={isStreaming}
+        withinGroup={withinGroup}
       />
     )
   }
@@ -753,6 +729,7 @@ export function ChatTimelineItem({
     <TimelineTextBlock
       text={text}
       isStreaming={isStreaming}
+      withinGroup={withinGroup}
     />
   )
 }

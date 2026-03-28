@@ -6,6 +6,7 @@ import path from "node:path"
 import { promisify } from "node:util"
 
 import type {
+  GitActionProgressEvent,
   GitBranchesResponse,
   GitFileChange,
   GitFileDiff,
@@ -1012,7 +1013,6 @@ function buildPrPrompt(input: {
   commitSummary: string
   diffSummary: string
   diffPatch: string
-  extraInstructions?: string | null
 }): string {
   return [
     "You write GitHub pull request content.",
@@ -1022,9 +1022,6 @@ function buildPrPrompt(input: {
     "- body must be markdown and include headings '## Summary' and '## Testing'",
     "- under Summary, use short bullet points",
     "- under Testing, include concrete checks or 'Not run'",
-    ...(input.extraInstructions?.trim()
-      ? ["- follow any extra instructions exactly when they do not conflict with the rules below"]
-      : []),
     "",
     `Base branch: ${input.baseBranch}`,
     `Head branch: ${input.headBranch}`,
@@ -1037,16 +1034,19 @@ function buildPrPrompt(input: {
     "",
     "Diff patch:",
     input.diffPatch.slice(0, 40000),
-    ...(input.extraInstructions?.trim()
-      ? ["", "Additional instructions:", input.extraInstructions.trim().slice(0, 4000)]
-      : []),
   ].join("\n")
+}
+
+function normalizeCodexModel(model: string | null | undefined): string | null {
+  const trimmed = model?.trim()
+  return trimmed ? trimmed : null
 }
 
 async function runCodexJson<T>(
   projectPath: string,
   prompt: string,
-  schema: Record<string, unknown>
+  schema: Record<string, unknown>,
+  model?: string | null
 ): Promise<T> {
   const tempDir = await mkdtemp(path.join(tmpdir(), "nucleus-git-"))
   const schemaPath = path.join(tempDir, "schema.json")
@@ -1056,6 +1056,7 @@ async function runCodexJson<T>(
     await writeFile(schemaPath, JSON.stringify(schema), "utf8")
     await writeFile(outputPath, "", "utf8")
 
+    const normalizedModel = normalizeCodexModel(model)
     await runCommandWithInput(
       "codex",
       [
@@ -1065,6 +1066,7 @@ async function runCodexJson<T>(
         "read-only",
         "--config",
         `model_reasoning_effort="${CODEX_REASONING_EFFORT}"`,
+        ...(normalizedModel ? ["--model", normalizedModel] : []),
         "--output-schema",
         schemaPath,
         "--output-last-message",
@@ -1097,6 +1099,7 @@ async function resolveCommitSuggestion(input: {
   commitMessage?: string
   includeBranch?: boolean
   filePaths?: string[]
+  generationModel?: string | null
 }): Promise<(CommitSuggestion & { commitMessage: string }) | null> {
   const context = await prepareCommitContext(input.projectPath, input.filePaths)
   if (!context) {
@@ -1143,7 +1146,8 @@ async function resolveCommitSuggestion(input: {
             subject: { type: "string" },
             body: { type: "string" },
           },
-        }
+        },
+    input.generationModel
   )
 
   const subject = sanitizeCommitSubject(generated.subject)
@@ -1264,7 +1268,7 @@ async function readRangeContext(projectPath: string, baseBranch: string): Promis
 async function createPullRequest(
   projectPath: string,
   branchName: string,
-  prInstructions?: string | null
+  generationModel?: string | null
 ): Promise<GitRunStackedActionResult["pr"]> {
   const existing = await getOpenPullRequest(projectPath, branchName)
   if (existing) {
@@ -1297,7 +1301,6 @@ async function createPullRequest(
       commitSummary: rangeContext.commitSummary,
       diffSummary: rangeContext.diffSummary,
       diffPatch: rangeContext.diffPatch,
-      extraInstructions: prInstructions,
     }),
     {
       type: "object",
@@ -1307,7 +1310,8 @@ async function createPullRequest(
         title: { type: "string" },
         body: { type: "string" },
       },
-    }
+    },
+    generationModel
   )
 
   await runGhCommand(projectPath, [
@@ -1449,7 +1453,8 @@ export class GitService {
 
   async runStackedAction(
     projectPath: string,
-    input: GitRunStackedActionInput
+    input: GitRunStackedActionInput,
+    onProgress?: (event: GitActionProgressEvent) => void
   ): Promise<GitRunStackedActionResult> {
     const trimmedPath = ensureGitProjectPath(projectPath)
     const initial = await getGitBranchesResponse(trimmedPath)
@@ -1477,6 +1482,7 @@ export class GitService {
         commitMessage: input.commitMessage,
         includeBranch: true,
         filePaths: input.filePaths,
+        generationModel: input.generationModel,
       })
 
       if (!suggestion && input.action === "commit") {
@@ -1498,6 +1504,8 @@ export class GitService {
       status: "skipped_no_changes",
     }
 
+    onProgress?.({ step: "committing" })
+
     if (!suggestion) {
       suggestion = await resolveCommitSuggestion({
         projectPath: trimmedPath,
@@ -1505,6 +1513,7 @@ export class GitService {
         commitMessage: input.commitMessage,
         includeBranch: false,
         filePaths: input.filePaths,
+        generationModel: input.generationModel,
       })
     }
 
@@ -1522,13 +1531,21 @@ export class GitService {
       }
     }
 
-    const pushResult = wantsPush
-      ? await pushCurrentBranch(trimmedPath, branchName ?? initial.currentBranch)
-      : { status: "skipped_not_requested" as const }
+    let pushResult: GitRunStackedActionResult["push"]
+    if (wantsPush) {
+      onProgress?.({ step: "pushing" })
+      pushResult = await pushCurrentBranch(trimmedPath, branchName ?? initial.currentBranch)
+    } else {
+      pushResult = { status: "skipped_not_requested" }
+    }
 
-    const prResult = wantsPr
-      ? await createPullRequest(trimmedPath, branchName ?? initial.currentBranch, input.prInstructions)
-      : { status: "skipped_not_requested" as const }
+    let prResult: GitRunStackedActionResult["pr"]
+    if (wantsPr) {
+      onProgress?.({ step: "creating_pr" })
+      prResult = await createPullRequest(trimmedPath, branchName ?? initial.currentBranch, input.generationModel)
+    } else {
+      prResult = { status: "skipped_not_requested" }
+    }
 
     return {
       action: input.action,

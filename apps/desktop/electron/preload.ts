@@ -4,6 +4,7 @@ import type {
   AppUpdateDownloadEvent,
   CopyPathsIntoDirectoryOptions,
   DesktopDirEntry,
+  GitActionProgressEvent,
   GitBranchesResponse,
   GitFileChange,
   GitFileDiff,
@@ -153,6 +154,8 @@ contextBridge.exposeInMainWorld("nucleus", {
         projectPath,
         input
       ) as Promise<GitRunStackedActionResult>,
+    onActionProgress: (listener: (event: GitActionProgressEvent) => void) =>
+      subscribe(EVENT_CHANNELS.gitActionProgress, listener),
   },
   skills: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.skillsList) as Promise<SkillsSyncResponse>,

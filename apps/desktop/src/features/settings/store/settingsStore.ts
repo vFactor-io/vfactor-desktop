@@ -2,19 +2,15 @@ import { create } from "zustand"
 import { loadDesktopStore, type DesktopStoreHandle } from "@/desktop/client"
 
 const STORE_FILE = "settings.json"
-const CREATE_PR_INSTRUCTIONS_KEY = "createPrInstructions"
-const LEGACY_CREATE_PR_PROMPT_KEY = "createPrPrompt"
+const GIT_GENERATION_MODEL_KEY = "gitGenerationModel"
 const PERSIST_DEBOUNCE_MS = 250
 
-const LEGACY_DEFAULT_CREATE_PR_PROMPT =
-  "Create a pull request for my current branch. Summarize the changes, include a concise test plan, and call out any risks or follow-up work."
-
 interface SettingsState {
-  createPrInstructions: string
+  gitGenerationModel: string
   hasLoaded: boolean
   initialize: () => Promise<void>
-  setCreatePrInstructions: (instructions: string) => void
-  resetCreatePrInstructions: () => void
+  setGitGenerationModel: (model: string) => void
+  resetGitGenerationModel: () => void
 }
 
 let storeInstance: DesktopStoreHandle | null = null
@@ -29,19 +25,15 @@ async function getStore(): Promise<DesktopStoreHandle> {
   return storeInstance
 }
 
-function normalizeCreatePrInstructions(prompt: string | null | undefined): string {
-  if (!prompt) {
+function normalizeGitGenerationModel(model: string | null | undefined): string {
+  if (!model) {
     return ""
   }
 
-  if (prompt === LEGACY_DEFAULT_CREATE_PR_PROMPT) {
-    return ""
-  }
-
-  return prompt
+  return model.trim()
 }
 
-function schedulePersist(instructions: string): void {
+function schedulePersist(model: string): void {
   if (persistTimeoutId != null) {
     clearTimeout(persistTimeoutId)
   }
@@ -52,7 +44,7 @@ function schedulePersist(instructions: string): void {
     void (async () => {
       try {
         const store = await getStore()
-        await store.set(CREATE_PR_INSTRUCTIONS_KEY, instructions)
+        await store.set(GIT_GENERATION_MODEL_KEY, model)
         await store.save()
       } catch (error) {
         console.error("Failed to persist settings:", error)
@@ -62,7 +54,7 @@ function schedulePersist(instructions: string): void {
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
-  createPrInstructions: "",
+  gitGenerationModel: "",
   hasLoaded: false,
 
   initialize: async () => {
@@ -77,17 +69,16 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     initializePromise = (async () => {
       try {
         const store = await getStore()
-        const savedInstructions = await store.get<string>(CREATE_PR_INSTRUCTIONS_KEY)
-        const legacyPrompt = await store.get<string>(LEGACY_CREATE_PR_PROMPT_KEY)
+        const savedModel = await store.get<string>(GIT_GENERATION_MODEL_KEY)
 
         set({
-          createPrInstructions: normalizeCreatePrInstructions(savedInstructions ?? legacyPrompt),
+          gitGenerationModel: normalizeGitGenerationModel(savedModel),
           hasLoaded: true,
         })
       } catch (error) {
         console.error("Failed to load settings:", error)
         set({
-          createPrInstructions: "",
+          gitGenerationModel: "",
           hasLoaded: true,
         })
       }
@@ -98,15 +89,16 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     return initializePromise
   },
 
-  setCreatePrInstructions: (instructions) => {
-    set({ createPrInstructions: instructions })
-    schedulePersist(instructions)
+  setGitGenerationModel: (model) => {
+    const normalized = normalizeGitGenerationModel(model)
+    set({ gitGenerationModel: normalized })
+    schedulePersist(normalized)
   },
 
-  resetCreatePrInstructions: () => {
-    set({ createPrInstructions: "" })
+  resetGitGenerationModel: () => {
+    set({ gitGenerationModel: "" })
     schedulePersist("")
   },
 }))
 
-export { normalizeCreatePrInstructions }
+export { normalizeGitGenerationModel }

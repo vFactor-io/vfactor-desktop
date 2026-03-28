@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react"
 
 import { desktop } from "@/desktop/client"
+import type { GitActionStep } from "@/desktop/contracts"
 import {
   CaretDown,
+  CircleNotch,
   CloudUpload,
   GitCommit,
   GitPullRequest,
@@ -10,7 +12,7 @@ import {
   Refresh,
 } from "@/components/icons"
 import { useChatProjectState } from "@/features/chat/hooks/useChat"
-import { normalizeCreatePrInstructions, useSettingsStore } from "@/features/settings/store/settingsStore"
+import { normalizeGitGenerationModel, useSettingsStore } from "@/features/settings/store/settingsStore"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -50,6 +52,12 @@ interface PendingDefaultBranchAction {
   label: string
 }
 
+const STEP_LABELS: Record<GitActionStep, string> = {
+  committing: "Committing",
+  pushing: "Pushing",
+  creating_pr: "Creating PR",
+}
+
 function formatGitActionError(error: unknown, fallback: string): string {
   const message = error instanceof Error ? error.message : fallback
 
@@ -78,7 +86,7 @@ export function SourceControlActionGroup({
 }: SourceControlActionGroupProps) {
   const { selectedProject } = useChatProjectState()
   const resolvedProjectPath = projectPath ?? selectedProject?.path ?? null
-  const createPrInstructions = useSettingsStore((state) => state.createPrInstructions)
+  const gitGenerationModel = useSettingsStore((state) => state.gitGenerationModel)
   const initializeSettings = useSettingsStore((state) => state.initialize)
   const { branchData, isLoading: isBranchLoading, loadError: branchLoadError, refresh: refreshBranches } =
     useProjectGitBranches(resolvedProjectPath, { enabled: Boolean(resolvedProjectPath) })
@@ -89,6 +97,7 @@ export function SourceControlActionGroup({
   const [pendingDefaultBranchAction, setPendingDefaultBranchAction] =
     useState<PendingDefaultBranchAction | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [activeStep, setActiveStep] = useState<GitActionStep | null>(null)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null)
   const [feedbackTone, setFeedbackTone] = useState<"error" | "neutral">("neutral")
@@ -96,6 +105,12 @@ export function SourceControlActionGroup({
   useEffect(() => {
     void initializeSettings()
   }, [initializeSettings])
+
+  useEffect(() => {
+    return desktop.git.onActionProgress((event) => {
+      setActiveStep(event.step)
+    })
+  }, [])
 
   const hasChanges = changes.length > 0
   const isBusy = isSubmitting || isBranchLoading || isChangesLoading
@@ -168,8 +183,8 @@ export function SourceControlActionGroup({
         ...(options?.commitMessage ? { commitMessage: options.commitMessage } : {}),
         ...(options?.filePaths ? { filePaths: options.filePaths } : {}),
         ...(options?.featureBranch ? { featureBranch: true } : {}),
-        ...(createPrInstructions.trim()
-          ? { prInstructions: normalizeCreatePrInstructions(createPrInstructions) }
+        ...(gitGenerationModel.trim()
+          ? { generationModel: normalizeGitGenerationModel(gitGenerationModel) }
           : {}),
       })
 
@@ -188,6 +203,7 @@ export function SourceControlActionGroup({
       return false
     } finally {
       setIsSubmitting(false)
+      setActiveStep(null)
     }
   }
 
@@ -209,6 +225,7 @@ export function SourceControlActionGroup({
       setFeedbackMessage(formatGitActionError(error, "Pull failed."))
     } finally {
       setIsSubmitting(false)
+      setActiveStep(null)
     }
   }
 
@@ -286,8 +303,8 @@ export function SourceControlActionGroup({
         className
       )}
     >
-      {quickActionIcon}
-      <span>{isSubmitting ? "Working..." : quickAction.label}</span>
+      {isSubmitting ? <CircleNotch size={16} className="animate-spin" /> : quickActionIcon}
+      <span>{isSubmitting && activeStep ? STEP_LABELS[activeStep] : quickAction.label}</span>
     </Button>
   )
 

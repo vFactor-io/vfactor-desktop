@@ -18,6 +18,12 @@ export interface TimelineFileChangeSummary {
   label: string
   added: number
   removed: number
+  entries: Array<{
+    path: string
+    label: string
+    added: number
+    removed: number
+  }>
 }
 
 export interface ChatTimelineViewModel {
@@ -60,6 +66,35 @@ function countDiffLines(diff: string | undefined): { added: number; removed: num
     },
     { added: 0, removed: 0 }
   )
+}
+
+function getFileLabel(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path
+}
+
+function buildFileChangeSummary(
+  changeTotals: Map<string, { added: number; removed: number }>
+): TimelineFileChangeSummary | null {
+  if (changeTotals.size === 0) {
+    return null
+  }
+
+  const entries = Array.from(changeTotals.entries()).map(([path, totals]) => ({
+    path,
+    label: getFileLabel(path),
+    added: totals.added,
+    removed: totals.removed,
+  }))
+  const totalAdded = entries.reduce((sum, entry) => sum + entry.added, 0)
+  const totalRemoved = entries.reduce((sum, entry) => sum + entry.removed, 0)
+
+  return {
+    fileCount: entries.length,
+    label: entries.length === 1 ? entries[0]?.label ?? entries[0]?.path ?? "file" : `${entries.length} files`,
+    added: totalAdded,
+    removed: totalRemoved,
+    entries,
+  }
 }
 
 function getApprovalDisplayState(
@@ -259,22 +294,7 @@ export function buildChatTimelineViewModel({
   const latestTurnChangedFilesSummary =
     latestTurnFooterMessageId == null || changeTotals.size === 0
       ? null
-      : (() => {
-          const entries = Array.from(changeTotals.entries())
-          const [firstPath] = entries[0]
-          const totalAdded = entries.reduce((sum, [, totals]) => sum + totals.added, 0)
-          const totalRemoved = entries.reduce((sum, [, totals]) => sum + totals.removed, 0)
-
-          return {
-            fileCount: entries.length,
-            label:
-              entries.length === 1
-                ? firstPath.split(/[\\/]/).filter(Boolean).at(-1) ?? firstPath
-                : `${entries.length} files`,
-            added: totalAdded,
-            removed: totalRemoved,
-          }
-        })()
+      : buildFileChangeSummary(changeTotals)
 
   const earliestTimestampByTurnId = new Map<string, number>()
   const completedWorkDurationByMessageId = new Map<string, number>()
@@ -350,25 +370,7 @@ export function buildChatTimelineViewModel({
     }
 
     const turnChangeTotals = fileChangeTotalsByTurnId.get(turnId)
-    const changedFilesSummary =
-      !turnChangeTotals || turnChangeTotals.size === 0
-        ? null
-        : (() => {
-            const entries = Array.from(turnChangeTotals.entries())
-            const [firstPath] = entries[0]
-            const totalAdded = entries.reduce((sum, [, totals]) => sum + totals.added, 0)
-            const totalRemoved = entries.reduce((sum, [, totals]) => sum + totals.removed, 0)
-
-            return {
-              fileCount: entries.length,
-              label:
-                entries.length === 1
-                  ? firstPath.split(/[\\/]/).filter(Boolean).at(-1) ?? firstPath
-                  : `${entries.length} files`,
-              added: totalAdded,
-              removed: totalRemoved,
-            }
-          })()
+    const changedFilesSummary = turnChangeTotals ? buildFileChangeSummary(turnChangeTotals) : null
 
     completedFooterByMessageId.set(message.info.id, {
       durationMs,

@@ -1,72 +1,109 @@
-import { useEffect } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion"
-import { SETTINGS_SECTIONS, type SettingsSectionId } from "@/features/settings/config"
-import { DEFAULT_PR_TARGET_BRANCH } from "@/features/settings/createPrMessage"
+import { getHarnessAdapter } from "@/features/chat/runtime/harnesses"
+import type { RuntimeModel } from "@/features/chat/types"
+import type { SettingsSectionId } from "@/features/settings/config"
 import { useSettingsStore } from "@/features/settings/store/settingsStore"
 import { Button } from "@/features/shared/components/ui/button"
 import {
   Field,
-  FieldDescription,
   FieldGroup,
   FieldTitle,
 } from "@/features/shared/components/ui/field"
-import { Textarea } from "@/features/shared/components/ui/textarea"
+import { SearchableSelect } from "@/features/shared/components/ui/searchable-select"
 import { UpdatesSection } from "@/features/updates/components/UpdatesSection"
 
 interface SettingsPageProps {
   activeSection: SettingsSectionId
 }
 
-const SECTION_COPY: Record<SettingsSectionId, { title: string; description: string }> = {
-  git: {
-    title: "Git",
-    description:
-      "Nucleus can auto-generate pull request content from local git state. Add optional extra instructions here.",
-  },
-  updates: {
-    title: "Updates",
-    description: "Check for and install app updates.",
-  },
+const SECTION_COPY: Record<SettingsSectionId, { title: string }> = {
+  git: { title: "Git" },
+  updates: { title: "Updates" },
 }
 
 function GitSettingsSection() {
-  const createPrInstructions = useSettingsStore((state) => state.createPrInstructions)
+  const gitGenerationModel = useSettingsStore((state) => state.gitGenerationModel)
   const initialize = useSettingsStore((state) => state.initialize)
-  const setCreatePrInstructions = useSettingsStore((state) => state.setCreatePrInstructions)
-  const resetCreatePrInstructions = useSettingsStore((state) => state.resetCreatePrInstructions)
+  const setGitGenerationModel = useSettingsStore((state) => state.setGitGenerationModel)
+  const resetGitGenerationModel = useSettingsStore((state) => state.resetGitGenerationModel)
+  const [availableModels, setAvailableModels] = useState<RuntimeModel[]>([])
+  const [isLoadingModels, setIsLoadingModels] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
     void initialize()
   }, [initialize])
 
+  useEffect(() => {
+    let cancelled = false
+
+    void (async () => {
+      setIsLoadingModels(true)
+      setLoadError(null)
+
+      try {
+        const models = await getHarnessAdapter("codex").listModels()
+        if (!cancelled) {
+          setAvailableModels(models)
+        }
+      } catch (error) {
+        console.error("[SettingsPage] Failed to load Codex models:", error)
+        if (!cancelled) {
+          setAvailableModels([])
+          setLoadError(error instanceof Error ? error.message : "Unable to load models")
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingModels(false)
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const defaultModel = useMemo(
+    () => availableModels.find((model) => model.isDefault) ?? null,
+    [availableModels]
+  )
+
+  const modelOptions = useMemo(() => {
+    const opts = availableModels.map((m) => ({ value: m.id, label: m.id }))
+
+    if (gitGenerationModel && !opts.some((o) => o.value === gitGenerationModel)) {
+      opts.unshift({ value: gitGenerationModel, label: gitGenerationModel })
+    }
+
+    return opts
+  }, [availableModels, gitGenerationModel])
+
   return (
-    <section className="overflow-hidden rounded-xl border border-border/80 bg-card text-card-foreground shadow-sm">
+    <section className="rounded-xl border border-border/80 bg-card text-card-foreground shadow-sm">
       <div className="px-4 py-4">
         <FieldGroup className="gap-3">
           <Field>
-            <FieldTitle>Additional PR instructions</FieldTitle>
-            <FieldDescription>
-              Appended to the prompt used when the git toolbar auto-generates a pull request title
-              and description.
-            </FieldDescription>
-            <Textarea
-              value={createPrInstructions}
-              onChange={(event) => setCreatePrInstructions(event.target.value)}
-              className="mt-2 min-h-28 rounded-xl"
-              placeholder="Optional extra instructions for PR creation"
+            <FieldTitle>Generation model</FieldTitle>
+            <SearchableSelect
+              value={gitGenerationModel || null}
+              onValueChange={setGitGenerationModel}
+              options={modelOptions}
+              placeholder={defaultModel ? defaultModel.id : "Select a model"}
+              searchPlaceholder="Search models"
+              emptyMessage="No matching models found."
+              disabled={isLoadingModels}
+              className="mt-2"
+              errorMessage={loadError}
+              statusMessage={isLoadingModels ? "Loading models…" : null}
             />
-            <p className="mt-2 text-xs leading-5 text-muted-foreground">
-              Variables available here: <code>{"{{currentBranch}}"}</code>, <code>{"{{targetBranch}}"}</code>,{" "}
-              <code>{"{{upstreamBranch}}"}</code>, <code>{"{{uncommittedChanges}}"}</code>. The default target branch is{" "}
-              <code>{DEFAULT_PR_TARGET_BRANCH}</code>.
-            </p>
           </Field>
         </FieldGroup>
 
-        <div className="mt-3 flex items-center justify-between gap-3">
-          <p className="text-xs leading-5 text-muted-foreground">Stored locally on this machine.</p>
-          <Button type="button" variant="outline" size="sm" onClick={resetCreatePrInstructions}>
-            Clear
+        <div className="mt-3 flex justify-end">
+          <Button type="button" variant="outline" size="sm" onClick={resetGitGenerationModel}>
+            Use default
           </Button>
         </div>
       </div>
@@ -75,7 +112,6 @@ function GitSettingsSection() {
 }
 
 export function SettingsPage({ activeSection }: SettingsPageProps) {
-  const sectionMeta = SETTINGS_SECTIONS.find((item) => item.id === activeSection)
   const section = SECTION_COPY[activeSection]
 
   return (
@@ -90,15 +126,9 @@ export function SettingsPage({ activeSection }: SettingsPageProps) {
             transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
             className="space-y-4"
           >
-            <header className="space-y-1 px-1 pt-1">
-              <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground/75">
-                {sectionMeta?.label ?? "Settings"}
-              </div>
-              <h1 className="text-2xl font-medium tracking-tight text-main-content-foreground">
-                {section.title}
-              </h1>
-              <p className="text-sm leading-6 text-muted-foreground">{section.description}</p>
-            </header>
+            <h1 className="px-1 pt-1 text-2xl font-medium tracking-tight text-main-content-foreground">
+              {section.title}
+            </h1>
 
             {activeSection === "git" ? <GitSettingsSection /> : <UpdatesSection />}
           </motion.div>

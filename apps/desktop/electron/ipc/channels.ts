@@ -40,4 +40,5 @@ export const EVENT_CHANNELS = {
   codexStatus: "codex-rpc:status",
   terminalData: "terminal:data",
   terminalExit: "terminal:exit",
+  gitActionProgress: "git-action:progress",
 } as const

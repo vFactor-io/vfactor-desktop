@@ -16,7 +16,12 @@ import { LoadingDots } from "@/features/shared/components/ui/loading-dots"
 import { useStickToBottomContext } from "use-stick-to-bottom"
 import { ChatTimelineItem, InlineSubagentActivity } from "./ChatTimelineItem"
 import { formatElapsedDuration, useElapsedDuration } from "./workDuration"
-import { buildChatTimelineViewModel } from "./timelineViewModel"
+import { TurnStepsDropdown } from "./TurnStepsDropdown"
+import {
+  buildChatTimelineViewModel,
+  type TimelineFileChangeSummary,
+} from "./timelineViewModel"
+import type { TimelineBlock } from "./timelineActivity"
 
 interface ChatMessagesProps {
   threadKey: string
@@ -27,6 +32,14 @@ interface ChatMessagesProps {
   childSessions?: Map<string, ChildSessionState>
   showInlineIntro?: boolean
 }
+
+interface LatestTurnDropdownBlock {
+  type: "turnStepsDropdown"
+  key: string
+  messages: MessageWithParts[]
+}
+
+type DisplayBlock = TimelineBlock | LatestTurnDropdownBlock
 
 function StaticConversation({
   children,
@@ -58,6 +71,126 @@ function getMessageText(message: MessageWithParts): string {
     .filter((part): part is Extract<typeof message.parts[number], { type: "text" }> => part.type === "text")
     .map((part) => part.text)
     .join("")
+}
+
+function hasRenderableMessageContent(message: MessageWithParts): boolean {
+  return message.parts.some((part) =>
+    part.type === "tool" || (part.type === "text" && part.text.trim().length > 0)
+  )
+}
+
+function dedupeMessagesByLastId(messages: MessageWithParts[]): MessageWithParts[] {
+  const lastIndexById = new Map<string, number>()
+
+  messages.forEach((message, index) => {
+    lastIndexById.set(message.info.id, index)
+  })
+
+  return messages.filter((message, index) => lastIndexById.get(message.info.id) === index)
+}
+
+function getTurnCollapsedMessagesByFooterId(
+  messages: MessageWithParts[],
+  status: "idle" | "streaming" | "error"
+): Map<string, MessageWithParts[]> {
+  const collapsedMessagesByFooterId = new Map<string, MessageWithParts[]>()
+  const dedupedMessages = dedupeMessagesByLastId(messages)
+
+  if (dedupedMessages.length === 0) {
+    return collapsedMessagesByFooterId
+  }
+
+  let turnStartIndex = 0
+
+  const processTurn = (turnEndIndex: number) => {
+    if (turnEndIndex < turnStartIndex) {
+      return
+    }
+
+    const turnMessages = dedupedMessages.slice(turnStartIndex, turnEndIndex + 1)
+    const footerMessage = [...turnMessages].reverse().find((message) => message.info.role === "assistant")
+    if (!footerMessage || !getMessageText(footerMessage).trim()) {
+      return
+    }
+
+    if (status === "streaming" && turnEndIndex === dedupedMessages.length - 1) {
+      return
+    }
+
+    const collapsedMessages = turnMessages.filter(
+      (message) =>
+        message.info.role === "assistant" &&
+        message.info.id !== footerMessage.info.id &&
+        hasRenderableMessageContent(message)
+    )
+
+    if (collapsedMessages.length === 0) {
+      return
+    }
+
+    collapsedMessagesByFooterId.set(footerMessage.info.id, collapsedMessages)
+  }
+
+  for (let index = 0; index < dedupedMessages.length; index++) {
+    if (dedupedMessages[index]?.info.role !== "user") {
+      continue
+    }
+
+    processTurn(index - 1)
+    turnStartIndex = index + 1
+  }
+
+  processTurn(dedupedMessages.length - 1)
+
+  return collapsedMessagesByFooterId
+}
+
+function buildDisplayBlocks(
+  timelineBlocks: TimelineBlock[],
+  collapsedMessagesByFooterId: Map<string, MessageWithParts[]>
+): DisplayBlock[] {
+  if (collapsedMessagesByFooterId.size === 0) {
+    return timelineBlocks
+  }
+
+  const collapsedMessageIds = new Set(
+    Array.from(collapsedMessagesByFooterId.values()).flatMap((groupMessages) =>
+      groupMessages.map((message) => message.info.id)
+    )
+  )
+
+  return timelineBlocks.flatMap((block) => {
+    if (block.type !== "message") {
+      return [block]
+    }
+
+    if (collapsedMessageIds.has(block.message.info.id)) {
+      return []
+    }
+
+    const collapsedMessages = collapsedMessagesByFooterId.get(block.message.info.id)
+    if (collapsedMessages) {
+
+      return [
+        {
+          type: "turnStepsDropdown" as const,
+          key: `turn-steps-dropdown:${block.message.info.id}`,
+          messages: collapsedMessages,
+        },
+        block,
+      ]
+    }
+
+    return [block]
+  })
+}
+
+function getDisplayBlockRole(block: DisplayBlock): "user" | "assistant" | null {
+  if (block.type === "message") {
+    return block.message.info.role
+  }
+
+  return "assistant"
 }
 
 function ChatEmptyState() {
@@ -168,6 +301,14 @@ export function ChatMessages({
         ? lastCompletedWork.durationMs
         : (completedWorkDurationByMessageId.get(latestTurnFooterMessageId) ?? null)
   const shouldRenderLatestTurnFooter = status === "streaming" && activeWorkStartTime != null
+  const collapsedMessagesByFooterId = useMemo(
+    () => getTurnCollapsedMessagesByFooterId(renderedMessages, status),
+    [renderedMessages, status]
+  )
+  const displayBlocks = useMemo(
+    () => buildDisplayBlocks(timelineBlocks, collapsedMessagesByFooterId),
+    [collapsedMessagesByFooterId, timelineBlocks]
+  )
   const [preparedThreadKey, setPreparedThreadKey] = useState(threadKey)
   const isThreadPrepared = preparedThreadKey === threadKey
 
@@ -203,23 +344,30 @@ export function ChatMessages({
       <ConversationContent className="mx-auto flex w-full max-w-[803px] flex-col gap-0 px-10 pb-10">
         <>
           {showInlineIntro ? <ChatEmptyState /> : null}
-          {timelineBlocks.map((block, blockIndex) => {
-            if (block.type !== "message") {
-              return null
-            }
-
+          {displayBlocks.map((block, blockIndex) => {
             const previousBlock =
-              blockIndex > 0 && timelineBlocks[blockIndex - 1]?.type === "message"
-                ? timelineBlocks[blockIndex - 1]
-                : null
-            const previousRole = previousBlock?.type === "message" ? previousBlock.message.info.role : null
-            const currentRole = block.message.info.role
+              blockIndex > 0 ? displayBlocks[blockIndex - 1] : null
+            const previousRole = previousBlock ? getDisplayBlockRole(previousBlock) : null
+            const currentRole = getDisplayBlockRole(block)
             const rowSpacingClass =
               previousRole == null
                 ? ""
                 : previousRole === currentRole
                   ? "mt-3"
                   : "mt-7"
+
+            if (block.type === "turnStepsDropdown") {
+              return (
+                <div key={block.key} className={rowSpacingClass}>
+                  <TurnStepsDropdown
+                    messages={block.messages}
+                    childSessions={childSessionData}
+                    approvalStateByMessageId={approvalStateByMessageId}
+                  />
+                </div>
+              )
+            }
+
             const completedFooter = resolvedCompletedFooterByMessageId.get(block.message.info.id)
             const shouldRenderInlineCompletedFooter =
               completedFooter != null &&
@@ -329,12 +477,7 @@ function AssistantTurnFooter({
   startTime: number | null
   completedDurationMs?: number
   copyText?: string | null
-  changedFilesSummary?: {
-    fileCount: number
-    label: string
-    added: number
-    removed: number
-  } | null
+  changedFilesSummary?: TimelineFileChangeSummary | null
 }) {
   const [isCopied, setIsCopied] = useState(false)
   const elapsed = useElapsedDuration(
@@ -358,10 +501,14 @@ function AssistantTurnFooter({
     return () => window.clearTimeout(timeoutId)
   }, [isCopied])
 
+  const visibleChangedFiles = changedFilesSummary?.entries.slice(0, 4) ?? []
+  const hiddenChangedFileCount =
+    changedFilesSummary == null ? 0 : Math.max(0, changedFilesSummary.entries.length - visibleChangedFiles.length)
+
   return (
     <MessageComponent from="assistant">
       <MessageContent>
-        <div className="mt-5 inline-flex items-center gap-2.5 text-xs tracking-[0.01em] text-muted-foreground/80 tabular-nums">
+        <div className="mt-5 flex flex-wrap items-center gap-2 text-xs tracking-[0.01em] text-muted-foreground/80 tabular-nums">
           {isWorking ? <LoadingDots className="shrink-0" /> : null}
           {workLabel ? <span>{workLabel}</span> : null}
           {canCopyMessage ? (
@@ -395,27 +542,35 @@ function AssistantTurnFooter({
                   ·
                 </span>
               ) : null}
-              <button
-                type="button"
-                onClick={() => {}}
-                className="inline-flex max-w-[240px] items-center gap-2 px-1 py-0.5 text-[12px] leading-none text-foreground/88 transition-colors hover:text-foreground"
-                aria-label={`Open changes for ${changedFilesSummary.label}`}
-              >
-                <File size={12} className="shrink-0 text-[var(--color-chat-file-accent)]" />
-                <span className="truncate font-medium text-muted-foreground/88">
-                  {changedFilesSummary.label}
-                </span>
-                {changedFilesSummary.added > 0 ? (
-                  <span className="shrink-0 font-medium text-emerald-500">
-                    +{changedFilesSummary.added}
+              <div className="flex flex-wrap items-center gap-1.5">
+                {visibleChangedFiles.map((entry) => (
+                  <span
+                    key={entry.path}
+                    className="inline-flex max-w-[180px] items-center gap-1.5 rounded-[0.35rem] border border-border/70 bg-background/65 px-2 py-1.5 text-[11px] leading-none text-foreground/88 shadow-[0_0_0_1px_rgba(255,255,255,0.015)_inset]"
+                    title={entry.path}
+                  >
+                    <File size={11} className="shrink-0 text-[var(--color-chat-file-accent)]" />
+                    <span className="truncate font-medium text-muted-foreground/92">
+                      {entry.label}
+                    </span>
+                    {entry.added > 0 ? (
+                      <span className="shrink-0 font-medium text-emerald-500">
+                        +{entry.added}
+                      </span>
+                    ) : null}
+                    {entry.removed > 0 ? (
+                      <span className="shrink-0 font-medium text-red-500">
+                        -{entry.removed}
+                      </span>
+                    ) : null}
+                  </span>
+                ))}
+                {hiddenChangedFileCount > 0 ? (
+                  <span className="inline-flex items-center rounded-[0.35rem] border border-border/60 bg-muted/25 px-2 py-1.5 text-[11px] leading-none text-muted-foreground/88">
+                    +{hiddenChangedFileCount} more
                   </span>
                 ) : null}
-                {changedFilesSummary.removed > 0 ? (
-                  <span className="shrink-0 font-medium text-red-500">
-                    -{changedFilesSummary.removed}
-                  </span>
-                ) : null}
-              </button>
+              </div>
             </>
           ) : null}
         </div>

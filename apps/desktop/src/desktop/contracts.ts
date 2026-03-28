@@ -60,7 +60,7 @@ export interface GitRunStackedActionInput {
   commitMessage?: string
   featureBranch?: boolean
   filePaths?: string[]
-  prInstructions?: string | null
+  generationModel?: string | null
 }
 
 export interface GitRunStackedActionResult {
@@ -88,6 +88,12 @@ export interface GitRunStackedActionResult {
     baseBranch?: string
     headBranch?: string
   }
+}
+
+export type GitActionStep = "committing" | "pushing" | "creating_pr"
+
+export interface GitActionProgressEvent {
+  step: GitActionStep
 }
 
 export interface GitPullResult {
