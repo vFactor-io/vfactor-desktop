@@ -20,7 +20,7 @@ function TabIcon({ type, title }: { type: TabType; title: string }) {
     }
     case "diff":
       return <GitDiff size={14} />
-    case "chat":
+    case "chat-session":
     default:
       return <ChatCircle size={14} />
   }

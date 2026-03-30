@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { useProjectStore } from "@/features/workspace/store"
+import { useCurrentProjectWorktree } from "@/features/shared/hooks"
 import { useChatStore } from "../store/chatStore"
 
 export interface NormalizedAgent {
@@ -10,7 +10,7 @@ export interface NormalizedAgent {
 }
 
 export function useAgents() {
-  const { selectedProjectId } = useProjectStore()
+  const { selectedProjectId } = useCurrentProjectWorktree()
   const listAgents = useChatStore((state) => state.listAgents)
   const [agents, setAgents] = useState<NormalizedAgent[]>([])
   const [isLoading, setIsLoading] = useState(false)

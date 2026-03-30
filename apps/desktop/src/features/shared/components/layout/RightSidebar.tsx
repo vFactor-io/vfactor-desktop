@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { desktop } from "@/desktop/client"
 import { FileChangesList, FileTreeViewer } from "@/features/version-control/components"
-import { useFileTreeStore, useProjectStore } from "@/features/workspace/store"
+import { useFileTreeStore } from "@/features/workspace/store"
 import { useTabStore } from "@/features/editor/store"
 import { TerminalPanel } from "@/features/terminal/components"
+import { useCurrentProjectWorktree } from "@/features/shared/hooks"
 import {
   loadProjectSecrets,
   saveProjectSecret,
@@ -68,7 +69,8 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
   const [secretsByProject, setSecretsByProject] = useState<Record<string, SecretFieldState[]>>({})
   const [draftSecretByProject, setDraftSecretByProject] = useState<Record<string, DraftSecretState | null>>({})
   const { isCollapsed, width, setWidth } = useRightSidebar()
-  const { projects, selectedProjectId } = useProjectStore()
+  const { selectedWorktreeId, selectedWorktree, selectedWorktreePath } =
+    useCurrentProjectWorktree()
   const {
     activeProjectPath,
     dataByProjectPath,
@@ -78,37 +80,40 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
     setActiveProjectPath,
     refreshActiveProject,
   } = useFileTreeStore()
-  const { openDiff, openFile, switchProject } = useTabStore()
-
-  // Get the selected project
-  const selectedProject = projects.find((p) => p.id === selectedProjectId)
+  const {
+    initialize: initializeTabs,
+    isInitialized: isTabsInitialized,
+    openDiff,
+    openFile,
+    switchProject,
+  } = useTabStore()
   const {
     changes: projectChanges,
     isLoading: isChangesLoading,
     loadError: changesError,
-  } = useProjectGitChanges(selectedProject?.path ?? null, { enabled: activeTab === "changes" })
+  } = useProjectGitChanges(selectedWorktreePath, { enabled: activeTab === "changes" })
 
   const fileTreeData = activeProjectPath ? (dataByProjectPath[activeProjectPath] ?? {}) : {}
   const lastFileTreeEvent = activeProjectPath ? (lastEventByProjectPath[activeProjectPath] ?? null) : null
   const isFileTreeLoading = activeProjectPath ? (loadingByProjectPath[activeProjectPath] ?? false) : false
   const selectedProjectSecrets = useMemo(() => {
-    if (!selectedProjectId) {
+    if (!selectedWorktreeId) {
       return []
     }
 
-    return secretsByProject[selectedProjectId] ?? []
-  }, [secretsByProject, selectedProjectId])
+    return secretsByProject[selectedWorktreeId] ?? []
+  }, [secretsByProject, selectedWorktreeId])
   const selectedProjectDraftSecret = useMemo(() => {
-    if (!selectedProjectId) {
+    if (!selectedWorktreeId) {
       return null
     }
 
-    return draftSecretByProject[selectedProjectId] ?? null
-  }, [draftSecretByProject, selectedProjectId])
+    return draftSecretByProject[selectedWorktreeId] ?? null
+  }, [draftSecretByProject, selectedWorktreeId])
   const secretsRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const loadSecrets = useCallback(async () => {
-    if (!selectedProject?.path || !selectedProjectId) {
+    if (!selectedWorktreePath || !selectedWorktreeId) {
       setIsSecretsLoading(false)
       setSecretsError(null)
       return
@@ -118,10 +123,10 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
     setSecretsError(null)
 
     try {
-      const definitions = await loadProjectSecrets(selectedProject.path)
+      const definitions = await loadProjectSecrets(selectedWorktreePath)
       setSecretsByProject((current) => ({
         ...current,
-        [selectedProjectId]: definitions.map(createSecretState),
+        [selectedWorktreeId]: definitions.map(createSecretState),
       }))
     } catch (error) {
       console.error("Failed to load project secrets:", error)
@@ -129,7 +134,7 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
     } finally {
       setIsSecretsLoading(false)
     }
-  }, [selectedProject?.path, selectedProjectId])
+  }, [selectedWorktreeId, selectedWorktreePath])
 
   const scheduleSecretsRefresh = useCallback(() => {
     if (secretsRefreshTimeoutRef.current) {
@@ -142,9 +147,20 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
 
   // Switch project tabs and load files when selected project changes
   useEffect(() => {
-    switchProject(selectedProjectId ?? null)
+    void initializeTabs()
+  }, [initializeTabs])
+
+  useEffect(() => {
+    if (!isTabsInitialized) {
+      return
+    }
+
+    switchProject(selectedWorktreeId ?? null)
+  }, [isTabsInitialized, selectedWorktreeId, switchProject])
+
+  useEffect(() => {
     void loadSecrets()
-  }, [selectedProjectId, switchProject, loadSecrets])
+  }, [loadSecrets])
 
   useEffect(() => {
     void initializeFileTreeStore()
@@ -153,12 +169,12 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
   useEffect(() => {
     setFileImportError(null)
     setIsImportingFiles(false)
-  }, [selectedProject?.path])
+  }, [selectedWorktreePath])
 
   useEffect(() => {
     setIsInitialLoad(true)
 
-    void setActiveProjectPath(selectedProject?.path ?? null).finally(() => {
+    void setActiveProjectPath(selectedWorktreePath ?? null).finally(() => {
       setIsInitialLoad(false)
     })
 
@@ -167,10 +183,10 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
         clearTimeout(secretsRefreshTimeoutRef.current)
       }
     }
-  }, [selectedProject?.path, setActiveProjectPath])
+  }, [selectedWorktreePath, setActiveProjectPath])
 
   useEffect(() => {
-    if (!selectedProject?.path || !lastFileTreeEvent) {
+    if (!selectedWorktreePath || !lastFileTreeEvent) {
       return
     }
 
@@ -180,18 +196,18 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
     if (changedPaths.some((path) => (path.split("/").pop() ?? "").startsWith(".env"))) {
       scheduleSecretsRefresh()
     }
-  }, [lastFileTreeEvent, scheduleSecretsRefresh, selectedProject?.path])
+  }, [lastFileTreeEvent, scheduleSecretsRefresh, selectedWorktreePath])
 
   const handleExternalFileDrop = useCallback(
     async (sourcePaths: string[], targetDirectory: string) => {
-      if (!selectedProject?.path) {
+      if (!selectedWorktreePath) {
         return
       }
 
       setIsImportingFiles(true)
       setFileImportError(null)
       console.debug("[file-tree-drop] import requested", {
-        projectPath: selectedProject.path,
+        projectPath: selectedWorktreePath,
         targetDirectory,
         sourcePaths,
       })
@@ -212,80 +228,80 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
         setIsImportingFiles(false)
       }
     },
-    [refreshActiveProject, selectedProject?.path]
+    [refreshActiveProject, selectedWorktreePath]
   )
 
   const updateSecretField = useCallback((
     fieldKey: string,
     updater: (current: SecretFieldState) => SecretFieldState
   ) => {
-    if (!selectedProjectId) {
+    if (!selectedWorktreeId) {
       return
     }
 
     setSecretsByProject((current) => {
-      const projectSecrets = current[selectedProjectId] ?? []
+      const projectSecrets = current[selectedWorktreeId] ?? []
 
       return {
         ...current,
-        [selectedProjectId]: projectSecrets.map((field) =>
+        [selectedWorktreeId]: projectSecrets.map((field) =>
           field.key === fieldKey ? updater(field) : field
         ),
       }
     })
-  }, [selectedProjectId])
+  }, [selectedWorktreeId])
 
   const startDraftSecret = useCallback(() => {
-    if (!selectedProjectId) {
+    if (!selectedWorktreeId) {
       return
     }
 
     setDraftSecretByProject((current) => ({
       ...current,
-      [selectedProjectId]: current[selectedProjectId] ?? {
+      [selectedWorktreeId]: current[selectedWorktreeId] ?? {
         key: "",
         value: "",
         isVisible: true,
       },
     }))
     setSecretsError(null)
-  }, [selectedProjectId])
+  }, [selectedWorktreeId])
 
   const updateDraftSecret = useCallback((
     updater: (current: DraftSecretState) => DraftSecretState
   ) => {
-    if (!selectedProjectId) {
+    if (!selectedWorktreeId) {
       return
     }
 
     setDraftSecretByProject((current) => {
-      const draft = current[selectedProjectId]
+      const draft = current[selectedWorktreeId]
       if (!draft) {
         return current
       }
 
       return {
         ...current,
-        [selectedProjectId]: updater(draft),
+        [selectedWorktreeId]: updater(draft),
       }
     })
-  }, [selectedProjectId])
+  }, [selectedWorktreeId])
 
   const clearDraftSecret = useCallback(() => {
-    if (!selectedProjectId) {
+    if (!selectedWorktreeId) {
       return
     }
 
     setDraftSecretByProject((current) => ({
       ...current,
-      [selectedProjectId]: null,
+      [selectedWorktreeId]: null,
     }))
     setSecretsError(null)
-  }, [selectedProjectId])
+  }, [selectedWorktreeId])
 
   const handleSaveSecret = useCallback(
     async (fieldKey: string) => {
-      if (!selectedProject?.path || !selectedProjectId) {
+      if (!selectedWorktreePath || !selectedWorktreeId) {
         return
       }
 
@@ -303,11 +319,11 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
       setSecretsError(null)
 
       try {
-        await saveProjectSecret(selectedProject.path, fieldKey, nextValue)
-        const definitions = await loadProjectSecrets(selectedProject.path)
+        await saveProjectSecret(selectedWorktreePath, fieldKey, nextValue)
+        const definitions = await loadProjectSecrets(selectedWorktreePath)
         setSecretsByProject((current) => ({
           ...current,
-          [selectedProjectId]: definitions.map(createSecretState),
+          [selectedWorktreeId]: definitions.map(createSecretState),
         }))
       } catch (error) {
         console.error("Failed to save project secret:", error)
@@ -316,11 +332,11 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
         setSavingSecretKey(null)
       }
     },
-    [selectedProject?.path, selectedProjectId, selectedProjectSecrets],
+    [selectedProjectSecrets, selectedWorktreeId, selectedWorktreePath],
   )
 
   const handleSaveDraftSecret = useCallback(async () => {
-    if (!selectedProject?.path || !selectedProjectId || !selectedProjectDraftSecret) {
+    if (!selectedWorktreePath || !selectedWorktreeId || !selectedProjectDraftSecret) {
       return
     }
 
@@ -346,15 +362,15 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
     setSecretsError(null)
 
     try {
-      await saveProjectSecret(selectedProject.path, draftKey, draftValue)
-      const definitions = await loadProjectSecrets(selectedProject.path)
+      await saveProjectSecret(selectedWorktreePath, draftKey, draftValue)
+      const definitions = await loadProjectSecrets(selectedWorktreePath)
       setSecretsByProject((current) => ({
         ...current,
-        [selectedProjectId]: definitions.map(createSecretState),
+        [selectedWorktreeId]: definitions.map(createSecretState),
       }))
       setDraftSecretByProject((current) => ({
         ...current,
-        [selectedProjectId]: null,
+        [selectedWorktreeId]: null,
       }))
     } catch (error) {
       console.error("Failed to save project secret:", error)
@@ -362,7 +378,7 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
     } finally {
       setSavingSecretKey(null)
     }
-  }, [selectedProject?.path, selectedProjectId, selectedProjectDraftSecret, selectedProjectSecrets])
+  }, [selectedProjectDraftSecret, selectedProjectSecrets, selectedWorktreeId, selectedWorktreePath])
 
   if (isCollapsed || activeView !== "chat") {
     return null
@@ -379,7 +395,7 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
       {/* Toolbar header */}
       <div className="flex h-11 shrink-0 items-center justify-end border-b border-sidebar-border/70 px-3">
         <div className="drag-region min-w-0 flex-1 self-stretch" />
-        <SourceControlActionGroup projectPath={selectedProject?.path ?? null} />
+        <SourceControlActionGroup projectPath={selectedWorktreePath} />
       </div>
 
       {/* Tab header */}
@@ -431,9 +447,9 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
             <div className="flex items-center justify-center py-8">
               <span className="text-sm text-muted-foreground">Loading files...</span>
             </div>
-          ) : !selectedProject ? (
+          ) : !selectedWorktree ? (
             <div className="flex items-center justify-center py-8">
-              <span className="text-sm text-muted-foreground">Select a project to view files</span>
+              <span className="text-sm text-muted-foreground">Select a worktree to view files</span>
             </div>
           ) : (
             <div className="space-y-2">
@@ -457,7 +473,7 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
                 <FileTreeViewer
                   data={fileTreeData}
                   initialExpanded={["root"]}
-                  projectPath={selectedProject.path}
+                  projectPath={selectedWorktree.path}
                   onFileClick={openFile}
                   onExternalDrop={handleExternalFileDrop}
                 />
@@ -465,9 +481,9 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
             </div>
           )
         ) : activeTab === "changes" ? (
-          !selectedProject ? (
+          !selectedWorktree ? (
             <div className="flex items-center justify-center py-8">
-              <span className="text-sm text-muted-foreground">Select a project to view changes</span>
+              <span className="text-sm text-muted-foreground">Select a worktree to view changes</span>
             </div>
           ) : isChangesLoading ? (
             <div className="flex items-center justify-center py-8">
@@ -483,7 +499,7 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
                 Working tree clean
               </div>
               <span className="max-w-56 text-sm text-muted-foreground">
-                This project has no local file changes right now.
+                This worktree has no local file changes right now.
               </span>
             </div>
           ) : (
@@ -499,9 +515,9 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
           )
         ) : (
           <div className="space-y-2 px-1.5 py-1">
-            {!selectedProject ? (
+            {!selectedWorktree ? (
               <div className="flex items-center justify-center py-8">
-                <span className="text-sm text-muted-foreground">Select a project to manage secrets</span>
+                <span className="text-sm text-muted-foreground">Select a worktree to manage secrets</span>
               </div>
             ) : (
               <>
@@ -682,8 +698,8 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
         )}
         </div>
         <TerminalPanel
-          projectId={selectedProjectId}
-          projectPath={selectedProject?.path ?? null}
+          projectId={selectedWorktreeId}
+          projectPath={selectedWorktreePath}
         />
       </div>
     </SidebarShell>

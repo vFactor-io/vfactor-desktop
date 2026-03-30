@@ -37,12 +37,12 @@ function ChatTimelinePane({
 function ChatComposerPane({
   activeSessionId,
   selectedProjectId,
-  selectedProjectPath,
+  selectedWorktreePath,
   onTurnStarted,
 }: {
   activeSessionId: string | null
   selectedProjectId: string | null
-  selectedProjectPath?: string | null
+  selectedWorktreePath?: string | null
   onTurnStarted: () => void
 }) {
   const {
@@ -57,7 +57,7 @@ function ChatComposerPane({
     submit,
   } = useChatComposerState({
     selectedProjectId,
-    selectedProjectPath,
+    selectedWorktreePath,
     activeSessionId,
   })
 
@@ -87,13 +87,14 @@ function ChatComposerPane({
 }
 
 export function ChatContainer() {
-  const { selectedProjectId, selectedProject, activeSessionId } = useChatProjectState()
-  const threadKey = `${selectedProject?.id ?? "no-project"}:${activeSessionId ?? "draft"}`
-  const [showInlineIntro, setShowInlineIntro] = useState(activeSessionId == null)
+  const { selectedProject, selectedProjectId, selectedWorktree, activeSessionId } = useChatProjectState()
+  const threadKey = `${selectedProjectId ?? selectedProject?.id ?? "no-project"}:${activeSessionId ?? "draft"}`
+  const shouldShowDraftIntro = activeSessionId == null || activeSessionId.startsWith("draft-")
+  const [showInlineIntro, setShowInlineIntro] = useState(shouldShowDraftIntro)
 
   useEffect(() => {
-    setShowInlineIntro(activeSessionId == null)
-  }, [activeSessionId, threadKey])
+    setShowInlineIntro(shouldShowDraftIntro)
+  }, [shouldShowDraftIntro, threadKey])
 
   return (
     <div className="h-full flex flex-col">
@@ -110,7 +111,7 @@ export function ChatContainer() {
           <ChatComposerPane
             activeSessionId={activeSessionId}
             selectedProjectId={selectedProjectId}
-            selectedProjectPath={selectedProject?.path}
+            selectedWorktreePath={selectedWorktree?.path ?? null}
             onTurnStarted={() => setShowInlineIntro(false)}
           />
         </div>

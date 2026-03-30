@@ -1,11 +1,11 @@
 import { useState, useEffect, useMemo, useRef, type ReactNode } from "react"
 import { Reorder, useDragControls, type DragControls } from "framer-motion"
 import {
-  FolderSimplePlus,
   GearSix,
-  Archive,
   DotsThree,
-  PencilSimple,
+  GitBranch,
+  Plus,
+  FolderSimplePlus,
   Sidebar,
 } from "@/components/icons"
 import {
@@ -15,26 +15,32 @@ import {
   DropdownMenuTrigger,
 } from "@/features/shared/components/ui/dropdown-menu"
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/features/shared/components/ui/tooltip"
+import {
   ProjectSettingsModal,
   QuickStartModal,
   RemoveProjectModal,
+  RemoveWorktreeModal,
 } from "@/features/workspace/components/modals"
 import { ProjectIcon } from "@/features/workspace/components/ProjectIcon"
 import { useProjectStore } from "@/features/workspace/store"
+import { useChatStore, type Session } from "@/features/chat/store"
+import { useProjectGitStore } from "@/features/shared/hooks/projectGitStore"
 import { openFolderPicker } from "@/features/workspace/utils/folderDialog"
-import { useChatStore } from "@/features/chat/store"
-import { hasProjectChatSession } from "@/features/chat/store/sessionState"
 import { useSidebar } from "./useSidebar"
 import { SidebarShell } from "./SidebarShell"
 import { Button } from "@/features/shared/components/ui/button"
 import { cn } from "@/lib/utils"
-import type { Session } from "@/features/chat/types"
-import type { Project } from "@/features/workspace/types"
+import type { Project, ProjectWorktree } from "@/features/workspace/types"
 import {
   SETTINGS_BACK_ICON,
   SETTINGS_SECTIONS,
   type SettingsSectionId,
 } from "@/features/settings/config"
+import { isWorktreeReady } from "@/features/workspace/utils/worktrees"
 
 interface LeftSidebarProps {
   activeView?: "chat" | "settings" | "automations"
@@ -51,6 +57,42 @@ const COLLAPSED_HOVER_TRIGGER_WIDTH = 12
 
 function haveProjectIdsChangedOrder(nextProjectIds: string[], currentProjects: Project[]) {
   return nextProjectIds.some((projectId, index) => projectId !== currentProjects[index]?.id)
+}
+
+function getWorktreeRemovalDisabledReason({
+  worktree,
+  isChangesLoading,
+  hasLoadedChanges,
+  changesError,
+  changeCount,
+}: {
+  worktree: ProjectWorktree
+  isChangesLoading: boolean
+  hasLoadedChanges: boolean
+  changesError: string | null
+  changeCount: number
+}) {
+  if (worktree.status !== "ready") {
+    return "This worktree isn't ready to remove yet."
+  }
+
+  if (isChangesLoading || !hasLoadedChanges) {
+    return "Checking for uncommitted changes..."
+  }
+
+  if (changesError) {
+    return "Couldn't verify whether this worktree is clean yet."
+  }
+
+  if (changeCount > 0) {
+    return "This worktree has uncommitted changes. Commit or discard them before removing it."
+  }
+
+  return null
+}
+
+function formatSessionTitle(session: Session): string {
+  return session.title?.trim() || "New chat"
 }
 
 function ProjectReorderHandle({
@@ -111,7 +153,7 @@ function ReorderableProjectItem(props: {
         zIndex: 20,
       }}
       className={cn(
-        "relative space-y-1 rounded-xl",
+        "relative space-y-0.5 rounded-xl",
         isDraggingProject && "opacity-65"
       )}
       onDragStart={onDragStart}
@@ -137,10 +179,12 @@ export function LeftSidebar({
   const [quickStartOpen, setQuickStartOpen] = useState(false)
   const [projectSettingsProject, setProjectSettingsProject] = useState<Project | null>(null)
   const [projectPendingRemoval, setProjectPendingRemoval] = useState<Project | null>(null)
-  const [openProjectMenuId, setOpenProjectMenuId] = useState<string | null>(null)
-  const [confirmArchiveSessionId, setConfirmArchiveSessionId] = useState<string | null>(null)
+  const [worktreePendingRemoval, setWorktreePendingRemoval] = useState<{
+    project: Project
+    worktree: ProjectWorktree
+  } | null>(null)
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
   const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>([])
-  const pendingSessionSelectionRef = useRef<{ projectId: string; sessionId: string } | null>(null)
   const { isCollapsed, width, setWidth, toggle } = useSidebar()
   const {
     projects,
@@ -149,74 +193,24 @@ export function LeftSidebar({
     loadProjects,
     addProject,
     selectProject,
+    selectWorktree,
+    createWorktree,
     setProjectOrder,
   } = useProjectStore()
+  const getProjectChat = useChatStore((state) => state.getProjectChat)
+  const selectSession = useChatStore((state) => state.selectSession)
+  const requestGitRefresh = useProjectGitStore((state) => state.requestRefresh)
+  const ensureGitEntry = useProjectGitStore((state) => state.ensureEntry)
+  const gitEntriesByProjectPath = useProjectGitStore((state) => state.entriesByProjectPath)
   const [projectOrderPreview, setProjectOrderPreview] = useState<string[] | null>(null)
   const [draggedProjectId, setDraggedProjectId] = useState<string | null>(null)
   const [isHoverPreviewOpen, setIsHoverPreviewOpen] = useState(false)
   const projectOrderPreviewRef = useRef<string[] | null>(null)
 
-  const {
-    getProjectChat,
-    selectSession,
-    archiveSession,
-    initialize: initializeChat,
-    loadSessionsForProject,
-    openDraftSession,
-    currentSessionId,
-    status,
-    activePromptBySession,
-  } = useChatStore()
-
   // Load projects on mount
   useEffect(() => {
     loadProjects()
-    initializeChat()
-  }, [loadProjects, initializeChat])
-
-  // Sync project paths and restore the persisted active session for the selected workspace
-  useEffect(() => {
-    if (!selectedProjectId) {
-      return
-    }
-
-    const project = projects.find((candidate) => candidate.id === selectedProjectId)
-    if (!project?.path) {
-      return
-    }
-
-    const projectChat = getProjectChat(selectedProjectId)
-    const pendingSessionSelection = pendingSessionSelectionRef.current
-    void loadSessionsForProject(selectedProjectId, project.path)
-
-    if (pendingSessionSelection?.projectId === selectedProjectId) {
-      return
-    }
-
-    if (!projectChat.activeSessionId) {
-      if (currentSessionId !== null) {
-        void openDraftSession(selectedProjectId, project.path)
-      }
-      return
-    }
-
-    if (!hasProjectChatSession(projectChat, projectChat.activeSessionId)) {
-      void openDraftSession(selectedProjectId, project.path)
-      return
-    }
-
-    if (currentSessionId !== projectChat.activeSessionId) {
-      void selectSession(selectedProjectId, projectChat.activeSessionId)
-    }
-  }, [
-    currentSessionId,
-    getProjectChat,
-    loadSessionsForProject,
-    openDraftSession,
-    projects,
-    selectSession,
-    selectedProjectId,
-  ])
+  }, [loadProjects])
 
   useEffect(() => {
     setExpandedProjectIds((currentIds) => {
@@ -238,63 +232,6 @@ export function LeftSidebar({
     }
   }
 
-  const handleSelectSession = async (projectId: string, sessionId: string) => {
-    pendingSessionSelectionRef.current = { projectId, sessionId }
-    setConfirmArchiveSessionId(null)
-    onOpenChat?.()
-
-    try {
-      void selectProject(projectId)
-      await selectSession(projectId, sessionId)
-    } finally {
-      if (
-        pendingSessionSelectionRef.current?.projectId === projectId &&
-        pendingSessionSelectionRef.current?.sessionId === sessionId
-      ) {
-        pendingSessionSelectionRef.current = null
-      }
-    }
-  }
-
-  const handleCreateProjectThread = async (
-    event: React.MouseEvent<HTMLButtonElement>,
-    project: Project,
-  ) => {
-    event.stopPropagation()
-    setConfirmArchiveSessionId(null)
-    onOpenChat?.()
-    await selectProject(project.id)
-    await openDraftSession(project.id, project.path)
-  }
-
-  const handleArchiveIntent = async (
-    e: React.MouseEvent,
-    projectId: string,
-    sessionId: string,
-  ) => {
-    e.stopPropagation()
-
-    if (confirmArchiveSessionId === sessionId) {
-      setConfirmArchiveSessionId(null)
-      await archiveSession(projectId, sessionId)
-      return
-    }
-
-    setConfirmArchiveSessionId(sessionId)
-  }
-
-  const formatSessionTitle = (session: Session | null | undefined): string => {
-    if (!session) return "New Session"
-    if (session.title) return session.title
-    const date = new Date(session.createdAt)
-    return date.toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    })
-  }
-
   const BackIcon = SETTINGS_BACK_ICON
   const expandedRowClass =
     "flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-sm font-medium"
@@ -302,6 +239,8 @@ export function LeftSidebar({
     "text-sidebar-foreground/56 hover:bg-[var(--sidebar-item-hover)] hover:text-sidebar-foreground"
   const expandedRowActiveClass =
     "bg-[var(--sidebar-item-active)] text-sidebar-accent-foreground"
+  const projectActionButtonClass =
+    "absolute top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-sidebar-foreground/52 transition hover:text-sidebar-foreground/90 focus-visible:text-sidebar-foreground/90"
   const sectionLabelClass =
     "text-[11px] font-medium uppercase tracking-[0.08em] text-sidebar-foreground/40"
   const projectById = useMemo(
@@ -310,7 +249,7 @@ export function LeftSidebar({
   )
   const orderedProjectIds = projectOrderPreview ?? projects.map((project) => project.id)
 
-  const handleToggleProjectExpanded = async (project: Project) => {
+  const handleToggleProjectExpanded = (project: Project) => {
     const isExpanded = expandedProjectIds.includes(project.id)
 
     setExpandedProjectIds((currentIds) =>
@@ -318,10 +257,33 @@ export function LeftSidebar({
         ? currentIds.filter((projectId) => projectId !== project.id)
         : [...currentIds, project.id]
     )
+  }
 
-    if (!isExpanded) {
-      await loadSessionsForProject(project.id, project.path)
+  const handleCreateWorktree = async (event: React.MouseEvent<HTMLButtonElement>, project: Project) => {
+    event.stopPropagation()
+    onOpenChat?.()
+    await selectProject(project.id)
+    await createWorktree(project.id)
+  }
+
+  const handleSelectWorktree = async (project: Project, worktree: ProjectWorktree) => {
+    if (!isWorktreeReady(worktree)) {
+      return
     }
+
+    onOpenChat?.()
+    await selectProject(project.id)
+    await selectWorktree(project.id, worktree.id)
+  }
+
+  const handleRemoveWorktree = (project: Project, worktree: ProjectWorktree) => {
+    setWorktreePendingRemoval({ project, worktree })
+  }
+
+  const handleSelectProjectSession = async (project: Project, sessionId: string) => {
+    onOpenChat?.()
+    await selectProject(project.id)
+    await selectSession(project.id, sessionId)
   }
 
   useEffect(() => {
@@ -336,6 +298,29 @@ export function LeftSidebar({
       setIsHoverPreviewOpen(false)
     }
   }, [isCollapsed, isHoverPreviewOpen])
+
+  const expandedReadyWorktreePaths = useMemo(
+    () =>
+      projects
+        .filter((project) => expandedProjectIds.includes(project.id))
+        .flatMap((project) =>
+          project.worktrees
+            .filter((worktree) => worktree.status === "ready")
+            .map((worktree) => worktree.path)
+        ),
+    [expandedProjectIds, projects]
+  )
+
+  useEffect(() => {
+    for (const worktreePath of expandedReadyWorktreePaths) {
+      ensureGitEntry(worktreePath)
+      void requestGitRefresh(worktreePath, {
+        includeChanges: true,
+        quietChanges: true,
+        debounceMs: 0,
+      })
+    }
+  }, [ensureGitEntry, expandedReadyWorktreePaths, requestGitRefresh])
 
   const clearProjectDragState = () => {
     setDraggedProjectId(null)
@@ -363,6 +348,21 @@ export function LeftSidebar({
     void setProjectOrder(nextProjects)
   }
 
+  const handleWorktreeMenuOpenChange = (open: boolean, worktree: ProjectWorktree) => {
+    setOpenMenuId(open ? worktree.id : null)
+
+    if (!open || worktree.status !== "ready") {
+      return
+    }
+
+    ensureGitEntry(worktree.path)
+    void requestGitRefresh(worktree.path, {
+      includeChanges: true,
+      quietChanges: true,
+      debounceMs: 0,
+    })
+  }
+
   const renderProjectRow = (project: Project) => {
     const projectChat = getProjectChat(project.id)
     const archivedSessionIds = new Set(projectChat.archivedSessionIds ?? [])
@@ -373,7 +373,7 @@ export function LeftSidebar({
         !archivedSessionIds.has(session.id)
     )
     const isExpanded = expandedProjectIds.includes(project.id)
-    const isProjectMenuOpen = openProjectMenuId === project.id
+    const isProjectMenuOpen = openMenuId === project.id
     const isDraggingProject = draggedProjectId === project.id
 
     const content = (
@@ -383,7 +383,7 @@ export function LeftSidebar({
             type="button"
             onClick={() => void handleToggleProjectExpanded(project)}
             className={cn(
-              "group/project flex h-8 w-full min-w-0 items-center gap-2 rounded-md pl-8 pr-14 text-left",
+              "group/project flex h-8 w-full min-w-0 items-center gap-2 rounded-md pl-8 pr-16 text-left",
               "text-sidebar-foreground/72 hover:bg-[var(--sidebar-item-hover)] hover:text-sidebar-foreground/92",
               "group-hover/project-row:bg-[var(--sidebar-item-hover)] group-hover/project-row:text-sidebar-foreground/92",
             )}
@@ -405,26 +405,26 @@ export function LeftSidebar({
 
           <button
             type="button"
-            onClick={(event) => void handleCreateProjectThread(event, project)}
+            onClick={(event) => void handleCreateWorktree(event, project)}
             className={cn(
-              "absolute top-1/2 right-7 flex h-5 w-5 -translate-y-1/2 items-center justify-center text-sidebar-foreground/30 transition",
-              "hover:text-sidebar-foreground/72 focus-visible:text-sidebar-foreground/72",
+              projectActionButtonClass,
+              "right-8",
               "opacity-0 group-hover/project-row:opacity-100 focus-visible:opacity-100",
             )}
-            aria-label={`New thread in ${project.name}`}
+            aria-label={`New worktree in ${project.name}`}
           >
-            <PencilSimple size={14} />
+            <Plus size={14} />
           </button>
 
           <DropdownMenu
-            onOpenChange={(open) => setOpenProjectMenuId(open ? project.id : null)}
+            onOpenChange={(open) => setOpenMenuId(open ? project.id : null)}
           >
             <DropdownMenuTrigger
               className={cn(
-                "absolute top-1/2 right-2 flex h-5 w-5 -translate-y-1/2 items-center justify-center text-sidebar-foreground/30 transition",
-                "hover:text-sidebar-foreground/72 focus-visible:text-sidebar-foreground/72",
+                projectActionButtonClass,
+                "right-1",
                 isProjectMenuOpen
-                  ? "text-sidebar-foreground/72 opacity-100"
+                  ? "text-sidebar-foreground opacity-100"
                   : "opacity-0 group-hover/project-row:opacity-100",
               )}
               aria-label={`${project.name} settings menu`}
@@ -448,106 +448,144 @@ export function LeftSidebar({
         {(() => {
           if (!isExpanded) return null
 
-          if (projectSessions.length === 0) {
+          if (project.worktrees.length === 0) {
             return (
-              <div className="pt-1">
+              <div>
                 <div className="px-8 py-1.5 text-[13px] text-sidebar-foreground/36">
-                  No threads yet.
+                  No worktrees yet.
                 </div>
               </div>
             )
           }
 
           return (
-            <div className="space-y-0.5 pt-0.5">
-              {projectSessions.map((session) => {
-                const activePromptState = activePromptBySession[session.id]
-                const isAwaitingResponse = activePromptState?.status === "active"
-                const isActiveSession = currentSessionId === session.id
-                const isRunningSession =
-                  session.id === currentSessionId &&
-                  (status === "streaming" ||
-                    status === "connecting" ||
-                    isAwaitingResponse)
-                const isConfirmingArchive = confirmArchiveSessionId === session.id
+            <div className="space-y-0.5">
+              {project.worktrees.map((worktree) => {
+                const isSelectedWorktree =
+                  selectedProjectId === project.id && project.selectedWorktreeId === worktree.id
+                const isWorktreeMenuOpen = openMenuId === worktree.id
+                const worktreeGitEntry = gitEntriesByProjectPath[worktree.path]
+                const isWorktreeReadyForSelection = isWorktreeReady(worktree)
+                const removeWorktreeDisabledReason = getWorktreeRemovalDisabledReason({
+                  worktree,
+                  isChangesLoading: worktreeGitEntry?.isChangesLoading ?? false,
+                  hasLoadedChanges: worktreeGitEntry != null,
+                  changesError: worktreeGitEntry?.changesError ?? null,
+                  changeCount: worktreeGitEntry?.changes.length ?? 0,
+                })
 
                 return (
                   <div
-                    key={session.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => void handleSelectSession(project.id, session.id)}
-                    onKeyDown={(event) => {
-                      if (event.key !== "Enter" && event.key !== " ") {
-                        return
-                      }
-
-                      event.preventDefault()
-                      void handleSelectSession(project.id, session.id)
-                    }}
-                    onMouseLeave={() => {
-                      if (confirmArchiveSessionId === session.id) {
-                        setConfirmArchiveSessionId(null)
-                      }
-                    }}
+                    key={worktree.id}
                     className={cn(
-                      "group/session flex h-8 cursor-pointer items-center gap-2 rounded-md px-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring/60",
-                      "text-sidebar-foreground/48 hover:bg-[var(--sidebar-item-hover)] hover:text-sidebar-foreground/72",
-                      isActiveSession && "bg-[var(--sidebar-item-active)]",
+                      "group/worktree-row relative",
+                      isSelectedWorktree && "bg-[var(--sidebar-item-active)] rounded-md",
                     )}
                   >
-                    {isRunningSession ? (
-                      <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-                        <span className="size-3 rounded-full border border-sidebar-foreground/18 border-t-sidebar-foreground/62 animate-spin" />
-                      </span>
-                    ) : (
-                      <span className="h-4 w-4 shrink-0" />
-                    )}
-
-                    <div className="flex min-w-0 flex-1 items-center justify-between gap-2 text-left">
-                      <span className="min-w-0 flex-1 truncate text-[13px] font-medium leading-none">
-                        {formatSessionTitle(session)}
-                      </span>
-                      {isAwaitingResponse ? (
-                        <span className="inline-flex h-5 shrink-0 items-center rounded-full bg-emerald-500/14 px-2 text-[11px] font-medium text-emerald-400">
-                          Awaiting response
-                        </span>
-                      ) : null}
-                    </div>
-
-                    <div
+                    <button
+                      type="button"
+                      onClick={() => void handleSelectWorktree(project, worktree)}
+                      disabled={!isWorktreeReadyForSelection}
                       className={cn(
-                        "flex shrink-0 items-center justify-end",
-                        isConfirmingArchive ? "min-w-[4.75rem]" : "w-7"
+                        "flex h-8 w-full min-w-0 items-center gap-2 rounded-md pl-8 pr-8 text-left",
+                        "text-sidebar-foreground/56 hover:bg-[var(--sidebar-item-hover)] hover:text-sidebar-foreground/80",
+                        !isWorktreeReadyForSelection &&
+                          "cursor-not-allowed opacity-60 hover:bg-transparent hover:text-sidebar-foreground/56",
+                        isSelectedWorktree && "text-sidebar-accent-foreground",
                       )}
                     >
-                      {isConfirmingArchive ? (
-                        <button
-                          type="button"
-                          onClick={(event) =>
-                            void handleArchiveIntent(event, project.id, session.id)
-                          }
-                          className="rounded-full border border-border/70 bg-muted/60 px-2 py-0.5 text-sm font-medium tracking-tight text-destructive hover:bg-muted/80"
-                          aria-label="Confirm archive session"
+                      <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
+                        <GitBranch size={13} />
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-[13px] font-medium leading-none">
+                        {worktree.name}
+                      </span>
+                    </button>
+
+                    <DropdownMenu
+                      onOpenChange={(open) => handleWorktreeMenuOpenChange(open, worktree)}
+                    >
+                      <DropdownMenuTrigger
+                        className={cn(
+                          "absolute top-1/2 right-2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-sidebar-foreground/30 transition",
+                          isWorktreeMenuOpen
+                            ? "text-sidebar-foreground/72 opacity-100"
+                            : "opacity-0 group-hover/worktree-row:opacity-100",
+                        )}
+                        aria-label={`${worktree.name} settings menu`}
+                      >
+                        <DotsThree size={14} />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent side="bottom" align="end" className="w-44">
+                        <DropdownMenuItem
+                          onClick={() => void handleSelectWorktree(project, worktree)}
+                          disabled={!isWorktreeReadyForSelection}
                         >
-                          Confirm
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={(event) =>
-                            void handleArchiveIntent(event, project.id, session.id)
-                          }
-                          className="rounded p-1 opacity-0  hover:bg-[var(--sidebar-item-hover)] focus-visible:opacity-100 group-hover/session:opacity-100"
-                          aria-label="Archive session"
-                        >
-                          <Archive size={14} className="text-muted-foreground" />
-                        </button>
-                      )}
-                    </div>
+                          <span>Open worktree</span>
+                        </DropdownMenuItem>
+                        {removeWorktreeDisabledReason ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className="block">
+                                <DropdownMenuItem variant="destructive" disabled>
+                                  <span>Remove worktree</span>
+                                </DropdownMenuItem>
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent
+                              side="left"
+                              align="center"
+                              className="max-w-64 text-sm leading-5"
+                            >
+                              {removeWorktreeDisabledReason}
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          <DropdownMenuItem
+                            variant="destructive"
+                            onClick={() => void handleRemoveWorktree(project, worktree)}
+                          >
+                            <span>Remove worktree</span>
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 )
               })}
+
+              <div className="px-8 pt-2 pb-1 text-[11px] font-medium uppercase tracking-[0.08em] text-sidebar-foreground/32">
+                Threads
+              </div>
+
+              {projectSessions.length === 0 ? (
+                <div className="px-8 py-1.5 text-[13px] text-sidebar-foreground/36">
+                  No threads yet.
+                </div>
+              ) : (
+                projectSessions.map((session) => {
+                  const isActiveSession =
+                    selectedProjectId === project.id && projectChat.activeSessionId === session.id
+
+                  return (
+                    <button
+                      key={session.id}
+                      type="button"
+                      onClick={() => void handleSelectProjectSession(project, session.id)}
+                      className={cn(
+                        "flex h-8 w-full min-w-0 items-center gap-2 rounded-md pl-8 pr-3 text-left",
+                        "text-sidebar-foreground/48 hover:bg-[var(--sidebar-item-hover)] hover:text-sidebar-foreground/72",
+                        isActiveSession && "bg-[var(--sidebar-item-active)] text-sidebar-accent-foreground",
+                      )}
+                    >
+                      <span className="h-4 w-4 shrink-0" />
+                      <span className="min-w-0 flex-1 truncate text-[13px] font-medium leading-none">
+                        {formatSessionTitle(session)}
+                      </span>
+                    </button>
+                  )
+                })
+              )}
             </div>
           )
         })()}
@@ -752,6 +790,16 @@ export function LeftSidebar({
             }
           }}
         />
+        <RemoveWorktreeModal
+          open={worktreePendingRemoval !== null}
+          project={worktreePendingRemoval?.project ?? null}
+          worktree={worktreePendingRemoval?.worktree ?? null}
+          onOpenChange={(open) => {
+            if (!open) {
+              setWorktreePendingRemoval(null)
+            }
+          }}
+        />
       </>
     )
   }
@@ -783,6 +831,16 @@ export function LeftSidebar({
         onOpenChange={(open) => {
           if (!open) {
             setProjectPendingRemoval(null)
+          }
+        }}
+      />
+      <RemoveWorktreeModal
+        open={worktreePendingRemoval !== null}
+        project={worktreePendingRemoval?.project ?? null}
+        worktree={worktreePendingRemoval?.worktree ?? null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setWorktreePendingRemoval(null)
           }
         }}
       />

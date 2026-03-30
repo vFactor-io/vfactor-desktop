@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react"
 import { desktop } from "@/desktop/client"
-import { useProjectStore } from "@/features/workspace/store"
+import { useCurrentProjectWorktree } from "@/features/shared/hooks"
 import { useChatStore } from "../store/chatStore"
 import type { SkillsSyncResponse } from "@/features/skills/types"
 
@@ -32,7 +32,7 @@ const BUILTIN_PREVIEW_COMMANDS: NormalizedCommand[] = [
 ]
 
 export function useCommands() {
-  const { selectedProjectId } = useProjectStore()
+  const { selectedProjectId } = useCurrentProjectWorktree()
   const listCommands = useChatStore((state) => state.listCommands)
   const [commands, setCommands] = useState<NormalizedCommand[]>([])
   const [isLoading, setIsLoading] = useState(false)

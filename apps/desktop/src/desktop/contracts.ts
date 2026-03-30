@@ -53,6 +53,34 @@ export interface GitPullRequest {
   headBranch: string
 }
 
+export interface GitWorktreeSummary {
+  path: string
+  branchName: string
+  head: string | null
+  isDetached: boolean
+  isCurrent: boolean
+  isMain: boolean
+}
+
+export interface GitCreateWorktreeInput {
+  name: string
+  branchName: string
+  baseBranch: string
+  targetPath?: string | null
+}
+
+export interface GitCreateWorktreeResult {
+  worktree: GitWorktreeSummary
+}
+
+export interface GitRemoveWorktreeInput {
+  worktreePath: string
+}
+
+export interface GitRemoveWorktreeResult {
+  worktreePath: string
+}
+
 export type GitStackedAction = "commit" | "commit_push" | "commit_push_pr"
 
 export interface GitRunStackedActionInput {

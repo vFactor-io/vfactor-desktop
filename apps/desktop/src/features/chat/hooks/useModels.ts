@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from "react"
-import { useProjectStore } from "@/features/workspace/store"
+import { useCurrentProjectWorktree } from "@/features/shared/hooks"
 import { useChatStore } from "../store/chatStore"
 import type { RuntimeModel } from "../types"
 
 export function useModels() {
-  const { selectedProjectId } = useProjectStore()
+  const { selectedProjectId } = useCurrentProjectWorktree()
   const listModels = useChatStore((state) => state.listModels)
   const [models, setModels] = useState<RuntimeModel[]>([])
   const [isLoading, setIsLoading] = useState(false)

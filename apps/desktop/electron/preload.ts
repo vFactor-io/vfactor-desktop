@@ -6,11 +6,16 @@ import type {
   DesktopDirEntry,
   GitActionProgressEvent,
   GitBranchesResponse,
+  GitCreateWorktreeInput,
+  GitCreateWorktreeResult,
   GitFileChange,
   GitFileDiff,
   GitPullResult,
+  GitRemoveWorktreeInput,
+  GitRemoveWorktreeResult,
   GitRunStackedActionInput,
   GitRunStackedActionResult,
+  GitWorktreeSummary,
   ProjectFileSystemEvent,
   SkillsSyncResponse,
   TerminalDataEvent,
@@ -134,6 +139,20 @@ contextBridge.exposeInMainWorld("nucleus", {
       ipcRenderer.invoke(IPC_CHANNELS.gitGetBranches, projectPath) as Promise<GitBranchesResponse>,
     getChanges: (projectPath: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.gitGetChanges, projectPath) as Promise<GitFileChange[]>,
+    listWorktrees: (projectPath: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.gitListWorktrees, projectPath) as Promise<GitWorktreeSummary[]>,
+    createWorktree: (projectPath: string, input: GitCreateWorktreeInput) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.gitCreateWorktree,
+        projectPath,
+        input
+      ) as Promise<GitCreateWorktreeResult>,
+    removeWorktree: (projectPath: string, input: GitRemoveWorktreeInput) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.gitRemoveWorktree,
+        projectPath,
+        input
+      ) as Promise<GitRemoveWorktreeResult>,
     getFileDiff: (projectPath: string, filePath: string, previousPath?: string | null) =>
       ipcRenderer.invoke(
         IPC_CHANNELS.gitGetFileDiff,

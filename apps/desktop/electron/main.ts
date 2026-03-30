@@ -208,6 +208,19 @@ function registerIpcHandlers(storeService: JsonStoreService): void {
   ipcMain.handle(IPC_CHANNELS.gitGetChanges, (_event, projectPath: string) =>
     gitService.getChanges(projectPath)
   )
+  ipcMain.handle(IPC_CHANNELS.gitListWorktrees, (_event, projectPath: string) =>
+    gitService.listWorktrees(projectPath)
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.gitCreateWorktree,
+    (_event, projectPath: string, input: Parameters<GitService["createWorktree"]>[1]) =>
+      gitService.createWorktree(projectPath, input)
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.gitRemoveWorktree,
+    (_event, projectPath: string, input: Parameters<GitService["removeWorktree"]>[1]) =>
+      gitService.removeWorktree(projectPath, input)
+  )
   ipcMain.handle(
     IPC_CHANNELS.gitGetFileDiff,
     (_event, projectPath: string, filePath: string, previousPath?: string | null) =>

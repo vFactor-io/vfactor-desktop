@@ -5,12 +5,13 @@
 
 export type ChatStatus = "idle" | "streaming" | "error";
 
-export type TabType = "chat" | "file" | "diff";
+export type TabType = "chat-session" | "file" | "diff";
 
 export interface Tab {
   id: string;
   type: TabType;
   title: string;
+  sessionId?: string | null;
   filePath?: string;
   previousFilePath?: string | null;
 }

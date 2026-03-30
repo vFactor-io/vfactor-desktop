@@ -5,11 +5,16 @@ import type {
   DesktopDirEntry,
   GitActionProgressEvent,
   GitBranchesResponse,
+  GitCreateWorktreeInput,
+  GitCreateWorktreeResult,
   GitFileChange,
   GitFileDiff,
   GitPullResult,
+  GitRemoveWorktreeInput,
+  GitRemoveWorktreeResult,
   GitRunStackedActionInput,
   GitRunStackedActionResult,
+  GitWorktreeSummary,
   ProjectFileSystemEvent,
   SkillsSyncResponse,
   TerminalDataEvent,
@@ -85,6 +90,15 @@ declare global {
       git: {
         getBranches: (projectPath: string) => Promise<GitBranchesResponse>
         getChanges: (projectPath: string) => Promise<GitFileChange[]>
+        listWorktrees: (projectPath: string) => Promise<GitWorktreeSummary[]>
+        createWorktree: (
+          projectPath: string,
+          input: GitCreateWorktreeInput
+        ) => Promise<GitCreateWorktreeResult>
+        removeWorktree: (
+          projectPath: string,
+          input: GitRemoveWorktreeInput
+        ) => Promise<GitRemoveWorktreeResult>
         getFileDiff: (
           projectPath: string,
           filePath: string,

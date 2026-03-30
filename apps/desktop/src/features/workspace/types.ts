@@ -19,11 +19,32 @@ export interface Repository {
   workspaces: Workspace[]
 }
 
+export type ProjectWorktreeSource = "root" | "managed"
+
+export type ProjectWorktreeStatus = "ready" | "creating" | "error"
+
+export interface ProjectWorktree {
+  id: string
+  name: string
+  branchName: string
+  path: string
+  createdAt: number
+  updatedAt: number
+  source: ProjectWorktreeSource
+  status: ProjectWorktreeStatus
+}
+
 export interface Project {
   id: string
   name: string       // Folder name (derived from path)
   iconPath?: string | null
   path: string       // Full filesystem path
+  repoRootPath: string
+  rootWorktreeId: string
+  selectedWorktreeId: string | null
+  targetBranch: string | null
+  hiddenWorktreePaths?: string[]
+  worktrees: ProjectWorktree[]
   addedAt: number    // Timestamp when added (for ordering)
   actions?: ProjectAction[]
   primaryActionId?: string | null

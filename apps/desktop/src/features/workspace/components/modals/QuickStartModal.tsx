@@ -182,7 +182,10 @@ export function QuickStartModal({ open, onOpenChange }: QuickStartModalProps) {
 
     await cleanupRunSession(runState, "Failed to close quick start terminal session:")
     await selectProject(project.id)
-    await openDraftSession(project.id, project.path)
+    const rootWorktreePath =
+      project.worktrees.find((candidate) => candidate.id === project.rootWorktreeId)?.path ??
+      project.repoRootPath
+    await openDraftSession(project.id, rootWorktreePath)
 
     setActiveRun(null)
     setStep("configure")

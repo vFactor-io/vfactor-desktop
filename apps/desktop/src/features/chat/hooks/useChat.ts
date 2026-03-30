@@ -1,7 +1,7 @@
-import { useState, useCallback, useEffect, useMemo } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { useShallow } from "zustand/react/shallow"
-import { useProjectStore } from "@/features/workspace/store"
-import type { Project } from "@/features/workspace/types"
+import { useCurrentProjectWorktree } from "@/features/shared/hooks"
+import type { Project, ProjectWorktree } from "@/features/workspace/types"
 import { useChatStore, type ChildSessionState, type MessageWithParts } from "../store"
 import { hasProjectChatSession } from "../store/sessionState"
 import type { ProjectChatState } from "../store/storeTypes"
@@ -33,14 +33,17 @@ function getUiStatus(status: ChatStatus | "connecting"): ChatStatus {
 export function useChatProjectState(): {
   selectedProjectId: string | null
   selectedProject: Project | null
+  selectedWorktreeId: string | null
+  selectedWorktree: ProjectWorktree | null
   activeSessionId: string | null
 } {
-  const { projects, selectedProjectId } = useProjectStore(
-    useShallow((state) => ({
-      projects: state.projects,
-      selectedProjectId: state.selectedProjectId,
-    }))
-  )
+  const {
+    selectedProjectId,
+    selectedProject,
+    selectedWorktreeId,
+    selectedWorktree,
+    selectedWorktreePath,
+  } = useCurrentProjectWorktree()
   const { initialize, isInitialized, loadSessionsForProject } = useChatStore(
     useShallow((state) => ({
       initialize: state.initialize,
@@ -51,11 +54,6 @@ export function useChatProjectState(): {
   const projectChat = useChatStore((state) =>
     selectedProjectId ? state.chatByProject[selectedProjectId] ?? null : null
   )
-
-  const selectedProject = useMemo(
-    () => projects.find((project) => project.id === selectedProjectId) ?? null,
-    [projects, selectedProjectId]
-  )
   const activeSessionId = getActiveSessionId(projectChat)
 
   useEffect(() => {
@@ -63,14 +61,16 @@ export function useChatProjectState(): {
   }, [initialize])
 
   useEffect(() => {
-    if (selectedProjectId && selectedProject?.path && isInitialized) {
-      loadSessionsForProject(selectedProjectId, selectedProject.path)
+    if (selectedProjectId && selectedWorktreePath && isInitialized) {
+      loadSessionsForProject(selectedProjectId, selectedWorktreePath)
     }
-  }, [selectedProjectId, selectedProject?.path, isInitialized, loadSessionsForProject])
+  }, [selectedProjectId, selectedWorktreePath, isInitialized, loadSessionsForProject])
 
   return {
     selectedProjectId,
     selectedProject,
+    selectedWorktreeId,
+    selectedWorktree,
     activeSessionId,
   }
 }
@@ -103,11 +103,11 @@ export function useChatTimelineState(activeSessionId: string | null): {
 
 export function useChatComposerState({
   selectedProjectId,
-  selectedProjectPath,
+  selectedWorktreePath,
   activeSessionId,
 }: {
   selectedProjectId: string | null
-  selectedProjectPath?: string | null
+  selectedWorktreePath?: string | null
   activeSessionId: string | null
 }): {
   input: string
@@ -203,13 +203,13 @@ export function useChatComposerState({
       let targetSessionId = activeSessionId
 
       if (!targetSessionId) {
-        if (!selectedProjectId || !selectedProjectPath) {
+        if (!selectedProjectId || !selectedWorktreePath) {
           return false
         }
 
         setInput("")
 
-        const session = createOptimisticSession(selectedProjectId, selectedProjectPath)
+        const session = createOptimisticSession(selectedProjectId, selectedWorktreePath)
         if (!session) {
           return false
         }
@@ -226,7 +226,7 @@ export function useChatComposerState({
       clearDraftInput,
       createOptimisticSession,
       selectedProjectId,
-      selectedProjectPath,
+      selectedWorktreePath,
       sendMessage,
       setInput,
       uiStatus,
@@ -265,11 +265,11 @@ export function useChatComposerState({
       let targetSessionId = activeSessionId
 
       if (!targetSessionId) {
-        if (!selectedProjectId || !selectedProjectPath) {
+        if (!selectedProjectId || !selectedWorktreePath) {
           return false
         }
 
-        const session = await createSession(selectedProjectId, selectedProjectPath)
+        const session = await createSession(selectedProjectId, selectedWorktreePath)
         if (!session) {
           return false
         }
@@ -285,7 +285,7 @@ export function useChatComposerState({
       createSession,
       executeCommand,
       selectedProjectId,
-      selectedProjectPath,
+      selectedWorktreePath,
     ]
   )
 

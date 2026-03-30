@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import { loadDesktopStore, type DesktopStoreHandle } from "@/desktop/client"
+import { useProjectStore } from "@/features/workspace/store"
 import {
   createTextMessage,
   dedupeMessages,
@@ -143,7 +144,7 @@ function schedulePersistState(persist: () => Promise<void>): void {
 
 function normalizeProjectChatState(
   chatByProject: PersistedChatState["chatByProject"] | undefined
-): PersistedChatState["chatByProject"] {
+): Record<string, ProjectChatState> {
   return Object.fromEntries(
     Object.entries(chatByProject ?? {}).map(([projectId, projectChat]) => [
       projectId,
@@ -152,6 +153,130 @@ function normalizeProjectChatState(
         selectedHarnessId: projectChat.selectedHarnessId ?? DEFAULT_HARNESS_ID,
       }),
     ])
+  )
+}
+
+function dedupeSessions(sessions: RuntimeSession[]): RuntimeSession[] {
+  const seenSessionIds = new Set<string>()
+  const dedupedSessions: RuntimeSession[] = []
+
+  for (const session of sortSessions(sessions)) {
+    if (seenSessionIds.has(session.id)) {
+      continue
+    }
+
+    seenSessionIds.add(session.id)
+    dedupedSessions.push(session)
+  }
+
+  return dedupedSessions
+}
+
+async function migratePersistedChatState(
+  persisted: PersistedChatState | null
+): Promise<Record<string, ProjectChatState>> {
+  if (!persisted?.chatByProject && !persisted?.chatByWorktree) {
+    return {}
+  }
+
+  const projectStore = useProjectStore.getState()
+  if (!projectStore.projects.length && projectStore.isLoading) {
+    await projectStore.loadProjects()
+  }
+
+  const projects = useProjectStore.getState().projects
+  const projectById = new Map(projects.map((project) => [project.id, project]))
+
+  if (persisted.chatByProject) {
+    return normalizeProjectChatState(
+      Object.fromEntries(
+        Object.entries(persisted.chatByProject).map(([projectId, projectChat]) => {
+          const project = projectById.get(projectId)
+          const selectedWorktreePath =
+            project?.worktrees.find((worktree) => worktree.id === project.selectedWorktreeId)?.path ??
+            project?.path
+
+          return [
+            projectId,
+            {
+              ...projectChat,
+              worktreePath: projectChat.worktreePath ?? selectedWorktreePath,
+            },
+          ]
+        })
+      )
+    )
+  }
+
+  const legacyChatByWorktree = persisted.chatByWorktree
+  if (!legacyChatByWorktree) {
+    return {}
+  }
+
+  const legacyChatsByProject = new Map<
+    string,
+    Array<{ worktreeId: string; projectChat: ProjectChatState }>
+  >()
+  const projectIdByWorktreeId = new Map(
+    projects.flatMap((project) =>
+      project.worktrees.map((worktree) => [worktree.id, project.id] as const)
+    )
+  )
+
+  for (const [worktreeId, projectChat] of Object.entries(legacyChatByWorktree)) {
+    const projectId = projectIdByWorktreeId.get(worktreeId)
+    if (!projectId) {
+      continue
+    }
+
+    const existingProjectChats = legacyChatsByProject.get(projectId) ?? []
+    existingProjectChats.push({ worktreeId, projectChat })
+    legacyChatsByProject.set(projectId, existingProjectChats)
+  }
+
+  return normalizeProjectChatState(
+    Object.fromEntries(
+      Array.from(legacyChatsByProject.entries()).map(([projectId, projectChats]) => {
+        const project = projectById.get(projectId)
+        const preferredProjectChat =
+          projectChats.find(({ worktreeId }) => worktreeId === project?.selectedWorktreeId) ??
+          projectChats[0]
+        const archivedSessionIds = Array.from(
+          new Set(
+            projectChats.flatMap(({ projectChat }) => projectChat.archivedSessionIds ?? [])
+          )
+        )
+        const archivedSessionIdSet = new Set(archivedSessionIds)
+        const sessions = dedupeSessions(
+          projectChats.flatMap(({ projectChat }) => projectChat.sessions)
+        )
+        const activeSessionId =
+          preferredProjectChat?.projectChat.activeSessionId &&
+          sessions.some(
+            (session) =>
+              session.id === preferredProjectChat.projectChat.activeSessionId &&
+              !archivedSessionIdSet.has(session.id)
+          )
+            ? preferredProjectChat.projectChat.activeSessionId
+            : sessions[0]?.id ?? null
+        const selectedWorktreePath =
+          project?.worktrees.find((worktree) => worktree.id === project.selectedWorktreeId)?.path ??
+          project?.path
+
+        return [
+          projectId,
+          {
+            sessions,
+            activeSessionId,
+            archivedSessionIds,
+            selectedHarnessId:
+              preferredProjectChat?.projectChat.selectedHarnessId ?? DEFAULT_HARNESS_ID,
+            worktreePath:
+              preferredProjectChat?.projectChat.worktreePath ?? selectedWorktreePath,
+          },
+        ]
+      })
+    )
   )
 }
 
@@ -253,7 +378,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     try {
       const store = await getStore()
       const persisted = await store.get<PersistedChatState>("chatState")
-      const normalizedChatByProject = normalizeProjectChatState(persisted?.chatByProject)
+      const normalizedChatByProject = await migratePersistedChatState(persisted)
       const normalizedMessagesBySession = normalizeMessagesBySession(persisted?.messagesBySession)
 
       set({
@@ -302,7 +427,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const projectChat = chatByProject[projectId] ?? createDefaultProjectChat(projectPath)
     const hasExistingProjectChat = chatByProject[projectId] != null
 
-    if (hasExistingProjectChat && projectChat.projectPath === projectPath) {
+    if (hasExistingProjectChat && projectChat.worktreePath === projectPath) {
       return
     }
 
@@ -311,7 +436,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ...chatByProject,
         [projectId]: {
           ...projectChat,
-          projectPath,
+          worktreePath: projectPath,
         },
       },
     })
@@ -328,7 +453,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ...chatByProject,
         [projectId]: {
           ...projectChat,
-          projectPath,
+          worktreePath: projectPath,
           activeSessionId: null,
         },
       },
@@ -352,7 +477,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ...chatByProject,
         [projectId]: {
           ...projectChat,
-          projectPath,
+          worktreePath: projectPath,
           sessions: sortSessions([session, ...projectChat.sessions]),
           activeSessionId: session.id,
         },
@@ -377,7 +502,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ...chatByProject,
         [projectId]: {
           ...projectChat,
-          projectPath,
+          worktreePath: projectPath,
           sessions: sortSessions([session, ...projectChat.sessions]),
           activeSessionId: session.id,
         },
@@ -442,7 +567,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   selectSession: async (projectId: string, sessionId: string) => {
-    const { chatByProject, messagesBySession } = get()
+    const { chatByProject } = get()
     const projectChat = chatByProject[projectId]
     if (!projectChat) {
       return
@@ -678,7 +803,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     try {
       const result = await adapter.answerPrompt({
         session,
-        projectPath: projectChat.projectPath,
+        projectPath: projectChat.worktreePath,
         prompt: answeredPromptState.prompt,
         response,
       })
@@ -925,7 +1050,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const runSend = async (sessionToSend: RuntimeSession) =>
       adapter.sendMessage({
         session: sessionToSend,
-        projectPath: projectChat.projectPath,
+        projectPath: projectChat.worktreePath,
         text: text.trim(),
         agent: options?.agent,
         collaborationMode: options?.collaborationMode,
@@ -937,7 +1062,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     try {
       if (!nextSession.remoteId) {
         const remoteSession = await adapter.createSession(
-          projectChat.projectPath ?? nextSession.projectPath ?? ""
+          projectChat.worktreePath ?? nextSession.projectPath ?? ""
         )
 
         if (!getProjectSessionMatch(get().chatByProject, projectId, sessionId)) {
@@ -972,7 +1097,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
         try {
           const recreatedRemoteSession = await adapter.createSession(
-            projectChat.projectPath ?? session.projectPath ?? ""
+            projectChat.worktreePath ?? session.projectPath ?? ""
           )
           console.info("[chatStore] sendMessage:recreate-session:created", {
             sessionId,
@@ -984,7 +1109,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             ...nextSession,
             remoteId: recreatedRemoteSession.remoteId ?? recreatedRemoteSession.id,
             title: nextSession.title ?? recreatedRemoteSession.title,
-            projectPath: projectChat.projectPath ?? recreatedRemoteSession.projectPath,
+            projectPath: projectChat.worktreePath ?? recreatedRemoteSession.projectPath,
             updatedAt: Date.now(),
           }
 
@@ -1096,7 +1221,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     try {
       const result = await adapter.executeCommand({
         session: nextSession,
-        projectPath: projectChat.projectPath,
+        projectPath: projectChat.worktreePath,
         command,
         args,
       })

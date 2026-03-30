@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react"
-import { useProjectStore } from "@/features/workspace/store"
+import { useCurrentProjectWorktree } from "@/features/shared/hooks"
 import { useChatStore } from "../store/chatStore"
 
 export interface FileSearchResult {
@@ -8,7 +8,7 @@ export interface FileSearchResult {
 }
 
 export function useFileSearch() {
-  const { selectedProjectId } = useProjectStore()
+  const { selectedProjectId } = useCurrentProjectWorktree()
   const searchFiles = useChatStore((state) => state.searchFiles)
   const [results, setResults] = useState<FileSearchResult[]>([])
   const [isLoading, setIsLoading] = useState(false)

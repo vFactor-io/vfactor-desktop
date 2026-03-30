@@ -11,7 +11,6 @@ import {
   InformationCircle,
   Refresh,
 } from "@/components/icons"
-import { useChatProjectState } from "@/features/chat/hooks/useChat"
 import { normalizeGitGenerationModel, useSettingsStore } from "@/features/settings/store/settingsStore"
 import {
   AlertDialog,
@@ -41,6 +40,7 @@ import {
   resolveQuickAction,
   summarizeGitResult,
 } from "./gitActionsLogic"
+import { useCurrentProjectWorktree } from "@/features/shared/hooks"
 
 interface SourceControlActionGroupProps {
   className?: string
@@ -84,8 +84,8 @@ export function SourceControlActionGroup({
   className,
   projectPath,
 }: SourceControlActionGroupProps) {
-  const { selectedProject } = useChatProjectState()
-  const resolvedProjectPath = projectPath ?? selectedProject?.path ?? null
+  const { selectedWorktreePath } = useCurrentProjectWorktree()
+  const resolvedProjectPath = projectPath ?? selectedWorktreePath ?? null
   const gitGenerationModel = useSettingsStore((state) => state.gitGenerationModel)
   const initializeSettings = useSettingsStore((state) => state.initialize)
   const { branchData, isLoading: isBranchLoading, loadError: branchLoadError, refresh: refreshBranches } =

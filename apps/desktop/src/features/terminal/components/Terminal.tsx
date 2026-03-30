@@ -61,6 +61,7 @@ export function Terminal({
   const xtermRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const sessionIdRef = useRef<string | null>(null)
+  const isSessionReadyRef = useRef(false)
   const [connectionError, setConnectionError] = useState<string | null>(null)
 
   const updateTheme = useCallback(() => {
@@ -85,7 +86,7 @@ export function Terminal({
     const term = xtermRef.current
     const sessionId = sessionIdRef.current
 
-    if (!fitAddon || !term || !sessionId) {
+    if (!fitAddon || !term || !sessionId || !isSessionReadyRef.current) {
       return
     }
 
@@ -175,11 +176,13 @@ export function Terminal({
 
       if (!sessionId || !cwd) {
         sessionIdRef.current = null
+        isSessionReadyRef.current = false
         term.writeln(emptyStateMessage)
         return
       }
 
       sessionIdRef.current = sessionId
+      isSessionReadyRef.current = false
 
       try {
         const response = await desktop.terminal.createSession(
@@ -197,6 +200,7 @@ export function Terminal({
         if (response.initialData.length > 0) {
           term.write(response.initialData)
         }
+        isSessionReadyRef.current = true
         syncTerminalSize()
       } catch (error) {
         if (!isActive || sessionIdRef.current !== sessionId) {
@@ -205,6 +209,7 @@ export function Terminal({
 
         const message = error instanceof Error ? error.message : String(error)
         setConnectionError(message)
+        isSessionReadyRef.current = false
         term.reset()
         term.writeln("\x1b[31mUnable to start terminal session.\x1b[0m")
         term.writeln(`\x1b[90m${message}\x1b[0m`)
@@ -215,6 +220,7 @@ export function Terminal({
 
     return () => {
       isActive = false
+      isSessionReadyRef.current = false
     }
   }, [cwd, emptyStateMessage, sessionId, syncTerminalSize])
 
@@ -239,6 +245,7 @@ export function Terminal({
               return
             }
 
+            isSessionReadyRef.current = false
             xtermRef.current?.writeln("")
             xtermRef.current?.writeln("\x1b[90mTerminal session ended. Reopen the project terminal to start a new shell.\x1b[0m")
           })

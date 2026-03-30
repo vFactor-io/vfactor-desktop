@@ -8,11 +8,11 @@ import type { RuntimeSession } from "../types"
 import type { ProjectChatState } from "./storeTypes"
 import { DEFAULT_HARNESS_ID } from "../runtime/harnesses"
 
-export function createDefaultProjectChat(projectPath?: string): ProjectChatState {
+export function createDefaultProjectChat(worktreePath?: string): ProjectChatState {
   return {
     sessions: [],
     activeSessionId: null,
-    projectPath,
+    worktreePath,
     archivedSessionIds: [],
     selectedHarnessId: DEFAULT_HARNESS_ID,
   }

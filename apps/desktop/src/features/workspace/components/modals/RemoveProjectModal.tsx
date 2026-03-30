@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { Trash } from "@/components/icons"
+import { desktop } from "@/desktop/client"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -14,6 +15,8 @@ import {
 import type { Project } from "@/features/workspace/types"
 import { useProjectStore } from "@/features/workspace/store"
 import { useChatStore } from "@/features/chat/store/chatStore"
+import { useTabStore } from "@/features/editor/store"
+import { useTerminalStore } from "@/features/terminal/store/terminalStore"
 
 interface RemoveProjectModalProps {
   open: boolean
@@ -28,6 +31,9 @@ export function RemoveProjectModal({
 }: RemoveProjectModalProps) {
   const { removeProject } = useProjectStore()
   const { removeProjectData } = useChatStore()
+  const removeWorktreeTabs = useTabStore((state) => state.removeWorktreeTabs)
+  const removeTerminalProject = useTerminalStore((state) => state.removeProject)
+  const terminalStateByProject = useTerminalStore((state) => state.terminalStateByProject)
   const [isRemoving, setIsRemoving] = useState(false)
 
   const handleRemove = async () => {
@@ -38,6 +44,14 @@ export function RemoveProjectModal({
     setIsRemoving(true)
 
     try {
+      for (const worktree of project.worktrees) {
+        const terminalTabs = terminalStateByProject[worktree.id]?.tabs ?? []
+        await Promise.allSettled(
+          terminalTabs.map((tab) => desktop.terminal.closeSession(`project-terminal:${tab.id}`))
+        )
+        removeWorktreeTabs(worktree.id)
+        removeTerminalProject(worktree.id)
+      }
       await removeProjectData(project.id)
       await removeProject(project.id)
       onOpenChange(false)

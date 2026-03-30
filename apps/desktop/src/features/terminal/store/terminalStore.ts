@@ -19,6 +19,7 @@ interface TerminalStoreState {
   setProjectCollapsed: (projectId: string, isCollapsed: boolean) => void
   closeTerminal: (projectId: string, tabId: string) => void
   getOrCreateActiveTabId: (projectId: string) => string
+  removeProject: (projectId: string) => void
 }
 
 function createTerminalTab(projectId: string): TerminalTab {
@@ -217,5 +218,20 @@ export const useTerminalStore = create<TerminalStoreState>((set, get) => ({
     }))
 
     return nextTab.id
+  },
+
+  removeProject: (projectId) => {
+    set((current) => {
+      if (!current.terminalStateByProject[projectId]) {
+        return current
+      }
+
+      const nextState = { ...current.terminalStateByProject }
+      delete nextState[projectId]
+
+      return {
+        terminalStateByProject: nextState,
+      }
+    })
   },
 }))

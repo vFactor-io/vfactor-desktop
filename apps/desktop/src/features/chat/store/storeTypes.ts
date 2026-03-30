@@ -5,16 +5,19 @@ import type {
   RuntimeSession,
 } from "../types"
 
-export interface ProjectChatState {
+export interface WorktreeChatState {
   sessions: RuntimeSession[]
   activeSessionId: string | null
-  projectPath?: string
+  worktreePath?: string
   archivedSessionIds?: string[]
   selectedHarnessId: HarnessId
 }
 
+export type ProjectChatState = WorktreeChatState
+
 export interface PersistedChatState {
-  chatByProject: Record<string, ProjectChatState>
+  chatByProject?: Record<string, WorktreeChatState>
+  chatByWorktree?: Record<string, WorktreeChatState>
   messagesBySession: Record<string, MessageWithParts[]>
   activePromptBySession?: Record<string, RuntimePromptState>
 }
