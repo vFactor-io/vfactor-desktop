@@ -1,4 +1,3 @@
-import { posix as pathPosix, win32 as pathWin32 } from "node:path"
 import type { GitWorktreeSummary } from "@/desktop/contracts"
 import type { Project, ProjectWorktree } from "../types"
 
@@ -29,8 +28,29 @@ function usesWindowsSeparators(filePath: string): boolean {
   return /\\/.test(filePath) || /^[A-Za-z]:[\\/]/.test(filePath)
 }
 
-function getPathModule(filePath: string) {
-  return usesWindowsSeparators(filePath) ? pathWin32 : pathPosix
+function getPathSeparator(filePath: string): "\\" | "/" {
+  return usesWindowsSeparators(filePath) ? "\\" : "/"
+}
+
+function getPathRoot(filePath: string): string {
+  if (usesWindowsSeparators(filePath)) {
+    const driveRoot = filePath.match(/^[A-Za-z]:[\\/]/)?.[0]
+    if (driveRoot) {
+      return driveRoot.replace(/\//g, "\\")
+    }
+
+    if (filePath.startsWith("\\\\")) {
+      return "\\\\"
+    }
+
+    if (filePath.startsWith("\\")) {
+      return "\\"
+    }
+
+    return ""
+  }
+
+  return filePath.startsWith("/") ? "/" : ""
 }
 
 function trimTrailingSeparators(filePath: string): string {
@@ -39,34 +59,81 @@ function trimTrailingSeparators(filePath: string): string {
     return trimmed
   }
 
-  const pathModule = getPathModule(trimmed)
+  const root = getPathRoot(trimmed)
+  if (root && trimmed === root) {
+    return root
+  }
+
   const withoutTrailingSeparators = trimmed.replace(/[\\/]+$/, "")
-  return withoutTrailingSeparators || pathModule.parse(trimmed).root || pathModule.sep
+  return withoutTrailingSeparators || root || getPathSeparator(trimmed)
 }
 
 function getDirname(filePath: string): string {
   const normalized = trimTrailingSeparators(filePath)
-  return getPathModule(normalized).dirname(normalized)
+  const root = getPathRoot(normalized)
+  if (root && normalized === root) {
+    return root
+  }
+
+  const lastSeparatorIndex = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"))
+  if (lastSeparatorIndex < 0) {
+    return "."
+  }
+
+  if (root && lastSeparatorIndex < root.length) {
+    return root
+  }
+
+  return normalized.slice(0, lastSeparatorIndex)
 }
 
 function getBasename(filePath: string): string {
   const normalized = trimTrailingSeparators(filePath)
-  return getPathModule(normalized).basename(normalized)
+  const root = getPathRoot(normalized)
+  if (root && normalized === root) {
+    return root
+  }
+
+  const lastSeparatorIndex = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"))
+  return lastSeparatorIndex < 0 ? normalized : normalized.slice(lastSeparatorIndex + 1)
+}
+
+function joinPaths(basePath: string, ...segments: string[]): string {
+  const separator = getPathSeparator(basePath)
+  const root = getPathRoot(basePath)
+  let result = trimTrailingSeparators(basePath)
+
+  for (const segment of segments) {
+    const cleanedSegment = segment.replace(/^[\\/]+|[\\/]+$/g, "")
+    if (!cleanedSegment) {
+      continue
+    }
+
+    if (!result) {
+      result = cleanedSegment
+      continue
+    }
+
+    result = result === root ? `${result}${cleanedSegment}` : `${result}${separator}${cleanedSegment}`
+  }
+
+  return result
 }
 
 function normalizePath(filePath: string): string {
   const normalized = trimTrailingSeparators(filePath)
-  return normalized || pathPosix.sep
+  return normalized || "/"
 }
 
 function isSamePathOrAncestor(candidatePath: string, targetPath: string): boolean {
   const normalizedCandidatePath = normalizePath(candidatePath)
   const normalizedTargetPath = normalizePath(targetPath)
-  const pathModule = getPathModule(`${candidatePath}${targetPath}`)
+  const separator =
+    usesWindowsSeparators(candidatePath) || usesWindowsSeparators(targetPath) ? "\\" : "/"
 
   return (
     normalizedCandidatePath === normalizedTargetPath ||
-    normalizedTargetPath.startsWith(`${normalizedCandidatePath}${pathModule.sep}`)
+    normalizedTargetPath.startsWith(`${normalizedCandidatePath}${separator}`)
   )
 }
 
@@ -86,26 +153,24 @@ function createCandidateName(baseName: string, suffix: number): string {
 
 export function buildManagedWorktreePath(project: Pick<Project, "id" | "repoRootPath">, slug: string): string {
   const repoRootPath = project.repoRootPath || ""
-  const pathModule = getPathModule(repoRootPath)
   const repoParentPath = getDirname(repoRootPath)
   const repoName = getBasename(repoRootPath)
-  return pathModule.join(repoParentPath, ".nucleus-worktrees", `${repoName}-${project.id}`, slug)
+  return joinPaths(repoParentPath, ".nucleus-worktrees", `${repoName}-${project.id}`, slug)
 }
 
 export function getDefaultProjectWorkspacesPath(
   project: Pick<Project, "id" | "repoRootPath">
 ): string {
   const repoRootPath = project.repoRootPath || ""
-  const pathModule = getPathModule(repoRootPath)
   const repoParentPath = getDirname(repoRootPath)
   const repoName = getBasename(repoRootPath)
-  return pathModule.join(repoParentPath, ".nucleus-worktrees", `${repoName}-${project.id}`)
+  return joinPaths(repoParentPath, ".nucleus-worktrees", `${repoName}-${project.id}`)
 }
 
 export function getProjectWorkspacesPath(
   project: Pick<Project, "id" | "repoRootPath" | "workspacesPath">
 ): string {
-  const customPath = project.workspacesPath?.trim().replace(/\/+$/, "")
+  const customPath = project.workspacesPath?.trim().replace(/[\\/]+$/, "")
   return customPath || getDefaultProjectWorkspacesPath(project)
 }
 
@@ -187,7 +252,6 @@ export function getActiveWorktree(
 export function generateManagedWorktreeIdentity(
   project: Pick<Project, "id" | "repoRootPath" | "workspacesPath" | "worktrees">
 ): { name: string; slug: string; branchName: string; path: string } {
-  const pathModule = getPathModule(project.workspacesPath || project.repoRootPath)
   const usedNames = new Set(project.worktrees.map((worktree) => worktree.name.toLowerCase()))
   const usedSlugs = new Set(project.worktrees.map((worktree) => createSlug(worktree.branchName)))
 
@@ -210,6 +274,6 @@ export function generateManagedWorktreeIdentity(
     name,
     slug,
     branchName: slug,
-    path: pathModule.join(getProjectWorkspacesPath(project), slug),
+    path: joinPaths(getProjectWorkspacesPath(project), slug),
   }
 }

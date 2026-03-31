@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react"
-import { pathToFileURL } from "node:url"
 import { CaretDown, Copy, GitBranch, Image, X } from "@/components/icons"
 import { desktop } from "@/desktop/client"
 import {
@@ -19,7 +18,10 @@ import { useProjectGitBranches } from "@/features/shared/hooks"
 import { ProjectIcon } from "@/features/workspace/components/ProjectIcon"
 import { useProjectStore } from "@/features/workspace/store"
 import type { Project } from "@/features/workspace/types"
-import { normalizeProjectIconPath } from "@/features/workspace/utils/projectIcon"
+import {
+  normalizeProjectIconPath,
+  projectIconPathToSrc,
+} from "@/features/workspace/utils/projectIcon"
 import {
   COPY_ALL_ENV_FILES_SETUP_SNIPPET,
   insertSetupSnippet,
@@ -35,10 +37,6 @@ interface ProjectSettingsModalProps {
   open: boolean
   project: Project | null
   onOpenChange: (open: boolean) => void
-}
-
-function toFileUrl(filePath: string): string {
-  return pathToFileURL(filePath).toString()
 }
 
 export function ProjectSettingsModal({
@@ -131,7 +129,7 @@ export function ProjectSettingsModal({
     }
 
     try {
-      await desktop.shell.openExternal(toFileUrl(normalizedPath))
+      await desktop.shell.openExternal(projectIconPathToSrc(normalizedPath) ?? normalizedPath)
     } catch (error) {
       console.error(`Failed to open path: ${normalizedPath}`, error)
     }

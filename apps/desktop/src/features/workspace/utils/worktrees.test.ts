@@ -72,6 +72,16 @@ describe("worktree utils", () => {
     ).toBe("/tmp/conductor/workspaces/repo")
   })
 
+  test("preserves Windows custom workspaces paths while trimming trailing separators", () => {
+    expect(
+      getProjectWorkspacesPath({
+        id: "project-123",
+        repoRootPath: "C:\\repo",
+        workspacesPath: "C:\\conductor\\workspaces\\repo\\\\",
+      })
+    ).toBe("C:\\conductor\\workspaces\\repo")
+  })
+
   test("normalizes empty custom workspaces paths to null", () => {
     expect(normalizeProjectWorkspacesPath("   ")).toBeNull()
   })
