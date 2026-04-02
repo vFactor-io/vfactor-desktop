@@ -394,25 +394,37 @@ function resolveFocusedProjectState(
   }
 }
 
+function resolveFocusedProjectId(
+  projects: Project[],
+  focusedProjectId: string | null
+): string | null {
+  return (
+    (focusedProjectId ? projects.find((project) => project.id === focusedProjectId) : null) ??
+    projects[0] ??
+    null
+  )?.id ?? null
+}
+
 async function persistSelection(
   focusedProjectId: string | null,
-  activeWorktreeId: string | null
+  _activeWorktreeId: string | null
 ): Promise<void> {
   const store = await getStore()
   await store.set(SELECTED_PROJECT_KEY, focusedProjectId)
-  await store.set(ACTIVE_WORKTREE_KEY, activeWorktreeId)
+  // Keep the active worktree session-scoped so the app always reopens in the empty state.
+  await store.set(ACTIVE_WORKTREE_KEY, null)
   await store.save()
 }
 
 async function persistProjects(
   projects: Project[],
   focusedProjectId: string | null,
-  activeWorktreeId: string | null
+  _activeWorktreeId: string | null
 ): Promise<void> {
   const store = await getStore()
   await store.set(STORE_KEY, projects)
   await store.set(SELECTED_PROJECT_KEY, focusedProjectId)
-  await store.set(ACTIVE_WORKTREE_KEY, activeWorktreeId)
+  await store.set(ACTIVE_WORKTREE_KEY, null)
   await store.save()
 }
 
@@ -444,7 +456,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const persisted = await store.get<LegacyProject[]>(STORE_KEY)
       const savedLocation = await store.get<string>(DEFAULT_LOCATION_KEY)
       const savedFocusedId = await store.get<string>(SELECTED_PROJECT_KEY)
-      const savedActiveWorktreeId = await store.get<string>(ACTIVE_WORKTREE_KEY)
 
       let defaultLoc = savedLocation || ""
       if (!defaultLoc) {
@@ -467,18 +478,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       }
 
       const projects = await Promise.all(persisted.map((project) => hydrateProject(project)))
-      const selection = resolveFocusedProjectState(
-        projects,
-        savedFocusedId ?? null,
-        savedActiveWorktreeId ?? null
-      )
+      const focusedProjectId = resolveFocusedProjectId(projects, savedFocusedId ?? null)
 
-      await persistProjects(projects, selection.focusedProjectId, selection.activeWorktreeId)
+      await persistProjects(projects, focusedProjectId, null)
 
       set({
         projects,
-        focusedProjectId: selection.focusedProjectId,
-        activeWorktreeId: selection.activeWorktreeId,
+        focusedProjectId,
+        activeWorktreeId: null,
         defaultLocation: defaultLoc,
         isLoading: false,
       })

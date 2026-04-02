@@ -282,6 +282,20 @@ describe("projectStore", () => {
     expect(state.activeWorktreeId).toBeNull()
   })
 
+  test("loadProjects clears any persisted active worktree selection on launch", async () => {
+    storeData.set("projects", [createPersistedProject()])
+    storeData.set("selectedProjectId", "project-1")
+    storeData.set("activeWorktreeId", "root-worktree")
+
+    await useProjectStore.getState().loadProjects()
+
+    const state = useProjectStore.getState()
+
+    expect(state.focusedProjectId).toBe("project-1")
+    expect(state.activeWorktreeId).toBeNull()
+    expect((storeData.get("activeWorktreeId") as string | null) ?? null).toBeNull()
+  })
+
   test("selecting a zero-worktree project focuses it and leaves activeWorktreeId null", async () => {
     useProjectStore.setState({
       projects: [

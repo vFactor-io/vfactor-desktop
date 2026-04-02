@@ -7,7 +7,7 @@ import { useTabStore } from "@/features/editor/store"
 import { useCurrentProjectWorktree } from "@/features/shared/hooks"
 import { useChatStore } from "@/features/chat/store"
 import { NucleusLogo } from "@/components/NucleusLogo"
-import { PixelBlast } from "@/components/PixelBlast"
+import asciiArtBackground from "@/assets/backgrounds/ascii-art.png"
 import { Button } from "@/features/shared/components/ui/button"
 import { useProjectStore } from "@/features/workspace/store"
 import { openFolderPicker } from "@/features/workspace/utils/folderDialog"
@@ -62,22 +62,16 @@ function NoWorkspaceSelectedState({
 }) {
   return (
     <div className="relative flex h-full flex-col items-center justify-center px-6">
-      <div className="pointer-events-none absolute inset-0">
-        <PixelBlast
-          variant="square"
-          pixelSize={4}
-          color="#7C3AED"
-          patternScale={2}
-          patternDensity={0.6}
-          pixelSizeJitter={0}
-          enableRipples
-          rippleSpeed={0.4}
-          rippleThickness={0.12}
-          rippleIntensityScale={1.5}
-          speed={0.15}
-          edgeFade={0.25}
-          transparent
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <img
+          src={asciiArtBackground}
+          alt=""
+          aria-hidden="true"
+          className="h-full w-full object-cover object-center opacity-88"
+          draggable={false}
         />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(2,8,23,0.22)_44%,rgba(2,6,23,0.82)_100%)]" />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/58 via-black/28 to-background/72" />
       </div>
       <div className="relative z-10 flex flex-col items-center">
         <NucleusLogo className="size-20" />

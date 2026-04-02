@@ -30,7 +30,7 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
   const [activeTab, setActiveTab] = useState<RightSidebarTab>("files")
   const [fileImportError, setFileImportError] = useState<string | null>(null)
   const [isImportingFiles, setIsImportingFiles] = useState(false)
-  const { isCollapsed, width, setWidth } = useRightSidebar()
+  const { isAvailable, isCollapsed, width, setWidth } = useRightSidebar()
   const { selectedWorktreeId, selectedWorktree, selectedWorktreePath } = useCurrentProjectWorktree()
   const {
     activeProjectPath,
@@ -119,7 +119,7 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
     [refreshActiveProject, selectedWorktreePath]
   )
 
-  if (isCollapsed || activeView !== "chat") {
+  if (!isAvailable || isCollapsed || activeView !== "chat") {
     return null
   }
 

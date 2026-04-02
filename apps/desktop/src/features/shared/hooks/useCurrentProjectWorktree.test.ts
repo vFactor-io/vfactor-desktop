@@ -58,7 +58,7 @@ describe("getCurrentProjectWorktreeState", () => {
     expect(state.activeWorktreePath).toBeNull()
   })
 
-  test("falls back to a ready workspace when the stored active id is stale", () => {
+  test("returns no active workspace when the explicit active id is stale", () => {
     const state = getCurrentProjectWorktreeState(
       [
         createProject({
@@ -82,7 +82,8 @@ describe("getCurrentProjectWorktreeState", () => {
       "missing-worktree"
     )
 
-    expect(state.activeWorktreeId).toBe("ready-worktree")
-    expect(state.activeWorktreePath).toBe("/tmp/.nucleus-worktrees/repo/ready")
+    expect(state.activeWorktree).toBeNull()
+    expect(state.activeWorktreeId).toBeNull()
+    expect(state.activeWorktreePath).toBeNull()
   })
 })

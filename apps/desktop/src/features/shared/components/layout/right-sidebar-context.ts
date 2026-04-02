@@ -1,6 +1,7 @@
 import { createContext } from "react"
 
 export interface RightSidebarContextValue {
+  isAvailable: boolean
   isCollapsed: boolean
   width: number
   toggle: () => void

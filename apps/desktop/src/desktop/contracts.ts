@@ -132,7 +132,7 @@ export interface GitRunStackedActionResult {
   }
 }
 
-export type GitActionStep = "committing" | "pushing" | "creating_pr"
+export type GitActionStep = "generating" | "committing" | "pushing" | "creating_pr"
 
 export interface GitActionProgressEvent {
   step: GitActionStep

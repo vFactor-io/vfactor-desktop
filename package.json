@@ -13,6 +13,7 @@
     "desktop:preview": "bun run --cwd apps/desktop preview",
     "desktop:build": "bun run --cwd apps/desktop build",
     "desktop:dist": "bun run --cwd apps/desktop dist",
+    "desktop:dist:local": "bun run --cwd apps/desktop dist:local",
     "desktop:release": "bun run --cwd apps/desktop release",
     "desktop:cli": "bun run --cwd apps/desktop cli",
     "desktop:typecheck": "bun run --cwd apps/desktop typecheck",

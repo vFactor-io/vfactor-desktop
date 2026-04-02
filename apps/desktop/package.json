@@ -10,6 +10,7 @@
     "preview": "electron-vite preview",
     "build": "electron-vite build",
     "dist": "bun run build && electron-builder",
+    "dist:local": "bun run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir --mac -c.mac.identity=-",
     "release": "bun run build && electron-builder --publish onTag",
     "cli": "bun run index.ts",
     "typecheck": "tsc --noEmit",

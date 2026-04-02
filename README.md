@@ -56,6 +56,19 @@ bun run typecheck
 bun run build
 ```
 
+**Build a standalone macOS app for local install/testing**:
+```bash
+bun run desktop:dist:local
+```
+
+This packages the Electron app without using a dev server and disables automatic Apple identity discovery so it still works on Macs that do not have Apple developer signing keys installed. The app bundle is written to `apps/desktop/dist/mac-arm64/Nucleus.app`. For local installs on the same Mac, that `.app` is enough: drag it into `/Applications` or launch it directly.
+
+Unsigned or ad hoc signed builds are fine for local testing, but macOS Gatekeeper may still warn when you open a copied or downloaded build. On the destination Mac, either use Finder's `Open` action once or remove quarantine with:
+
+```bash
+xattr -dr com.apple.quarantine apps/desktop/dist/mac-arm64/Nucleus.app
+```
+
 ## Project Structure
 
 ```

@@ -1,5 +1,6 @@
-import { useState, useCallback, type ReactNode } from "react"
+import { useState, useCallback, useEffect, type ReactNode } from "react"
 import { RightSidebarContext } from "./right-sidebar-context"
+import { useCurrentProjectWorktree } from "@/features/shared/hooks"
 
 const RIGHT_SIDEBAR_STORAGE_KEY = "nucleus:right-sidebar-width"
 const RIGHT_SIDEBAR_COLLAPSED_STORAGE_KEY = "nucleus:right-sidebar-collapsed"
@@ -12,6 +13,8 @@ function clampRightSidebarWidth(width: number) {
 }
 
 export function RightSidebarProvider({ children }: { children: ReactNode }) {
+  const { activeWorktreePath } = useCurrentProjectWorktree()
+  const isAvailable = Boolean(activeWorktreePath)
   const [isCollapsed, setIsCollapsedState] = useState(() => {
     if (typeof window === "undefined") {
       return true
@@ -33,14 +36,29 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
       : DEFAULT_RIGHT_SIDEBAR_WIDTH
   })
 
+  useEffect(() => {
+    if (!isAvailable) {
+      setIsCollapsedState(true)
+
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(RIGHT_SIDEBAR_COLLAPSED_STORAGE_KEY, "true")
+      }
+    }
+  }, [isAvailable])
+
   const setIsCollapsed = useCallback((nextCollapsed: boolean) => {
-    setIsCollapsedState(nextCollapsed)
+    const resolvedCollapsed = isAvailable ? nextCollapsed : true
+    setIsCollapsedState(resolvedCollapsed)
 
     if (typeof window !== "undefined") {
-      window.localStorage.setItem(RIGHT_SIDEBAR_COLLAPSED_STORAGE_KEY, String(nextCollapsed))
+      window.localStorage.setItem(RIGHT_SIDEBAR_COLLAPSED_STORAGE_KEY, String(resolvedCollapsed))
     }
-  }, [])
+  }, [isAvailable])
   const toggle = useCallback(() => {
+    if (!isAvailable) {
+      return
+    }
+
     setIsCollapsedState((prev) => {
       const nextCollapsed = !prev
 
@@ -50,7 +68,7 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
 
       return nextCollapsed
     })
-  }, [])
+  }, [isAvailable])
   const expand = useCallback(() => setIsCollapsed(false), [setIsCollapsed])
   const collapse = useCallback(() => setIsCollapsed(true), [setIsCollapsed])
   const setWidth = useCallback((nextWidth: number) => {
@@ -63,7 +81,9 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <RightSidebarContext.Provider value={{ isCollapsed, width, toggle, expand, collapse, setWidth }}>
+    <RightSidebarContext.Provider
+      value={{ isAvailable, isCollapsed, width, toggle, expand, collapse, setWidth }}
+    >
       {children}
     </RightSidebarContext.Provider>
   )

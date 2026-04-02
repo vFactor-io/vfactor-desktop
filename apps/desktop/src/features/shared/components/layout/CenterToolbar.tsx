@@ -22,7 +22,11 @@ const COLLAPSED_LEFT_ACTIONS_WIDTH = 64
 
 export function CenterToolbar({ activeView = "chat", onOpenChat }: CenterToolbarProps) {
   const { isCollapsed, toggle: toggleLeft } = useSidebar()
-  const { isCollapsed: isRightCollapsed, toggle: toggleRight } = useRightSidebar()
+  const {
+    isAvailable: isRightSidebarAvailable,
+    isCollapsed: isRightCollapsed,
+    toggle: toggleRight,
+  } = useRightSidebar()
   const selectProject = useProjectStore((state) => state.selectProject)
   const { createOptimisticSession, getProjectChat } = useChatStore()
   const openChatSession = useTabStore((state) => state.openChatSession)
@@ -35,7 +39,8 @@ export function CenterToolbar({ activeView = "chat", onOpenChat }: CenterToolbar
     projectChat?.sessions.find((session) => session.id === projectChat.activeSessionId) ?? null
   const activeSessionTitle = activeSession?.title?.trim() || ""
 
-  const showRightSidebar = activeView === "chat" && !isRightCollapsed
+  const canToggleRightSidebar = activeView === "chat" && isRightSidebarAvailable
+  const showRightSidebar = canToggleRightSidebar && !isRightCollapsed
   const collapsedBranchOffset =
     isCollapsed && activeView === "chat"
       ? DESKTOP_LEFT_TOGGLE_OFFSET + COLLAPSED_LEFT_ACTIONS_WIDTH
@@ -114,16 +119,18 @@ export function CenterToolbar({ activeView = "chat", onOpenChat }: CenterToolbar
           <div className="hidden shrink-0 items-center gap-2 pr-3 md:flex">
             {activeWorktreePath ? <ProjectActionsControl /> : null}
             {activeWorktreePath && !showRightSidebar ? <SourceControlActionGroup /> : null}
-            <Button
-              type="button"
-              onClick={toggleRight}
-              variant="ghost"
-              size="icon-sm"
-              className="text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
-              aria-label="Toggle right sidebar"
-            >
-              <Sidebar size={14} className="scale-x-[-1]" />
-            </Button>
+            {canToggleRightSidebar ? (
+              <Button
+                type="button"
+                onClick={toggleRight}
+                variant="ghost"
+                size="icon-sm"
+                className="text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+                aria-label="Toggle right sidebar"
+              >
+                <Sidebar size={14} className="scale-x-[-1]" />
+              </Button>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -162,7 +169,7 @@ export function CenterToolbar({ activeView = "chat", onOpenChat }: CenterToolbar
             </div>
           </div>
         ) : null}
-        {activeView === "chat" && !showRightSidebar ? (
+        {canToggleRightSidebar && !showRightSidebar ? (
           <Button
             type="button"
             onClick={toggleRight}

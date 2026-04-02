@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
+import { AnimatePresence, motion } from "framer-motion"
 
 import { desktop } from "@/desktop/client"
 import type { GitActionStep } from "@/desktop/contracts"
@@ -53,6 +54,7 @@ interface PendingDefaultBranchAction {
 }
 
 const STEP_LABELS: Record<GitActionStep, string> = {
+  generating: "Writing",
   committing: "Committing",
   pushing: "Pushing",
   creating_pr: "Creating PR",
@@ -187,6 +189,7 @@ export function SourceControlActionGroup({
     }
 
     setIsSubmitting(true)
+    setActiveStep(options?.commitMessage ? "committing" : "generating")
     setFeedbackMessage(null)
 
     try {
@@ -303,6 +306,13 @@ export function SourceControlActionGroup({
       />
     )
 
+  const displayLabel = isSubmitting && activeStep ? STEP_LABELS[activeStep] : quickAction.label
+  const iconKey = isSubmitting ? "spinner" : quickAction.label
+  const labelKey = displayLabel
+
+  const enterTransition = { duration: 0.25, ease: [0.4, 0, 0.2, 1] }
+  const exitTransition = { duration: 0.15, ease: [0.4, 0, 1, 1] }
+
   const renderQuickButton = (
     <Button
       type="button"
@@ -316,8 +326,32 @@ export function SourceControlActionGroup({
         className
       )}
     >
-      {isSubmitting ? <CircleNotch size={16} className="animate-spin" /> : quickActionIcon}
-      <span>{isSubmitting && activeStep ? STEP_LABELS[activeStep] : quickAction.label}</span>
+      <span className="relative inline-flex size-4 items-center justify-center overflow-hidden">
+        <AnimatePresence initial={false}>
+          <motion.span
+            key={iconKey}
+            className="inline-flex items-center justify-center"
+            initial={{ opacity: 0, scale: 0.6 }}
+            animate={{ opacity: 1, scale: 1, transition: enterTransition }}
+            exit={{ opacity: 0, scale: 0.6, position: "absolute", transition: exitTransition }}
+          >
+            {isSubmitting ? <CircleNotch size={16} className="animate-spin" /> : quickActionIcon}
+          </motion.span>
+        </AnimatePresence>
+      </span>
+      <span className="relative inline-flex items-center overflow-hidden">
+        <AnimatePresence initial={false}>
+          <motion.span
+            key={labelKey}
+            className="inline-block whitespace-nowrap"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0, transition: enterTransition }}
+            exit={{ opacity: 0, y: -10, position: "absolute", transition: exitTransition }}
+          >
+            {displayLabel}
+          </motion.span>
+        </AnimatePresence>
+      </span>
     </Button>
   )
 

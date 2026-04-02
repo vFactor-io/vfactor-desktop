@@ -1783,6 +1783,7 @@ export class GitService {
     let suggestion: (CommitSuggestion & { commitMessage: string }) | null = null
 
     if (input.featureBranch) {
+      onProgress?.({ step: "generating" })
       suggestion = await resolveCommitSuggestion({
         projectPath: trimmedPath,
         currentBranch: branchName,
@@ -1811,9 +1812,8 @@ export class GitService {
       status: "skipped_no_changes",
     }
 
-    onProgress?.({ step: "committing" })
-
     if (!suggestion) {
+      onProgress?.({ step: "generating" })
       suggestion = await resolveCommitSuggestion({
         projectPath: trimmedPath,
         currentBranch: branchName,
@@ -1825,6 +1825,7 @@ export class GitService {
     }
 
     if (suggestion) {
+      onProgress?.({ step: "committing" })
       const committed = await commitChanges(
         trimmedPath,
         suggestion.subject,

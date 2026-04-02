@@ -1,7 +1,7 @@
 import { useMemo } from "react"
 import { useShallow } from "zustand/react/shallow"
 import { useProjectStore } from "@/features/workspace/store"
-import { getActiveWorktree } from "@/features/workspace/utils/worktrees"
+import { getWorktreeById } from "@/features/workspace/utils/worktrees"
 import type { Project, ProjectWorktree } from "@/features/workspace/types"
 
 export function getCurrentProjectWorktreeState(
@@ -23,7 +23,7 @@ export function getCurrentProjectWorktreeState(
 } {
   const focusedProject =
     (focusedProjectId ? projects.find((project) => project.id === focusedProjectId) : null) ?? null
-  const activeWorktree = getActiveWorktree(focusedProject, activeWorktreeId)
+  const activeWorktree = getWorktreeById(focusedProject, activeWorktreeId)
 
   return {
     focusedProject,
