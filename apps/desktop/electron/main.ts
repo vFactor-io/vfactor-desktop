@@ -136,6 +136,11 @@ function registerIpcHandlers(storeService: JsonStoreService): void {
 
   ipcMain.handle(IPC_CHANNELS.fsReadTextFile, (_event, path: string) => fsService.readTextFile(path))
   ipcMain.handle(
+    IPC_CHANNELS.fsReadFileAsDataUrl,
+    (_event, path: string, options?: { mimeType?: string }) =>
+      fsService.readFileAsDataUrl(path, options)
+  )
+  ipcMain.handle(
     IPC_CHANNELS.fsWriteTextFile,
     (_event, path: string, content: string, options?: { create?: boolean }) =>
       fsService.writeTextFile(path, content, options)

@@ -7,7 +7,7 @@ import {
   type GitWorktreeSummary,
 } from "@/desktop/client"
 import type { Project, ProjectAction, ProjectWorktree } from "../types"
-import { normalizeProjectIconPath } from "../utils/projectIcon"
+import { findProjectFaviconPath, normalizeProjectIconPath } from "../utils/projectIcon"
 import { normalizeProjectActionIconName } from "../utils/projectActionIcons"
 import {
   buildManagedWorktreePath,
@@ -276,7 +276,10 @@ async function hydrateProject(project: LegacyProject): Promise<Project> {
   const now = Date.now()
   const { iconPath, actions, primaryActionId, workspacesPath, remoteName, setupScript } =
     hydrateProjectActions(project)
-  const { branchData, worktrees: discoveredWorktrees } = await getGitMetadata(project.path)
+  const [{ branchData, worktrees: discoveredWorktrees }, faviconPath] = await Promise.all([
+    getGitMetadata(project.path),
+    findProjectFaviconPath(project.path),
+  ])
   const repoRootPath = project.repoRootPath?.trim() || resolveRepoRootPath(project.path, discoveredWorktrees)
   const existingWorktrees = Array.isArray(project.worktrees) ? project.worktrees : []
   const hiddenWorktreePaths = Array.isArray(project.hiddenWorktreePaths)
@@ -395,6 +398,7 @@ async function hydrateProject(project: LegacyProject): Promise<Project> {
     id: project.id,
     name: project.name,
     iconPath,
+    faviconPath,
     path: project.path,
     repoRootPath,
     workspacesPath,

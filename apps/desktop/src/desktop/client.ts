@@ -18,6 +18,7 @@ import type {
   GitRunStackedActionResult,
   GitWorktreeSummary,
   ProjectFileSystemEvent,
+  ReadFileAsDataUrlOptions,
   SkillsSyncResponse,
   TerminalCreateSessionEnvironment,
   TerminalDataEvent,
@@ -70,6 +71,8 @@ export const desktop = {
   },
   fs: {
     readTextFile: (path: string) => window.nucleus.fs.readTextFile(path),
+    readFileAsDataUrl: (path: string, options?: ReadFileAsDataUrlOptions) =>
+      window.nucleus.fs.readFileAsDataUrl(path, options),
     writeTextFile: (path: string, content: string, options?: WriteTextFileOptions) =>
       window.nucleus.fs.writeTextFile(path, content, options),
     exists: (path: string) => window.nucleus.fs.exists(path),

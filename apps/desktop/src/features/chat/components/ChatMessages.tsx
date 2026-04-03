@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
-import type { Project } from "@/features/workspace/types"
+import type { Project, ProjectWorktree } from "@/features/workspace/types"
 import type { ChildSessionState, MessageWithParts, RuntimePromptState } from "../types"
 import {
   Conversation,
@@ -10,7 +10,8 @@ import {
   Message as MessageComponent,
   MessageContent,
 } from "./ai-elements/message"
-import { CheckCircle, Copy, File } from "@/components/icons"
+import { CheckCircle, Copy, File, GitBranch } from "@/components/icons"
+import { ProjectIcon } from "@/features/workspace/components/ProjectIcon"
 import { LoadingDots } from "@/features/shared/components/ui/loading-dots"
 import { useStickToBottomContext } from "use-stick-to-bottom"
 import { ChatTimelineItem, InlineSubagentActivity } from "./ChatTimelineItem"
@@ -28,6 +29,7 @@ interface ChatMessagesProps {
   status: "idle" | "streaming" | "error"
   activePromptState?: RuntimePromptState | null
   selectedProject?: Project | null
+  selectedWorktree?: ProjectWorktree | null
   childSessions?: Map<string, ChildSessionState>
 }
 
@@ -196,7 +198,8 @@ export function ChatMessages({
   messages,
   status,
   activePromptState = null,
-  selectedProject: _selectedProject,
+  selectedProject,
+  selectedWorktree,
   childSessions,
 }: ChatMessagesProps) {
   const timelineViewModel = useMemo(
@@ -293,9 +296,34 @@ export function ChatMessages({
   const isThreadPrepared = preparedThreadKey === threadKey
 
   if (!hasContent) {
+    const branchName = selectedWorktree?.branchName ?? null
+    const projectName = selectedProject?.name ?? null
     return (
-      <StaticConversation resetKey={_selectedProject?.id ?? "empty-chat"}>
-        <div className="min-h-full" />
+      <StaticConversation resetKey={selectedProject?.id ?? "empty-chat"}>
+        <div className="min-h-full pt-10">
+          <div className="mx-auto w-full max-w-[803px] px-10 flex flex-col gap-4">
+            {projectName ? (
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-2.5">
+                  <ProjectIcon project={selectedProject} size={20} />
+                  <h3 className="text-sm font-medium text-foreground/90">
+                    {projectName}
+                  </h3>
+                </div>
+                {branchName ? (
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground/80">
+                    <span className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-muted/20 px-2 py-1">
+                      <GitBranch size={12} className="text-muted-foreground/60" />
+                      <span className="font-mono">{branchName}</span>
+                    </span>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <h3 className="text-sm font-medium text-foreground/90">New chat</h3>
+            )}
+          </div>
+        </div>
       </StaticConversation>
     )
   }

@@ -18,6 +18,7 @@ import type {
   GitRunStackedActionResult,
   GitWorktreeSummary,
   ProjectFileSystemEvent,
+  ReadFileAsDataUrlOptions,
   SkillsSyncResponse,
   TerminalCreateSessionEnvironment,
   TerminalDataEvent,
@@ -40,6 +41,10 @@ declare global {
       }
       fs: {
         readTextFile: (path: string) => Promise<string>
+        readFileAsDataUrl: (
+          path: string,
+          options?: ReadFileAsDataUrlOptions
+        ) => Promise<string>
         writeTextFile: (
           path: string,
           content: string,

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react"
 import { desktop } from "@/desktop/client"
-import { FileChangesList, FileTreeViewer } from "@/features/version-control/components"
+import { FileChangesList, FileChangesToolbar, FileTreeViewer, useFileChangesState } from "@/features/version-control/components"
 import { useFileTreeStore } from "@/features/workspace/store"
 import { useTabStore } from "@/features/editor/store"
 import { TerminalPanel } from "@/features/terminal/components"
@@ -52,6 +52,7 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
     isLoading: isChangesLoading,
     loadError: changesError,
   } = useProjectGitChanges(selectedWorktreePath, { enabled: activeTab === "changes" })
+  const fileChangesState = useFileChangesState(projectChanges)
 
   const fileTreeData = activeProjectPath ? (dataByProjectPath[activeProjectPath] ?? {}) : {}
   const isFileTreeLoading = activeProjectPath ? (loadingByProjectPath[activeProjectPath] ?? false) : false
@@ -174,85 +175,88 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
         </div>
       </div>
 
+      {/* Changes toolbar — fixed below tabs, only visible on changes tab with groups */}
+      {activeTab === "changes" && projectChanges.length > 0 && (
+        <div className="shrink-0 border-b border-sidebar-border/70 py-1">
+          <FileChangesToolbar handle={fileChangesState} />
+        </div>
+      )}
+
       <div className="flex min-h-0 flex-1 flex-col">
-        <div
-          className={cn(
-            "min-h-0 flex-1",
-            "overflow-y-auto px-1.5 py-1.5"
-          )}
-        >
-        {activeTab === "files" ? (
-          isInitialLoad || isFileTreeLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <span className="text-sm text-muted-foreground">Loading files...</span>
-            </div>
-          ) : !selectedWorktree ? (
-            <div className="flex items-center justify-center py-8">
-              <span className="text-sm text-muted-foreground">Select a worktree to view files</span>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {isImportingFiles ? (
-                <div className="rounded-xl border border-border/70 bg-card px-2.5 py-2 text-xs leading-5 text-muted-foreground">
-                  Importing dropped files into the project...
-                </div>
-              ) : null}
-
-              {fileImportError ? (
-                <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-2.5 py-2 text-xs leading-5 text-destructive">
-                  {fileImportError}
-                </div>
-              ) : null}
-
-              {Object.keys(fileTreeData).length === 0 ? (
-                <div className="flex items-center justify-center py-8">
-                  <span className="text-sm text-muted-foreground">No files found</span>
-                </div>
-              ) : (
-                <FileTreeViewer
-                  data={fileTreeData}
-                  initialExpanded={["root"]}
-                  projectPath={selectedWorktree.path}
-                  onFileClick={openFile}
-                  onExternalDrop={handleExternalFileDrop}
-                />
-              )}
-            </div>
-          )
-        ) : (
-          !selectedWorktree ? (
-            <div className="flex items-center justify-center py-8">
-              <span className="text-sm text-muted-foreground">Select a worktree to view changes</span>
-            </div>
-          ) : isChangesLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <span className="text-sm text-muted-foreground">Loading changes...</span>
-            </div>
-          ) : changesError ? (
-            <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-2.5 py-2 text-xs leading-5 text-destructive">
-              {changesError}
-            </div>
-          ) : projectChanges.length === 0 ? (
-            <div className="flex h-full flex-col items-center justify-center gap-2 py-8 text-center">
-              <div className="rounded-full border border-border/70 bg-card px-3 py-1 text-xs font-medium text-muted-foreground">
-                Working tree clean
+        <div className="app-scrollbar-sm min-h-0 flex-1 overflow-y-auto px-1.5 py-1.5">
+          {activeTab === "files" ? (
+            isInitialLoad || isFileTreeLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <span className="text-sm text-muted-foreground">Loading files...</span>
               </div>
-              <span className="max-w-56 text-sm text-muted-foreground">
-                This worktree has no local file changes right now.
-              </span>
-            </div>
+            ) : !selectedWorktree ? (
+              <div className="flex items-center justify-center py-8">
+                <span className="text-sm text-muted-foreground">Select a worktree to view files</span>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {isImportingFiles ? (
+                  <div className="rounded-xl border border-border/70 bg-card px-2.5 py-2 text-xs leading-5 text-muted-foreground">
+                    Importing dropped files into the project...
+                  </div>
+                ) : null}
+
+                {fileImportError ? (
+                  <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-2.5 py-2 text-xs leading-5 text-destructive">
+                    {fileImportError}
+                  </div>
+                ) : null}
+
+                {Object.keys(fileTreeData).length === 0 ? (
+                  <div className="flex items-center justify-center py-8">
+                    <span className="text-sm text-muted-foreground">No files found</span>
+                  </div>
+                ) : (
+                  <FileTreeViewer
+                    data={fileTreeData}
+                    initialExpanded={["root"]}
+                    projectPath={selectedWorktree.path}
+                    onFileClick={openFile}
+                    onExternalDrop={handleExternalFileDrop}
+                  />
+                )}
+              </div>
+            )
           ) : (
-            <div className="px-1.5 py-1">
-              <FileChangesList
-                changes={projectChanges}
-                onFileClick={(file) => {
-                  const fileName = file.path.split("/").pop() ?? file.path
-                  openDiff(file.path, fileName, file.previousPath)
-                }}
-              />
-            </div>
-          )
-        )}
+            !selectedWorktree ? (
+              <div className="flex items-center justify-center py-8">
+                <span className="text-sm text-muted-foreground">Select a worktree to view changes</span>
+              </div>
+            ) : isChangesLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <span className="text-sm text-muted-foreground">Loading changes...</span>
+              </div>
+            ) : changesError ? (
+              <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-2.5 py-2 text-xs leading-5 text-destructive">
+                {changesError}
+              </div>
+            ) : projectChanges.length === 0 ? (
+              <div className="flex h-full flex-col items-center justify-center gap-2 py-8 text-center">
+                <div className="rounded-full border border-border/70 bg-card px-3 py-1 text-xs font-medium text-muted-foreground">
+                  Working tree clean
+                </div>
+                <span className="max-w-56 text-sm text-muted-foreground">
+                  This worktree has no local file changes right now.
+                </span>
+              </div>
+            ) : (
+              <div className="px-1.5 py-1">
+                <FileChangesList
+                  changes={projectChanges}
+                  state={fileChangesState}
+                  onFileClick={(file) => {
+                    const fileName = file.path.split("/").pop() ?? file.path
+                    openDiff(file.path, fileName, file.previousPath)
+                  }}
+                />
+              </div>
+            )
+          )}
         </div>
         <TerminalPanel
           projectId={selectedWorktreeId}

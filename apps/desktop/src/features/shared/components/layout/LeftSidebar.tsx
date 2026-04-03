@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, type ReactNode } from "react"
-import { Reorder, useDragControls, type DragControls } from "framer-motion"
+import { Reorder } from "framer-motion"
 import {
   GearSix,
   DotsThree,
@@ -73,36 +73,6 @@ function getWorktreeRemovalDisabledReason({
   return null
 }
 
-function ProjectReorderHandle({
-  projectName,
-  dragControls,
-}: {
-  projectName: string
-  dragControls: DragControls
-}) {
-  return (
-    <button
-      type="button"
-      onPointerDown={(event) => {
-        event.preventDefault()
-        dragControls.start(event)
-      }}
-      className={cn(
-        "absolute left-1.5 top-1.5 z-10 flex h-5 w-5 cursor-grab items-center justify-center rounded",
-        "text-sidebar-foreground/26 transition hover:bg-[var(--sidebar-item-hover)] hover:text-sidebar-foreground/58 active:cursor-grabbing",
-      )}
-      aria-label={`Drag to reorder ${projectName}`}
-      title={`Drag to reorder ${projectName}`}
-    >
-      <span className="grid grid-cols-2 gap-[2px]">
-        {Array.from({ length: 6 }).map((_, index) => (
-          <span key={index} className="h-[2px] w-[2px] rounded-full bg-current" />
-        ))}
-      </span>
-    </button>
-  )
-}
-
 function ReorderableProjectItem(props: {
   project: Project
   isDraggingProject: boolean
@@ -112,7 +82,6 @@ function ReorderableProjectItem(props: {
   onDragEnd: () => void
 }) {
   const { project, isDraggingProject, enableLayoutAnimation, children, onDragStart, onDragEnd } = props
-  const dragControls = useDragControls()
 
   return (
     <Reorder.Item
@@ -120,8 +89,6 @@ function ReorderableProjectItem(props: {
       key={project.id}
       value={project.id}
       layout="position"
-      dragListener={false}
-      dragControls={dragControls}
       transition={{
         layout: enableLayoutAnimation
           ? { type: "spring", stiffness: 560, damping: 42, mass: 0.55 }
@@ -129,18 +96,15 @@ function ReorderableProjectItem(props: {
       }}
       whileDrag={{
         zIndex: 20,
+        cursor: "grabbing",
       }}
       className={cn(
-        "relative space-y-0.5 rounded-xl",
+        "relative cursor-grab space-y-0.5 rounded-xl active:cursor-grabbing",
         isDraggingProject && "opacity-65"
       )}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
     >
-      <ProjectReorderHandle
-        projectName={project.name}
-        dragControls={dragControls}
-      />
       {children}
     </Reorder.Item>
   )
@@ -372,7 +336,7 @@ export function LeftSidebar({
             type="button"
             onClick={() => handleToggleProjectExpanded(project)}
             className={cn(
-              "group/project flex h-8 w-full min-w-0 items-center gap-2 rounded-md pl-8 pr-16 text-left",
+              "group/project flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 pr-16 text-left",
               "text-sidebar-foreground/72 hover:bg-[var(--sidebar-item-hover)] hover:text-sidebar-foreground/92",
               "group-hover/project-row:bg-[var(--sidebar-item-hover)] group-hover/project-row:text-sidebar-foreground/92",
             )}

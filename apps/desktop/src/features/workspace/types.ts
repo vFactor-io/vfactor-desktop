@@ -40,6 +40,7 @@ export interface Project {
   id: string
   name: string       // Folder name (derived from path)
   iconPath?: string | null
+  faviconPath?: string | null
   path: string       // Full filesystem path
   repoRootPath: string
   workspacesPath?: string | null

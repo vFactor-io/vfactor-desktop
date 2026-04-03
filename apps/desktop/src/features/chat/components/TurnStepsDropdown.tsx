@@ -58,7 +58,15 @@ function buildSummary(messages: MessageWithParts[]): string {
     message.parts.every((part) => part.type !== "tool")
   ).length
 
-  return `${messageCount} ${messageCount === 1 ? "message" : "messages"} · ${toolCount} ${toolCount === 1 ? "tool call" : "tool calls"}`
+  const parts: string[] = []
+  if (messageCount > 0) {
+    parts.push(`${messageCount} ${messageCount === 1 ? "message" : "messages"}`)
+  }
+  if (toolCount > 0) {
+    parts.push(`${toolCount} ${toolCount === 1 ? "tool call" : "tool calls"}`)
+  }
+
+  return parts.join(" · ") || "No activity"
 }
 
 function getSummaryToolIcons(messages: MessageWithParts[]) {
