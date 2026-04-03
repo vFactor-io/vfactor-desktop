@@ -81,33 +81,86 @@ function extractJsonCandidate(text: string): string | null {
   return null
 }
 
+function extractBalancedJsonObjects(text: string): string[] {
+  const candidates: string[] = []
+  let depth = 0
+  let startIndex = -1
+  let inString = false
+  let isEscaped = false
+
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index]
+
+    if (isEscaped) {
+      isEscaped = false
+      continue
+    }
+
+    if (character === "\\") {
+      isEscaped = true
+      continue
+    }
+
+    if (character === "\"") {
+      inString = !inString
+      continue
+    }
+
+    if (inString) {
+      continue
+    }
+
+    if (character === "{") {
+      if (depth === 0) {
+        startIndex = index
+      }
+      depth += 1
+      continue
+    }
+
+    if (character === "}" && depth > 0) {
+      depth -= 1
+      if (depth === 0 && startIndex >= 0) {
+        candidates.push(text.slice(startIndex, index + 1))
+        startIndex = -1
+      }
+    }
+  }
+
+  return candidates
+}
+
 export function parseWorkspaceSetupSuggestion(text: string): WorkspaceSetupSuggestion | null {
-  const jsonCandidate = extractJsonCandidate(text)
-  if (!jsonCandidate) {
-    return null
+  const jsonCandidates = [
+    extractJsonCandidate(text),
+    ...extractBalancedJsonObjects(text),
+  ].filter((candidate): candidate is string => Boolean(candidate))
+
+  for (const jsonCandidate of jsonCandidates) {
+    try {
+      const parsed = JSON.parse(jsonCandidate) as {
+        branchName?: unknown
+        workspaceName?: unknown
+      }
+      const branchName =
+        typeof parsed.branchName === "string" ? normalizeBranchName(parsed.branchName) : ""
+      if (!branchName) {
+        continue
+      }
+
+      return {
+        branchName,
+        workspaceName: normalizeWorkspaceName(
+          typeof parsed.workspaceName === "string" ? parsed.workspaceName : "",
+          branchName
+        ),
+      }
+    } catch {
+      continue
+    }
   }
 
-  try {
-    const parsed = JSON.parse(jsonCandidate) as {
-      branchName?: unknown
-      workspaceName?: unknown
-    }
-    const branchName =
-      typeof parsed.branchName === "string" ? normalizeBranchName(parsed.branchName) : ""
-    if (!branchName) {
-      return null
-    }
-
-    return {
-      branchName,
-      workspaceName: normalizeWorkspaceName(
-        typeof parsed.workspaceName === "string" ? parsed.workspaceName : "",
-        branchName
-      ),
-    }
-  } catch {
-    return null
-  }
+  return null
 }
 
 export function deriveWorkspaceSetupFallback(prompt: string): WorkspaceSetupSuggestion {

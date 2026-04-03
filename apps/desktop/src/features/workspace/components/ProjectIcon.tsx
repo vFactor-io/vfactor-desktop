@@ -55,7 +55,7 @@ export function ProjectIcon({
       }
     }
 
-    setIconSrc(null)
+    // Don't clear iconSrc here — keep the previous icon visible until the new one loads
     void desktop.fs.readFileAsDataUrl(resolvedIconPath).then(
       (nextSrc) => {
         if (!isDisposed) {

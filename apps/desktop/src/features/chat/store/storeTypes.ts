@@ -49,3 +49,8 @@ export interface WorkspaceSetupState {
   activeStepId: WorkspaceSetupStepId
   steps: WorkspaceSetupStep[]
 }
+
+export interface WorkspaceSetupIntent {
+  prompt: string
+  autoSubmit?: boolean
+}

@@ -351,17 +351,27 @@ export function useNewWorkspaceSetupState(): {
   const initializeSettings = useSettingsStore((state) => state.initialize)
   const newWorkspaceSetupProjectId = useProjectStore((state) => state.newWorkspaceSetupProjectId)
   const cancelNewWorkspaceSetup = useProjectStore((state) => state.cancelNewWorkspaceSetup)
-  const { loadSessionsForProject, createOptimisticSession, sendMessage, setWorkspaceSetupState } =
+  const {
+    loadSessionsForProject,
+    createOptimisticSession,
+    sendMessage,
+    setWorkspaceSetupState,
+    setWorkspaceSetupIntent,
+  } =
     useChatStore(
       useShallow((state) => ({
         loadSessionsForProject: state.loadSessionsForProject,
         createOptimisticSession: state.createOptimisticSession,
         sendMessage: state.sendMessage,
         setWorkspaceSetupState: state.setWorkspaceSetupState,
+        setWorkspaceSetupIntent: state.setWorkspaceSetupIntent,
       }))
     )
   const workspaceSetupState = useChatStore((state) =>
     selectedProjectId ? state.workspaceSetupByProject[selectedProjectId] ?? null : null
+  )
+  const workspaceSetupIntent = useChatStore((state) =>
+    selectedProjectId ? state.workspaceSetupIntentByProject[selectedProjectId] ?? null : null
   )
   const [draftInputsByProjectKey, setDraftInputsByProjectKey] = useState<Record<string, string>>({})
 
@@ -372,6 +382,7 @@ export function useNewWorkspaceSetupState(): {
   const draftProjectKey = selectedProjectId ? `new-workspace:${selectedProjectId}` : "new-workspace:none"
   const input = draftInputsByProjectKey[draftProjectKey] ?? ""
   const isActive = selectedProjectId != null && newWorkspaceSetupProjectId === selectedProjectId
+  const autoSubmitKeyRef = useRef<string | null>(null)
 
   const setInput = useCallback(
     (value: string) => {
@@ -416,8 +427,33 @@ export function useNewWorkspaceSetupState(): {
     cancelNewWorkspaceSetup()
     if (selectedProjectId) {
       setWorkspaceSetupState(selectedProjectId, null)
+      setWorkspaceSetupIntent(selectedProjectId, null)
     }
-  }, [cancelNewWorkspaceSetup, invalidateWorkspaceSetupRun, selectedProjectId, setWorkspaceSetupState])
+  }, [
+    cancelNewWorkspaceSetup,
+    invalidateWorkspaceSetupRun,
+    selectedProjectId,
+    setWorkspaceSetupIntent,
+    setWorkspaceSetupState,
+  ])
+
+  useEffect(() => {
+    const nextPrompt = workspaceSetupIntent?.prompt?.trim()
+    if (!nextPrompt) {
+      return
+    }
+
+    setDraftInputsByProjectKey((current) => {
+      if (current[draftProjectKey] === nextPrompt) {
+        return current
+      }
+
+      return {
+        ...current,
+        [draftProjectKey]: nextPrompt,
+      }
+    })
+  }, [draftProjectKey, workspaceSetupIntent?.prompt])
 
   const submit = useCallback(
     async (
@@ -530,6 +566,7 @@ export function useNewWorkspaceSetupState(): {
 
         clearDraftInput(setupDraftProjectKey)
         setWorkspaceSetupState(setupProjectId, null)
+        setWorkspaceSetupIntent(setupProjectId, null)
         cancelNewWorkspaceSetup()
         await sendMessage(session.id, text, options)
         return true
@@ -564,10 +601,41 @@ export function useNewWorkspaceSetupState(): {
       selectedWorktree?.branchName,
       selectedWorktreePath,
       sendMessage,
+      setWorkspaceSetupIntent,
       setWorkspaceSetupState,
       workspaceSetupModel,
     ]
   )
+
+  useEffect(() => {
+    const trimmedPrompt = workspaceSetupIntent?.prompt?.trim()
+    if (!isActive || !selectedProjectId || !workspaceSetupIntent?.autoSubmit || !trimmedPrompt) {
+      autoSubmitKeyRef.current = null
+      return
+    }
+
+    if (workspaceSetupState != null) {
+      return
+    }
+
+    const autoSubmitKey = [
+      selectedProjectId,
+      trimmedPrompt,
+    ].join("::")
+
+    if (autoSubmitKeyRef.current === autoSubmitKey) {
+      return
+    }
+
+    autoSubmitKeyRef.current = autoSubmitKey
+    void submit(trimmedPrompt)
+  }, [
+    isActive,
+    selectedProjectId,
+    submit,
+    workspaceSetupIntent,
+    workspaceSetupState,
+  ])
 
   return {
     isActive,

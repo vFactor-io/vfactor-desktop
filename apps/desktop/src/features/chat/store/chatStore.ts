@@ -53,6 +53,7 @@ import type {
   FileChangeEvent,
   PersistedChatState,
   ProjectChatState,
+  WorkspaceSetupIntent,
   WorkspaceSetupState,
 } from "./storeTypes"
 
@@ -66,6 +67,7 @@ interface ChatState {
   currentSessionId: string | null
   childSessions: Map<string, ChildSessionState>
   workspaceSetupByProject: Record<string, WorkspaceSetupState>
+  workspaceSetupIntentByProject: Record<string, WorkspaceSetupIntent>
   status: ChatStatus | "connecting"
   error: string | null
   isLoading: boolean
@@ -93,6 +95,7 @@ interface ChatState {
   setActivePrompt: (sessionId: string, prompt: RuntimePrompt) => void
   clearActivePrompt: (sessionId: string) => void
   setWorkspaceSetupState: (projectId: string, setupState: WorkspaceSetupState | null) => void
+  setWorkspaceSetupIntent: (projectId: string, intent: WorkspaceSetupIntent | null) => void
   dismissPrompt: (sessionId: string) => Promise<void>
   answerPrompt: (sessionId: string, response: RuntimePromptResponse) => Promise<void>
   sendMessage: (
@@ -328,6 +331,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   currentSessionId: null,
   childSessions: new Map<string, ChildSessionState>(),
   workspaceSetupByProject: {},
+  workspaceSetupIntentByProject: {},
   status: "idle",
   error: null,
   isLoading: true,
@@ -786,6 +790,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       return {
         workspaceSetupByProject: nextSetupByProject,
+      }
+    })
+  },
+
+  setWorkspaceSetupIntent: (projectId, intent) => {
+    set((state) => {
+      const nextIntentByProject = { ...state.workspaceSetupIntentByProject }
+
+      if (intent == null) {
+        delete nextIntentByProject[projectId]
+      } else {
+        nextIntentByProject[projectId] = intent
+      }
+
+      return {
+        workspaceSetupIntentByProject: nextIntentByProject,
       }
     })
   },

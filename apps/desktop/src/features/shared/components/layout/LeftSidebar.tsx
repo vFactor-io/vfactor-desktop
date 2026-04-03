@@ -20,6 +20,7 @@ import {
   TooltipTrigger,
 } from "@/features/shared/components/ui/tooltip"
 import {
+  NewWorkspaceModal,
   ProjectSettingsModal,
   QuickStartModal,
   RemoveProjectModal,
@@ -119,6 +120,7 @@ export function LeftSidebar({
   onSelectSettingsSection,
 }: LeftSidebarProps) {
   const [quickStartOpen, setQuickStartOpen] = useState(false)
+  const [newWorkspaceModalProject, setNewWorkspaceModalProject] = useState<Project | null>(null)
   const [projectSettingsProject, setProjectSettingsProject] = useState<Project | null>(null)
   const [projectPendingRemoval, setProjectPendingRemoval] = useState<Project | null>(null)
   const [worktreePendingRemoval, setWorktreePendingRemoval] = useState<{
@@ -143,6 +145,7 @@ export function LeftSidebar({
     setProjectOrder,
   } = useProjectStore()
   const setWorkspaceSetupState = useChatStore((state) => state.setWorkspaceSetupState)
+  const setWorkspaceSetupIntent = useChatStore((state) => state.setWorkspaceSetupIntent)
   const requestGitRefresh = useProjectGitStore((state) => state.requestRefresh)
   const ensureGitEntry = useProjectGitStore((state) => state.ensureEntry)
   const gitEntriesByProjectPath = useProjectGitStore((state) => state.entriesByProjectPath)
@@ -220,10 +223,30 @@ export function LeftSidebar({
     )
   }
 
-  const handleCreateWorktree = async (event: React.MouseEvent<HTMLButtonElement>, project: Project) => {
+  const handleCreateWorktree = (event: React.MouseEvent<HTMLButtonElement>, project: Project) => {
     event.stopPropagation()
+    setNewWorkspaceModalProject(project)
+  }
+
+  const handleContinueNewWorkspace = async ({
+    project,
+    prompt,
+  }: {
+    project: Project
+    prompt: string
+  }) => {
+    if (newWorkspaceSetupProjectId) {
+      setWorkspaceSetupState(newWorkspaceSetupProjectId, null)
+      setWorkspaceSetupIntent(newWorkspaceSetupProjectId, null)
+      cancelNewWorkspaceSetup()
+    }
+
     onOpenChat?.()
     setWorkspaceSetupState(project.id, null)
+    setWorkspaceSetupIntent(project.id, {
+      prompt,
+      autoSubmit: true,
+    })
     startNewWorkspaceSetup(project.id)
     await selectProject(project.id)
   }
@@ -235,6 +258,7 @@ export function LeftSidebar({
 
     if (newWorkspaceSetupProjectId) {
       setWorkspaceSetupState(newWorkspaceSetupProjectId, null)
+      setWorkspaceSetupIntent(newWorkspaceSetupProjectId, null)
       cancelNewWorkspaceSetup()
     }
 
@@ -685,6 +709,25 @@ export function LeftSidebar({
         )}
 
         <QuickStartModal open={quickStartOpen} onOpenChange={setQuickStartOpen} />
+        <NewWorkspaceModal
+          open={newWorkspaceModalProject !== null}
+          project={newWorkspaceModalProject}
+          onOpenChange={(open) => {
+            if (!open) {
+              setNewWorkspaceModalProject(null)
+            }
+          }}
+          onContinue={async (input) => {
+            if (!newWorkspaceModalProject) {
+              return
+            }
+
+            await handleContinueNewWorkspace({
+              project: newWorkspaceModalProject,
+              prompt: input.prompt,
+            })
+          }}
+        />
         <ProjectSettingsModal
           open={projectSettingsProject !== null}
           project={projectSettingsProject}
@@ -729,6 +772,25 @@ export function LeftSidebar({
       {sidebarBody}
 
       <QuickStartModal open={quickStartOpen} onOpenChange={setQuickStartOpen} />
+      <NewWorkspaceModal
+        open={newWorkspaceModalProject !== null}
+        project={newWorkspaceModalProject}
+        onOpenChange={(open) => {
+          if (!open) {
+            setNewWorkspaceModalProject(null)
+          }
+        }}
+        onContinue={async (input) => {
+          if (!newWorkspaceModalProject) {
+            return
+          }
+
+          await handleContinueNewWorkspace({
+            project: newWorkspaceModalProject,
+            prompt: input.prompt,
+          })
+        }}
+      />
       <ProjectSettingsModal
         open={projectSettingsProject !== null}
         project={projectSettingsProject}

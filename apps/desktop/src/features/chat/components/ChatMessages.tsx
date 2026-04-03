@@ -10,8 +10,7 @@ import {
   Message as MessageComponent,
   MessageContent,
 } from "./ai-elements/message"
-import { CheckCircle, Copy, File, GitBranch } from "@/components/icons"
-import { ProjectIcon } from "@/features/workspace/components/ProjectIcon"
+import { CheckCircle, Copy, File } from "@/components/icons"
 import { LoadingDots } from "@/features/shared/components/ui/loading-dots"
 import { useStickToBottomContext } from "use-stick-to-bottom"
 import { ChatTimelineItem, InlineSubagentActivity } from "./ChatTimelineItem"
@@ -40,31 +39,6 @@ interface LatestTurnDropdownBlock {
 }
 
 type DisplayBlock = TimelineBlock | LatestTurnDropdownBlock
-
-function StaticConversation({
-  children,
-  resetKey,
-}: {
-  children: ReactNode
-  resetKey: string
-}) {
-  const scrollRef = useRef<HTMLDivElement | null>(null)
-
-  useLayoutEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = 0
-    }
-  }, [resetKey])
-
-  return (
-    <div
-      ref={scrollRef}
-      className="app-scrollbar h-full overflow-y-auto overscroll-none"
-    >
-      {children}
-    </div>
-  )
-}
 
 function getMessageText(message: MessageWithParts): string {
   return message.parts
@@ -296,36 +270,7 @@ export function ChatMessages({
   const isThreadPrepared = preparedThreadKey === threadKey
 
   if (!hasContent) {
-    const branchName = selectedWorktree?.branchName ?? null
-    const projectName = selectedProject?.name ?? null
-    return (
-      <StaticConversation resetKey={selectedProject?.id ?? "empty-chat"}>
-        <div className="min-h-full pt-10">
-          <div className="mx-auto w-full max-w-[803px] px-10 flex flex-col gap-4">
-            {projectName ? (
-              <div className="flex flex-col gap-3">
-                <div className="flex items-center gap-2.5">
-                  <ProjectIcon project={selectedProject} size={20} />
-                  <h3 className="text-sm font-medium text-foreground/90">
-                    {projectName}
-                  </h3>
-                </div>
-                {branchName ? (
-                  <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground/80">
-                    <span className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-muted/20 px-2 py-1">
-                      <GitBranch size={12} className="text-muted-foreground/60" />
-                      <span className="font-mono">{branchName}</span>
-                    </span>
-                  </div>
-                ) : null}
-              </div>
-            ) : (
-              <h3 className="text-sm font-medium text-foreground/90">New chat</h3>
-            )}
-          </div>
-        </div>
-      </StaticConversation>
-    )
+    return null
   }
 
   return (

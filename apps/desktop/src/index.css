@@ -298,6 +298,36 @@
   }
 }
 
+@keyframes composer-settle {
+  from {
+    transform: translateY(-30vh);
+    opacity: 0.6;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes composer-rise {
+  from {
+    transform: translateY(30vh);
+    opacity: 0.6;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-composer-settle {
+  animation: composer-settle 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-composer-rise {
+  animation: composer-rise 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
 @keyframes dot-pulse {
   0%, 100% {
     opacity: 0.2;

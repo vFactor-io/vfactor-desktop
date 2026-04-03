@@ -1108,7 +1108,8 @@ export function ChatInput({
     >
       <div
         className={cn(
-          "relative overflow-hidden rounded-2xl border bg-card shadow-sm",
+          "relative overflow-hidden border bg-card shadow-sm",
+          placement === "intro" ? "rounded-xl" : "rounded-2xl",
           isApprovalComposerState
             ? "border-[var(--color-chat-approval-border)] bg-[var(--color-chat-approval-surface)]"
             : isPlanModeEnabled
