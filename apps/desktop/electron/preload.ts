@@ -19,6 +19,7 @@ import type {
   GitRunStackedActionResult,
   GitWorktreeSummary,
   ProjectFileSystemEvent,
+  ReadFileAsDataUrlOptions,
   SkillsSyncResponse,
   TerminalCreateSessionEnvironment,
   TerminalDataEvent,
@@ -54,6 +55,8 @@ contextBridge.exposeInMainWorld("nucleus", {
   fs: {
     readTextFile: (path: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.fsReadTextFile, path) as Promise<string>,
+    readFileAsDataUrl: (path: string, options?: ReadFileAsDataUrlOptions) =>
+      ipcRenderer.invoke(IPC_CHANNELS.fsReadFileAsDataUrl, path, options) as Promise<string>,
     writeTextFile: (path: string, content: string, options?: WriteTextFileOptions) =>
       ipcRenderer.invoke(IPC_CHANNELS.fsWriteTextFile, path, content, options) as Promise<void>,
     exists: (path: string) => ipcRenderer.invoke(IPC_CHANNELS.fsExists, path) as Promise<boolean>,

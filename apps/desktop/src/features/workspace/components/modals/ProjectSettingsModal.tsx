@@ -21,6 +21,7 @@ import type { Project } from "@/features/workspace/types"
 import {
   normalizeProjectIconPath,
   projectIconPathToSrc,
+  resolveProjectIconPath,
 } from "@/features/workspace/utils/projectIcon"
 import {
   COPY_ALL_ENV_FILES_SETUP_SNIPPET,
@@ -96,6 +97,10 @@ export function ProjectSettingsModal({
 
   const isValid = name.trim().length > 0 && workspacesPath.trim().length > 0
   const normalizedIconPath = normalizeProjectIconPath(iconPath)
+  const previewIconPath = resolveProjectIconPath({
+    iconPath: normalizedIconPath,
+    faviconPath: project?.faviconPath ?? null,
+  })
   const selectedImageLabel = normalizedIconPath
     ? normalizedIconPath.startsWith("data:")
       ? "Uploaded image"
@@ -226,13 +231,16 @@ export function ProjectSettingsModal({
               <button
                 type="button"
                 onClick={() => void handleChooseImage()}
-                className={`flex size-10 items-center justify-center rounded-xl border bg-muted/20 transition hover:border-border hover:bg-muted/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 ${normalizedIconPath ? "border-border/70" : "border-dashed border-border/50"}`}
+                className={`flex size-10 items-center justify-center rounded-xl border bg-muted/20 transition hover:border-border hover:bg-muted/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 ${previewIconPath ? "border-border/70" : "border-dashed border-border/50"}`}
                 aria-label={normalizedIconPath ? "Change project image" : "Upload project image"}
                 title={normalizedIconPath ? "Change project image" : "Upload project image"}
               >
-                {normalizedIconPath ? (
+                {previewIconPath ? (
                   <ProjectIcon
-                    project={{ iconPath: normalizedIconPath }}
+                    project={{
+                      iconPath: normalizedIconPath,
+                      faviconPath: project?.faviconPath ?? null,
+                    }}
                     size={40}
                     className="h-full w-full rounded-[inherit] object-cover text-muted-foreground"
                   />

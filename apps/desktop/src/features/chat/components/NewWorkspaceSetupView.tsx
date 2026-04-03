@@ -2,6 +2,7 @@ import asciiArtBackground from "@/assets/backgrounds/ascii-art.png"
 import { CheckCircle, Circle, Plus } from "@/components/icons"
 import { useCurrentProjectWorktree } from "@/features/shared/hooks"
 import { ProjectIcon } from "@/features/workspace/components/ProjectIcon"
+import { resolveProjectIconPath } from "@/features/workspace/utils/projectIcon"
 import { Loader } from "./ai-elements/loader"
 import { ChatInput } from "./ChatInput"
 import { useNewWorkspaceSetupState } from "../hooks/useChat"
@@ -58,6 +59,7 @@ function WorkspaceSetupStepRow({
 export function NewWorkspaceSetupView() {
   const { selectedProject } = useCurrentProjectWorktree()
   const { input, setInput, submit, workspaceSetupState } = useNewWorkspaceSetupState()
+  const selectedProjectIconPath = resolveProjectIconPath(selectedProject)
   const hasSteps = workspaceSetupState != null
   const title = workspaceSetupState?.title ?? "New workspace"
   const detail =
@@ -111,7 +113,7 @@ export function NewWorkspaceSetupView() {
         ) : (
           <>
             <div className="flex flex-col items-center gap-4 text-center">
-              {selectedProject?.iconPath ? (
+              {selectedProjectIconPath ? (
                 <div className="size-10 overflow-hidden rounded-xl border border-border/40 shadow-lg shadow-black/20">
                   <ProjectIcon project={selectedProject} size={40} className="size-full rounded-none" />
                 </div>

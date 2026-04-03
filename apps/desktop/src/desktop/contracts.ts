@@ -217,6 +217,10 @@ export interface CopyPathsIntoDirectoryOptions {
   overwrite?: boolean
 }
 
+export interface ReadFileAsDataUrlOptions {
+  mimeType?: string
+}
+
 export interface StoreValueMap {
   [key: string]: unknown
 }

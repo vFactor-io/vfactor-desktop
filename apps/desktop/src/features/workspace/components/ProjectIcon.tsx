@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react"
 import { Folder, FolderOpen } from "@/components/icons"
+import { desktop } from "@/desktop/client"
 import { cn } from "@/lib/utils"
 import type { Project } from "@/features/workspace/types"
 import {
   normalizeProjectIconPath,
   projectIconPathToSrc,
+  resolveProjectIconPath,
 } from "@/features/workspace/utils/projectIcon"
 
 interface ProjectIconProps {
-  project?: Pick<Project, "iconPath"> | null
+  project?: Pick<Project, "iconPath" | "faviconPath"> | null
   isExpanded?: boolean
   size?: number
   className?: string
@@ -20,13 +22,57 @@ export function ProjectIcon({
   size = 16,
   className,
 }: ProjectIconProps) {
-  const iconPath = normalizeProjectIconPath(project?.iconPath)
-  const iconSrc = projectIconPathToSrc(iconPath)
+  const resolvedIconPath = normalizeProjectIconPath(resolveProjectIconPath(project))
+  const [iconSrc, setIconSrc] = useState<string | null>(() => {
+    if (!resolvedIconPath) {
+      return null
+    }
+
+    if (resolvedIconPath.startsWith("data:") || /^[a-zA-Z]+:\/\//.test(resolvedIconPath)) {
+      return projectIconPathToSrc(resolvedIconPath)
+    }
+
+    return null
+  })
   const [hasImageError, setHasImageError] = useState(false)
 
   useEffect(() => {
     setHasImageError(false)
-  }, [iconSrc])
+
+    let isDisposed = false
+
+    if (!resolvedIconPath) {
+      setIconSrc(null)
+      return () => {
+        isDisposed = true
+      }
+    }
+
+    if (resolvedIconPath.startsWith("data:") || /^[a-zA-Z]+:\/\//.test(resolvedIconPath)) {
+      setIconSrc(projectIconPathToSrc(resolvedIconPath))
+      return () => {
+        isDisposed = true
+      }
+    }
+
+    setIconSrc(null)
+    void desktop.fs.readFileAsDataUrl(resolvedIconPath).then(
+      (nextSrc) => {
+        if (!isDisposed) {
+          setIconSrc(nextSrc)
+        }
+      },
+      () => {
+        if (!isDisposed) {
+          setIconSrc(null)
+        }
+      }
+    )
+
+    return () => {
+      isDisposed = true
+    }
+  }, [resolvedIconPath])
 
   if (iconSrc && !hasImageError) {
     return (

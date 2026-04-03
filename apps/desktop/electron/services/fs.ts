@@ -1,15 +1,36 @@
 import { cp, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises"
 import os from "node:os"
-import { basename, join, relative, resolve, sep } from "node:path"
+import { basename, extname, join, relative, resolve, sep } from "node:path"
 import type {
   CopyPathsIntoDirectoryOptions,
   DesktopDirEntry,
+  ReadFileAsDataUrlOptions,
   WriteTextFileOptions,
 } from "../../src/desktop/contracts"
+
+const MIME_TYPES_BY_EXTENSION: Record<string, string> = {
+  ".avif": "image/avif",
+  ".gif": "image/gif",
+  ".ico": "image/x-icon",
+  ".jpeg": "image/jpeg",
+  ".jpg": "image/jpeg",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".webp": "image/webp",
+}
 
 export class DesktopFsService {
   async readTextFile(path: string): Promise<string> {
     return readFile(path, "utf8")
+  }
+
+  async readFileAsDataUrl(path: string, options?: ReadFileAsDataUrlOptions): Promise<string> {
+    const file = await readFile(path)
+    const extension = extname(path).toLowerCase()
+    const mimeType =
+      options?.mimeType ?? MIME_TYPES_BY_EXTENSION[extension] ?? "application/octet-stream"
+
+    return `data:${mimeType};base64,${file.toString("base64")}`
   }
 
   async writeTextFile(

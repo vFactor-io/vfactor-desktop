@@ -3,6 +3,11 @@ import { beforeEach, describe, expect, mock, test } from "bun:test"
 import type { Project, ProjectWorktree } from "../types"
 
 const storeData = new Map<string, unknown>()
+const directoryEntries = new Map<
+  string,
+  Array<{ name: string; path: string; isDirectory: boolean; isFile: boolean }>
+>()
+const readDirCalls: string[] = []
 
 const desktopStore = {
   get: async <T>(key: string): Promise<T | null> =>
@@ -47,6 +52,10 @@ mock.module("@/desktop/client", () => ({
   desktop: {
     fs: {
       exists: async () => pathExists,
+      readDir: async (path: string) => {
+        readDirCalls.push(path)
+        return directoryEntries.get(path) ?? []
+      },
       homeDir: async () => "/Users/tester",
     },
     git: {
@@ -112,6 +121,8 @@ function createProject(overrides: Partial<Project> = {}): Project {
   return {
     id: "project-1",
     name: "Repo",
+    iconPath: null,
+    faviconPath: null,
     path: "/tmp/repo",
     repoRootPath: "/tmp/repo",
     workspacesPath: null,
@@ -133,6 +144,7 @@ function createPersistedProject(overrides: Record<string, unknown> = {}) {
   return {
     id: "project-1",
     name: "Repo",
+    iconPath: null,
     path: "/tmp/repo",
     addedAt: 1,
     hiddenWorktreePaths: [],
@@ -155,6 +167,8 @@ function resetStoreState() {
 describe("projectStore", () => {
   beforeEach(() => {
     storeData.clear()
+    directoryEntries.clear()
+    readDirCalls.length = 0
     discoveredWorktrees = []
     gitBranchesResponse = null
     createWorktreeImpl = async (_repoRootPath, options) => ({
@@ -192,6 +206,102 @@ describe("projectStore", () => {
 
     expect(project?.setupScript).toBe("bun install && bun test")
     expect(persistedProjects[0]?.setupScript).toBe("bun install && bun test")
+  })
+
+  test("hydrates faviconPath from project files when no image override is set", async () => {
+    directoryEntries.set("/tmp/repo", [
+      {
+        name: "public",
+        path: "/tmp/repo/public",
+        isDirectory: true,
+        isFile: false,
+      },
+    ])
+    directoryEntries.set("/tmp/repo/public", [
+      {
+        name: "favicon.svg",
+        path: "/tmp/repo/public/favicon.svg",
+        isDirectory: false,
+        isFile: true,
+      },
+    ])
+    storeData.set("projects", [createPersistedProject()])
+
+    await useProjectStore.getState().loadProjects()
+
+    const project = useProjectStore.getState().projects[0]
+
+    expect(project?.iconPath).toBeNull()
+    expect(project?.faviconPath).toBe("/tmp/repo/public/favicon.svg")
+  })
+
+  test("preserves image overrides while still discovering the fallback favicon", async () => {
+    directoryEntries.set("/tmp/repo", [
+      {
+        name: "public",
+        path: "/tmp/repo/public",
+        isDirectory: true,
+        isFile: false,
+      },
+    ])
+    directoryEntries.set("/tmp/repo/public", [
+      {
+        name: "favicon.png",
+        path: "/tmp/repo/public/favicon.png",
+        isDirectory: false,
+        isFile: true,
+      },
+    ])
+    storeData.set("projects", [
+      createPersistedProject({
+        iconPath: "  data:image/png;base64,override  ",
+      }),
+    ])
+
+    await useProjectStore.getState().loadProjects()
+
+    const project = useProjectStore.getState().projects[0]
+
+    expect(project?.iconPath).toBe("data:image/png;base64,override")
+    expect(project?.faviconPath).toBe("/tmp/repo/public/favicon.png")
+  })
+
+  test("loadProjects keeps favicon discovery bounded to the project root and top-level candidates", async () => {
+    directoryEntries.set("/tmp/repo", [
+      {
+        name: "apps",
+        path: "/tmp/repo/apps",
+        isDirectory: true,
+        isFile: false,
+      },
+      {
+        name: "packages",
+        path: "/tmp/repo/packages",
+        isDirectory: true,
+        isFile: false,
+      },
+    ])
+    directoryEntries.set("/tmp/repo/apps", [
+      {
+        name: "desktop",
+        path: "/tmp/repo/apps/desktop",
+        isDirectory: true,
+        isFile: false,
+      },
+    ])
+    directoryEntries.set("/tmp/repo/packages", [
+      {
+        name: "ui",
+        path: "/tmp/repo/packages/ui",
+        isDirectory: true,
+        isFile: false,
+      },
+    ])
+    storeData.set("projects", [createPersistedProject()])
+
+    await useProjectStore.getState().loadProjects()
+
+    expect(readDirCalls).toEqual(["/tmp/repo", "/tmp/repo/apps", "/tmp/repo/packages"])
   })
 
   test("updateProject trims and persists setupScript", async () => {

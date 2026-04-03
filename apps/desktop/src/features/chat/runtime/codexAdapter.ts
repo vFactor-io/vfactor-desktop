@@ -61,6 +61,8 @@ async function getDefaultCodexSessionPermissionPreset(
   }
 }
 
+const CODEX_REASONING_SUMMARY = "detailed" as const
+
 export class CodexHarnessAdapter implements HarnessAdapter {
   private rpc = getCodexRpcClient()
   private activeTurns = new Map<string, string>()
@@ -159,6 +161,8 @@ export class CodexHarnessAdapter implements HarnessAdapter {
       threadId,
       cwd: input.projectPath ?? input.session.projectPath ?? null,
       model: input.model ?? null,
+      effort: mapReasoningEffort(input.reasoningEffort),
+      summary: CODEX_REASONING_SUMMARY,
       collaborationMode: input.collaborationMode
         ? {
             mode: input.collaborationMode,

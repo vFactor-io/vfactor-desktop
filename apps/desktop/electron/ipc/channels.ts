@@ -4,6 +4,7 @@ export const IPC_CHANNELS = {
   appInstallUpdate: "app:installUpdate",
   dialogOpenProjectFolder: "dialog:openProjectFolder",
   fsReadTextFile: "fs:readTextFile",
+  fsReadFileAsDataUrl: "fs:readFileAsDataUrl",
   fsWriteTextFile: "fs:writeTextFile",
   fsExists: "fs:exists",
   fsReadDir: "fs:readDir",

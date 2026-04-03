@@ -10,10 +10,12 @@ function ChatTimelinePane({
   threadKey,
   activeSessionId,
   selectedProject,
+  selectedWorktree,
 }: {
   threadKey: string
   activeSessionId: string | null
   selectedProject: ReturnType<typeof useChatProjectState>["selectedProject"]
+  selectedWorktree: ReturnType<typeof useChatProjectState>["selectedWorktree"]
 }) {
   const { messages, childSessions, status, activePromptState } =
     useChatTimelineState(activeSessionId)
@@ -25,6 +27,7 @@ function ChatTimelinePane({
       status={status}
       activePromptState={activePromptState}
       selectedProject={selectedProject}
+      selectedWorktree={selectedWorktree}
       childSessions={childSessions}
     />
   )
@@ -97,6 +100,7 @@ export function ChatContainer() {
           threadKey={threadKey}
           activeSessionId={activeSessionId}
           selectedProject={selectedProject}
+          selectedWorktree={selectedWorktree}
         />
       </div>
       <div className="flex-shrink-0 flex justify-center">
