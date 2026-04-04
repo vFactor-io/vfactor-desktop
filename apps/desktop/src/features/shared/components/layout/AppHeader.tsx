@@ -164,9 +164,9 @@ export function SourceControlActionGroup({
   const { changes, isLoading: isChangesLoading, loadError: changesLoadError, refresh: refreshChanges } =
     useProjectGitChanges(resolvedProjectPath, {
       enabled: Boolean(resolvedProjectPath),
-      autoRefreshOnMount: false,
-      refreshOnWindowFocus: false,
-      subscribeToWatcher: false,
+      autoRefreshOnMount: true,
+      refreshOnWindowFocus: true,
+      subscribeToWatcher: true,
     })
 
   const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false)

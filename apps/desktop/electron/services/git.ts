@@ -1083,6 +1083,12 @@ export function normalizePullRequestResolveReason(input: {
     : undefined
 }
 
+export function shouldReuseExistingPullRequest(
+  pullRequest: Pick<GitPullRequest, "state"> | null | undefined
+): boolean {
+  return pullRequest?.state === "open"
+}
+
 export function mapPullRequest(
   raw: RawPullRequest,
   checks: RawPullRequestCheck[] = [],
@@ -1331,7 +1337,14 @@ async function hydratePullRequest(projectPath: string, rawPullRequest: RawPullRe
   })
 }
 
-async function getPullRequestForBranch(projectPath: string, branchName: string): Promise<GitPullRequest | null> {
+async function getPullRequestForBranch(
+  projectPath: string,
+  branchName: string,
+  options?: {
+    includeMerged?: boolean
+  }
+): Promise<GitPullRequest | null> {
+  const includeMerged = options?.includeMerged ?? true
   const upstreamBranch = await getCurrentUpstreamBranch(projectPath)
   const remoteName = getRemoteNameFromBranchRef(upstreamBranch)
   const qualifiedHeadRef = await resolvePullRequestHeadRef(projectPath, branchName, remoteName)
@@ -1342,6 +1355,7 @@ async function getPullRequestForBranch(projectPath: string, branchName: string):
   console.debug("[git] getPullRequestForBranch:start", {
     projectPath,
     branchName,
+    includeMerged,
     upstreamBranch,
     remoteName,
     qualifiedHeadRef,
@@ -1388,43 +1402,45 @@ async function getPullRequestForBranch(projectPath: string, branchName: string):
     }
   }
 
-  for (const headRef of candidateHeads) {
-    try {
-      console.debug("[git] getPullRequestForBranch:list-merged", {
-        projectPath,
-        branchName,
-        headRef,
-      })
-      const parsed = await queryPullRequests(projectPath, [
-        "pr",
-        "list",
-        "--head",
-        headRef,
-        "--state",
-        "merged",
-        "--limit",
-        "1",
-        "--json",
-        prListFields,
-      ])
-
-      if (parsed.length > 0) {
-        const hydrated = await hydratePullRequest(projectPath, parsed[0])
-        console.debug("[git] getPullRequestForBranch:found-merged", {
+  if (includeMerged) {
+    for (const headRef of candidateHeads) {
+      try {
+        console.debug("[git] getPullRequestForBranch:list-merged", {
           projectPath,
           branchName,
           headRef,
-          pullRequest: hydrated,
         })
-        return hydrated
+        const parsed = await queryPullRequests(projectPath, [
+          "pr",
+          "list",
+          "--head",
+          headRef,
+          "--state",
+          "merged",
+          "--limit",
+          "1",
+          "--json",
+          prListFields,
+        ])
+
+        if (parsed.length > 0) {
+          const hydrated = await hydratePullRequest(projectPath, parsed[0])
+          console.debug("[git] getPullRequestForBranch:found-merged", {
+            projectPath,
+            branchName,
+            headRef,
+            pullRequest: hydrated,
+          })
+          return hydrated
+        }
+      } catch (error) {
+        console.debug("[git] getPullRequestForBranch:list-merged:error", {
+          projectPath,
+          branchName,
+          headRef,
+          error,
+        })
       }
-    } catch (error) {
-      console.debug("[git] getPullRequestForBranch:list-merged:error", {
-        projectPath,
-        branchName,
-        headRef,
-        error,
-      })
     }
   }
 
@@ -1440,6 +1456,15 @@ async function getPullRequestForBranch(projectPath: string, branchName: string):
   const state = normalizePullRequestState(viewedPullRequest.state)
   if (state === "closed") {
     console.debug("[git] getPullRequestForBranch:closed", {
+      projectPath,
+      branchName,
+      viewedPullRequest,
+    })
+    return null
+  }
+
+  if (state === "merged" && !includeMerged) {
+    console.debug("[git] getPullRequestForBranch:merged-skipped", {
       projectPath,
       branchName,
       viewedPullRequest,
@@ -1954,8 +1979,10 @@ async function createPullRequest(
     remoteName,
     generationModel,
   })
-  const existing = await getPullRequestForBranch(projectPath, branchName)
-  if (existing) {
+  const existing = await getPullRequestForBranch(projectPath, branchName, {
+    includeMerged: false,
+  })
+  if (shouldReuseExistingPullRequest(existing)) {
     console.debug("[git] createPullRequest:existing", {
       projectPath,
       branchName,
@@ -2032,7 +2059,9 @@ async function createPullRequest(
     generatedTitle: generated.title.trim(),
   })
 
-  let created = await getPullRequestForBranch(projectPath, branchName)
+  let created = await getPullRequestForBranch(projectPath, branchName, {
+    includeMerged: false,
+  })
   if (!created && createdUrl) {
     for (let attempt = 0; attempt < 4; attempt += 1) {
       console.debug("[git] createPullRequest:retry-lookup", {
@@ -2041,7 +2070,9 @@ async function createPullRequest(
         attempt: attempt + 1,
       })
       await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)))
-      created = await getPullRequestForBranch(projectPath, branchName)
+      created = await getPullRequestForBranch(projectPath, branchName, {
+        includeMerged: false,
+      })
       if (created) {
         console.debug("[git] createPullRequest:retry-lookup:found", {
           projectPath,

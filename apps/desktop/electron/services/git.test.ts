@@ -13,6 +13,7 @@ import {
   normalizePullRequestMergeStatus,
   normalizePullRequestResolveReason,
   parseGitHubActionsCheckTarget,
+  shouldReuseExistingPullRequest,
   summarizePullRequestChecks,
   trimPullRequestFailureOutput,
 } from "./git"
@@ -413,6 +414,13 @@ describe("pull request metadata helpers", () => {
         mergeStateStatus: "UNKNOWN",
       })
     ).toBe("unknown")
+  })
+
+  test("only reuses open pull requests in the create flow", () => {
+    expect(shouldReuseExistingPullRequest({ state: "open" })).toBe(true)
+    expect(shouldReuseExistingPullRequest({ state: "merged" })).toBe(false)
+    expect(shouldReuseExistingPullRequest({ state: "closed" })).toBe(false)
+    expect(shouldReuseExistingPullRequest(null)).toBe(false)
   })
 
   test("maps a mergeable pull request with passing checks", () => {
