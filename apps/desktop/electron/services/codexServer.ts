@@ -7,6 +7,7 @@ type EventSender = (channel: string, payload: unknown) => void
 
 export class CodexServerService {
   private process: ChildProcessWithoutNullStreams | null = null
+  private isDisposingProcess = false
 
   constructor(private readonly sendEvent: EventSender) {}
 
@@ -16,6 +17,7 @@ export class CodexServerService {
     }
 
     let hasReportedUnexpectedExit = false
+    this.isDisposingProcess = false
 
     const child = spawn("codex", ["app-server"], {
       stdio: "pipe",
@@ -29,11 +31,14 @@ export class CodexServerService {
       captureException(error, { context: "agent_server_spawn" })
       capture("agent_server_error", { reason: "spawn_failed" })
       this.sendEvent(EVENT_CHANNELS.codexStatus, "closed")
+      this.isDisposingProcess = false
       this.process = null
     })
 
     child.on("exit", (code, signal) => {
-      if (!hasReportedUnexpectedExit && (code !== 0 || signal !== null)) {
+      const wasIntentionalExit = this.isDisposingProcess
+
+      if (!hasReportedUnexpectedExit && !wasIntentionalExit && (code !== 0 || signal !== null)) {
         hasReportedUnexpectedExit = true
         capture("agent_server_error", {
           reason: "process_exited",
@@ -43,6 +48,7 @@ export class CodexServerService {
       }
 
       this.sendEvent(EVENT_CHANNELS.codexStatus, "closed")
+      this.isDisposingProcess = false
       this.process = null
     })
 
@@ -87,6 +93,7 @@ export class CodexServerService {
       return
     }
 
+    this.isDisposingProcess = true
     this.process.kill()
     this.process = null
   }
