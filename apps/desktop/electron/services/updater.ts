@@ -3,6 +3,7 @@ import electronUpdater from "electron-updater"
 import type { ProgressInfo, UpdateInfo } from "electron-updater"
 import type { AppUpdateDownloadEvent, AppUpdateInfo } from "../../src/desktop/contracts"
 import { EVENT_CHANNELS } from "../ipc/channels"
+import { capture, captureException } from "./analytics"
 
 const { autoUpdater } = electronUpdater
 
@@ -57,13 +58,24 @@ export class UpdaterService {
       autoUpdater.removeListener("update-available", availableListener)
     }
 
-    return sawAvailable && this.availableUpdate ? mapUpdateInfo(this.availableUpdate) : null
+    const result = sawAvailable && this.availableUpdate ? mapUpdateInfo(this.availableUpdate) : null
+    capture("update_available_checked", {
+      update_found: Boolean(result),
+      available_version: result?.version ?? null,
+      current_version: app.getVersion(),
+    })
+    return result
   }
 
   async installUpdate(): Promise<void> {
     if (!this.availableUpdate) {
       throw new Error("There is no pending app update to install.")
     }
+
+    capture("update_install_started", {
+      target_version: this.availableUpdate.version,
+      current_version: app.getVersion(),
+    })
 
     this.bindEvents()
     const startedPayload: AppUpdateDownloadEvent = {
@@ -105,6 +117,7 @@ export class UpdaterService {
 
     autoUpdater.on("error", (error) => {
       console.error("[updates] Auto-update error:", error)
+      captureException(error, { context: "auto_updater" })
     })
 
     this.isBound = true

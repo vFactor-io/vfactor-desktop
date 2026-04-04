@@ -7,6 +7,7 @@ import type {
   TerminalStartResponse,
 } from "../../src/desktop/contracts"
 import { EVENT_CHANNELS } from "../ipc/channels"
+import { capture } from "./analytics"
 
 const TERMINAL_SCROLLBACK_LIMIT = 200_000
 
@@ -141,6 +142,7 @@ export class TerminalService {
     })
 
     this.sessions.set(sessionId, session)
+    capture("terminal_session_created", { shell_kind: shellKind, has_initial_command: Boolean(initialCommand) })
 
     if (initialCommand) {
       terminal.write(initialCommand)

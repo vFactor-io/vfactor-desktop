@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
 import { app, BrowserWindow, ipcMain, nativeImage, shell } from "electron"
-import { basename, join } from "node:path"
+import { basename, dirname, join } from "node:path"
 import { EVENT_CHANNELS, IPC_CHANNELS } from "./ipc/channels"
 import { JsonStoreService } from "./services/store"
 import { DesktopFsService } from "./services/fs"
@@ -11,6 +13,13 @@ import { CodexServerService } from "./services/codexServer"
 import { TerminalService } from "./services/terminal"
 import { ProjectWatcherService } from "./services/projectWatcher"
 import { UpdaterService } from "./services/updater"
+import {
+  isAnalyticsConfigured,
+  isAnalyticsExplicitlyEnabled,
+  initAnalytics,
+  capture,
+  shutdownAnalytics,
+} from "./services/analytics"
 
 let mainWindow: BrowserWindow | null = null
 const LEGACY_USER_DATA_DIRS = ["nucleus-desktop", "io.nucleus.desktop"] as const
@@ -44,6 +53,40 @@ const stableUserDataPath = resolveUserDataPath()
 
 if (stableUserDataPath !== app.getPath("userData")) {
   app.setPath("userData", stableUserDataPath)
+}
+
+function loadDesktopEnv(): void {
+  if (typeof process.loadEnvFile !== "function") {
+    return
+  }
+
+  const envPaths = [
+    join(stableUserDataPath, ".env.local"),
+    join(stableUserDataPath, ".env"),
+    join(dirname(app.getPath("exe")), ".env.local"),
+    join(dirname(app.getPath("exe")), ".env"),
+    join(process.resourcesPath, ".env.local"),
+    join(process.resourcesPath, ".env"),
+    join(app.getAppPath(), ".env.local"),
+    join(app.getAppPath(), ".env"),
+    join(process.cwd(), ".env.local"),
+    join(process.cwd(), ".env"),
+  ]
+  const seenPaths = new Set<string>()
+
+  for (const envPath of envPaths) {
+    if (seenPaths.has(envPath)) {
+      continue
+    }
+
+    seenPaths.add(envPath)
+
+    if (!existsSync(envPath)) {
+      continue
+    }
+
+    process.loadEnvFile(envPath)
+  }
 }
 
 function sendToRenderer(channel: string, payload: unknown): void {
@@ -267,6 +310,46 @@ function registerIpcHandlers(storeService: JsonStoreService): void {
   ipcMain.handle(IPC_CHANNELS.skillsList, () => skillsService.list())
 }
 
+async function getOrCreateDeviceId(userDataPath: string): Promise<string> {
+  const filePath = join(userDataPath, "device-id.json")
+  try {
+    const raw = await readFile(filePath, "utf8")
+    const parsed = JSON.parse(raw) as unknown
+    if (parsed && typeof parsed === "object" && "id" in parsed && typeof (parsed as { id: unknown }).id === "string") {
+      return (parsed as { id: string }).id
+    }
+  } catch {
+    // file doesn't exist yet or is invalid
+  }
+  const id = randomUUID()
+  await mkdir(userDataPath, { recursive: true })
+  await writeFile(filePath, JSON.stringify({ id }), "utf8")
+  return id
+}
+
+async function initializeAnalytics(): Promise<void> {
+  loadDesktopEnv()
+
+  if (!isAnalyticsConfigured()) {
+    return
+  }
+
+  if (!isAnalyticsExplicitlyEnabled()) {
+    console.warn("[posthog] Analytics disabled: POSTHOG_ENABLED is not set to true")
+    return
+  }
+
+  let deviceId = randomUUID()
+
+  try {
+    deviceId = await getOrCreateDeviceId(stableUserDataPath)
+  } catch (error) {
+    console.warn("[posthog] Failed to persist device id, using an ephemeral session id:", error)
+  }
+
+  initAnalytics(deviceId)
+}
+
 async function bootstrap(): Promise<void> {
   await app.whenReady()
 
@@ -274,10 +357,13 @@ async function bootstrap(): Promise<void> {
     app.dock.setIcon(nativeImage.createFromPath(getDevAppIconPath()))
   }
 
+  await initializeAnalytics()
+
   const storeService = new JsonStoreService(app.getPath("userData"))
   registerIpcHandlers(storeService)
 
   mainWindow = createWindow()
+  capture("app_launched", { version: app.getVersion(), platform: process.platform })
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -292,12 +378,29 @@ app.on("window-all-closed", () => {
   }
 })
 
-app.on("before-quit", () => {
+let isFinalizingQuit = false
+
+app.on("before-quit", (event) => {
+  if (isFinalizingQuit) {
+    return
+  }
+
+  isFinalizingQuit = true
+  event.preventDefault()
+
   projectWatcherService.stop().catch((error) => {
     console.warn("[watcher] Failed to stop project watcher:", error)
   })
   terminalService.dispose()
   codexServerService.dispose()
+
+  void shutdownAnalytics(2_000)
+    .catch((error) => {
+      console.warn("[posthog] Failed to flush analytics during shutdown:", error)
+    })
+    .finally(() => {
+      app.quit()
+    })
 })
 
 void bootstrap().catch((error) => {

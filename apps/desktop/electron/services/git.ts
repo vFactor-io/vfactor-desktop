@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { promisify } from "node:util"
+import { capture, captureException } from "./analytics"
 
 import type {
   GitActionProgressEvent,
@@ -2209,6 +2210,10 @@ export class GitService {
         isMain: false,
       }
 
+    capture("worktree_created", {
+      used_default_base_branch: baseBranch === "main",
+      used_custom_path: Boolean(requestedTargetPath),
+    })
     return {
       worktree: createdWorktree,
     }
@@ -2230,6 +2235,7 @@ export class GitService {
     await assertWorktreeIsClean(resolvedWorktreePath)
     await runGitCommand(repoRoot, ["worktree", "remove", resolvedWorktreePath])
 
+    capture("worktree_removed")
     return {
       worktreePath: resolvedWorktreePath,
     }
@@ -2453,6 +2459,7 @@ export class GitService {
       headSha,
     ])
 
+    capture("pull_request_merged", { pr_number: pullRequest.number })
     return {
       number: pullRequest.number,
       url: pullRequest.url,
@@ -2483,94 +2490,118 @@ export class GitService {
     }
     let suggestion: (CommitSuggestion & { commitMessage: string }) | null = null
 
-    if (input.featureBranch) {
-      onProgress?.({ step: "generating" })
-      suggestion = await resolveCommitSuggestion({
-        projectPath: trimmedPath,
-        currentBranch: branchName,
-        commitMessage: input.commitMessage,
-        includeBranch: true,
-        filePaths: input.filePaths,
-        generationModel: input.generationModel,
-      })
-
-      if (!suggestion && input.action === "commit") {
-        throw new Error("There are no changes to commit on a new branch.")
-      }
-
-      branchName = await createAndCheckoutFeatureBranch(trimmedPath, suggestion, branchName)
-      branchResult = {
-        status: "created",
-        name: branchName,
-      }
-    }
-
-    if (!branchName && wantsPush) {
-      throw new Error("Cannot push without an active branch.")
-    }
-
     let commitResult: GitRunStackedActionResult["commit"] = {
       status: "skipped_no_changes",
     }
+    let pushResult: GitRunStackedActionResult["push"] = { status: "skipped_not_requested" }
+    let prResult: GitRunStackedActionResult["pr"] = { status: "skipped_not_requested" }
 
-    if (!suggestion) {
-      onProgress?.({ step: "generating" })
-      suggestion = await resolveCommitSuggestion({
-        projectPath: trimmedPath,
-        currentBranch: branchName,
-        commitMessage: input.commitMessage,
-        includeBranch: false,
-        filePaths: input.filePaths,
-        generationModel: input.generationModel,
-      })
-    }
+    try {
+      if (input.featureBranch) {
+        onProgress?.({ step: "generating" })
+        suggestion = await resolveCommitSuggestion({
+          projectPath: trimmedPath,
+          currentBranch: branchName,
+          commitMessage: input.commitMessage,
+          includeBranch: true,
+          filePaths: input.filePaths,
+          generationModel: input.generationModel,
+        })
 
-    if (suggestion) {
-      onProgress?.({ step: "committing" })
-      const committed = await commitChanges(
-        trimmedPath,
-        suggestion.subject,
-        suggestion.body,
-        input.filePaths
-      )
-      commitResult = {
-        status: "created",
-        commitSha: committed.commitSha,
-        subject: suggestion.subject,
+        if (!suggestion && input.action === "commit") {
+          throw new Error("There are no changes to commit on a new branch.")
+        }
+
+        branchName = await createAndCheckoutFeatureBranch(trimmedPath, suggestion, branchName)
+        branchResult = {
+          status: "created",
+          name: branchName,
+        }
       }
-    }
 
-    let pushResult: GitRunStackedActionResult["push"]
-    if (wantsPush) {
-      onProgress?.({ step: "pushing" })
-      pushResult = await pushCurrentBranch(
-        trimmedPath,
-        branchName ?? initial.currentBranch,
-        input.remoteName
-      )
-    } else {
-      pushResult = { status: "skipped_not_requested" }
-    }
+      if (!branchName && wantsPush) {
+        throw new Error("Cannot push without an active branch.")
+      }
 
-    let prResult: GitRunStackedActionResult["pr"]
-    if (wantsPr) {
-      onProgress?.({ step: "creating_pr" })
-      prResult = await createPullRequest(
-        trimmedPath,
-        branchName ?? initial.currentBranch,
-        input.generationModel,
-        input.remoteName
-      )
-    } else {
-      prResult = { status: "skipped_not_requested" }
-    }
+      if (!suggestion) {
+        onProgress?.({ step: "generating" })
+        suggestion = await resolveCommitSuggestion({
+          projectPath: trimmedPath,
+          currentBranch: branchName,
+          commitMessage: input.commitMessage,
+          includeBranch: false,
+          filePaths: input.filePaths,
+          generationModel: input.generationModel,
+        })
+      }
 
-    return {
-      action: input.action,
-      branch: branchResult,
-      commit: commitResult,
-      push: pushResult,
-      pr: prResult,
+      if (suggestion) {
+        onProgress?.({ step: "committing" })
+        const committed = await commitChanges(
+          trimmedPath,
+          suggestion.subject,
+          suggestion.body,
+          input.filePaths
+        )
+        commitResult = {
+          status: "created",
+          commitSha: committed.commitSha,
+          subject: suggestion.subject,
+        }
+      }
+
+      if (wantsPush) {
+        onProgress?.({ step: "pushing" })
+        pushResult = await pushCurrentBranch(
+          trimmedPath,
+          branchName ?? initial.currentBranch,
+          input.remoteName
+        )
+      }
+
+      if (wantsPr) {
+        onProgress?.({ step: "creating_pr" })
+        prResult = await createPullRequest(
+          trimmedPath,
+          branchName ?? initial.currentBranch,
+          input.generationModel,
+          input.remoteName
+        )
+      }
+
+      capture("git_stacked_action_run", {
+        action: input.action,
+        outcome: "success",
+        branch_status: branchResult.status,
+        commit_status: commitResult.status,
+        push_status: pushResult.status,
+        pr_status: prResult.status,
+      })
+      return {
+        action: input.action,
+        branch: branchResult,
+        commit: commitResult,
+        push: pushResult,
+        pr: prResult,
+      }
+    } catch (error) {
+      captureException(error, {
+        context: "git_stacked_action_run",
+        action: input.action,
+        branch_status: branchResult.status,
+        commit_status: commitResult.status,
+        push_status: pushResult.status,
+        pr_status: prResult.status,
+      })
+      capture("git_stacked_action_run", {
+        action: input.action,
+        outcome: "error",
+        branch_status: branchResult.status,
+        commit_status: commitResult.status,
+        push_status: pushResult.status,
+        pr_status: prResult.status,
+      })
+      throw error
     }
   }
 }
