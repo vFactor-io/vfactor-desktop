@@ -7,8 +7,10 @@ import {
   useChatProjectState,
   useChatTimelineState,
 } from "../hooks/useChat"
+import { useChatStore } from "../store"
 import { ChatMessages } from "./ChatMessages"
 import { ChatInput } from "./ChatInput"
+import { resolveChatContainerSessionId } from "./chatContainerSession"
 
 function ChatTimelinePane({
   threadKey,
@@ -116,7 +118,10 @@ export function ChatContainerContent({ sessionId = null }: ChatContainerContentP
     selectedWorktree,
     activeSessionId,
   } = useChatProjectState()
-  const resolvedSessionId = sessionId ?? activeSessionId
+  const projectChat = useChatStore((state) =>
+    selectedWorktreeId ? state.chatByWorktree[selectedWorktreeId] ?? null : null
+  )
+  const resolvedSessionId = resolveChatContainerSessionId(projectChat, sessionId, activeSessionId)
   const hasContent = useChatHasContent(resolvedSessionId)
   const threadKey = `${selectedWorktreeId ?? selectedProject?.id ?? "no-project"}:${resolvedSessionId ?? "draft"}`
   const prevHasContentRef = useRef(hasContent)
