@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test"
+import { accessSync, constants } from "node:fs"
 import { mkdtemp, mkdir, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -86,6 +87,57 @@ describe("TerminalService", () => {
         exitCode: 0,
       }))
     } finally {
+      await rm(rootDir, { recursive: true, force: true })
+    }
+  })
+
+  test("falls back to a standard POSIX shell when the configured shell fails to spawn", async () => {
+    if (process.platform === "win32") {
+      return
+    }
+
+    const rootDir = await mkdtemp(path.join(tmpdir(), "nucleus-terminal-test-"))
+    const sendEvent = mock(() => {})
+    const originalShell = process.env.SHELL
+    const availableShells = ["/bin/zsh", "/bin/bash", "/bin/sh"].filter((candidate) => {
+      try {
+        accessSync(candidate, constants.X_OK)
+        return true
+      } catch {
+        return false
+      }
+    })
+
+    if (availableShells.length < 2) {
+      throw new Error("Expected at least two standard POSIX shells to be available for the test.")
+    }
+
+    const [configuredShell, fallbackShell] = availableShells
+
+    process.env.SHELL = configuredShell
+    spawnMock.mockImplementation((shell: string, _args: string[], options: { cwd: string }) => {
+      if (shell === configuredShell) {
+        throw new Error("posix_spawnp failed")
+      }
+
+      return createFakePty(options.cwd)
+    })
+
+    try {
+      const service = new TerminalService(sendEvent)
+
+      await service.createSession("session-1", rootDir, 80, 24)
+
+      expect(spawnMock).toHaveBeenCalledTimes(2)
+      expect(spawnMock.mock.calls[0]?.[0]).toBe(configuredShell)
+      expect(spawnMock.mock.calls[1]?.[0]).toBe(fallbackShell)
+    } finally {
+      if (originalShell === undefined) {
+        delete process.env.SHELL
+      } else {
+        process.env.SHELL = originalShell
+      }
+
       await rm(rootDir, { recursive: true, force: true })
     }
   })

@@ -1,5 +1,5 @@
 import os from "node:os"
-import { existsSync, statSync } from "node:fs"
+import { accessSync, constants, existsSync, statSync } from "node:fs"
 import pty, { type IPty } from "node-pty"
 import type {
   TerminalDataEvent,
@@ -22,6 +22,12 @@ interface TerminalSession {
   shellKind: TerminalStartResponse["shellKind"]
 }
 
+interface ShellLaunchConfig {
+  shell: string
+  shellArgs: string[]
+  shellKind: TerminalStartResponse["shellKind"]
+}
+
 function trimScrollback(buffer: string): string {
   if (buffer.length <= TERMINAL_SCROLLBACK_LIMIT) {
     return buffer
@@ -30,12 +36,43 @@ function trimScrollback(buffer: string): string {
   return buffer.slice(buffer.length - TERMINAL_SCROLLBACK_LIMIT)
 }
 
+function isExecutableFile(path: string): boolean {
+  try {
+    accessSync(path, constants.X_OK)
+    return statSync(path).isFile()
+  } catch {
+    return false
+  }
+}
+
+function resolvePosixShellCandidates(): string[] {
+  const candidates = [process.env.SHELL?.trim(), "/bin/zsh", "/bin/bash", "/bin/sh"]
+
+  const dedupedCandidates: string[] = []
+  for (const candidate of candidates) {
+    if (!candidate || dedupedCandidates.includes(candidate) || !candidate.startsWith("/")) {
+      continue
+    }
+
+    if (isExecutableFile(candidate)) {
+      dedupedCandidates.push(candidate)
+    }
+  }
+
+  return dedupedCandidates
+}
+
 function resolveDefaultShell(): string {
   if (process.platform === "win32") {
     return process.env.COMSPEC || "powershell.exe"
   }
 
-  return process.env.SHELL || "/bin/zsh"
+  const [shell] = resolvePosixShellCandidates()
+  if (shell) {
+    return shell
+  }
+
+  throw new Error("Unable to find a usable POSIX shell for the terminal session.")
 }
 
 function resolveShellKind(shell: string): TerminalStartResponse["shellKind"] {
@@ -62,6 +99,60 @@ function resolveShellArgs(shell: string): string[] {
   }
 
   return []
+}
+
+function createTerminalPty(
+  cols: number,
+  rows: number,
+  cwd: string,
+  environment?: Record<string, string>
+): ShellLaunchConfig & { terminal: IPty } {
+  const env = { ...process.env, HOME: os.homedir(), ...environment }
+
+  if (process.platform === "win32") {
+    const shell = resolveDefaultShell()
+    return {
+      terminal: pty.spawn(shell, resolveShellArgs(shell), {
+        name: "xterm-256color",
+        cols: Math.max(1, cols),
+        rows: Math.max(1, rows),
+        cwd,
+        env,
+      }),
+      shell,
+      shellArgs: resolveShellArgs(shell),
+      shellKind: resolveShellKind(shell),
+    }
+  }
+
+  const candidates = resolvePosixShellCandidates()
+  const errors: string[] = []
+
+  for (const shell of candidates) {
+    const shellArgs = resolveShellArgs(shell)
+
+    try {
+      return {
+        terminal: pty.spawn(shell, shellArgs, {
+          name: "xterm-256color",
+          cols: Math.max(1, cols),
+          rows: Math.max(1, rows),
+          cwd,
+          env,
+        }),
+        shell,
+        shellArgs,
+        shellKind: resolveShellKind(shell),
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      errors.push(`${shell}: ${message}`)
+    }
+  }
+
+  throw new Error(
+    `Unable to start a terminal shell. Tried ${candidates.join(", ")}.${errors.length > 0 ? ` Last error: ${errors.at(-1)}` : ""}`
+  )
 }
 
 export class TerminalService {
@@ -103,17 +194,12 @@ export class TerminalService {
       this.sessions.delete(sessionId)
     }
 
-    const shell = resolveDefaultShell()
-    const shellKind = resolveShellKind(shell)
-    const shellArgs = resolveShellArgs(shell)
-
-    const terminal = pty.spawn(shell, shellArgs, {
-      name: "xterm-256color",
-      cols: Math.max(1, cols),
-      rows: Math.max(1, rows),
-      cwd: trimmedCwd,
-      env: { ...process.env, HOME: os.homedir(), ...environment },
-    })
+    const { terminal, shellKind } = createTerminalPty(
+      cols,
+      rows,
+      trimmedCwd,
+      environment
+    )
 
     const session: TerminalSession = {
       pty: terminal,
