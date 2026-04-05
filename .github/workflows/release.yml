@@ -46,7 +46,8 @@ jobs:
       - name: Build and publish release assets
         shell: bash
         run: |
-          if [[ "${{ matrix.platform }}" == "macos-latest" && -z "${CSC_LINK}" ]]; then
+          if [[ "${{ matrix.platform }}" == "macos-latest" ]]; then
+            unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
             CSC_IDENTITY_AUTO_DISCOVERY=false bun run --cwd apps/desktop release ${{ matrix.build-args }} -c.mac.identity=-
           else
             bun run --cwd apps/desktop release ${{ matrix.build-args }}
