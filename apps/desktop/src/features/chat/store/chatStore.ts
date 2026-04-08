@@ -52,6 +52,7 @@ import type {
   RuntimePromptState,
   CollaborationModeKind,
   RuntimeSession,
+  SessionActivityState,
 } from "../types"
 import type {
   FileChangeEvent,
@@ -68,11 +69,12 @@ interface ChatState {
   chatByWorktree: Record<string, ProjectChatState>
   messagesBySession: Record<string, MessageWithParts[]>
   activePromptBySession: Record<string, RuntimePromptState>
+  sessionActivityById: Record<string, SessionActivityState>
   currentSessionId: string | null
   childSessions: Map<string, ChildSessionState>
   workspaceSetupByProject: Record<string, WorkspaceSetupState>
   workspaceSetupIntentByProject: Record<string, WorkspaceSetupIntent>
-  status: ChatStatus | "connecting"
+  status: ChatStatus
   error: string | null
   isLoading: boolean
   isInitialized: boolean
@@ -266,6 +268,66 @@ function normalizeMessagesBySession(
   )
 }
 
+function getKnownSessionIds(
+  chatByWorktree: Record<string, ProjectChatState>
+): Set<string> {
+  return new Set(
+    Object.values(chatByWorktree).flatMap((projectChat) =>
+      projectChat.sessions.map((session) => session.id)
+    )
+  )
+}
+
+function getSessionActivityState(
+  sessionActivityById: Record<string, SessionActivityState>,
+  sessionId: string
+): SessionActivityState {
+  return sessionActivityById[sessionId] ?? { status: "idle", unread: false }
+}
+
+function replaceSessionActivity(
+  sessionActivityById: Record<string, SessionActivityState>,
+  sessionId: string,
+  nextActivity: SessionActivityState
+): Record<string, SessionActivityState> {
+  return {
+    ...sessionActivityById,
+    [sessionId]: nextActivity,
+  }
+}
+
+function removeSessionActivity(
+  sessionActivityById: Record<string, SessionActivityState>,
+  sessionIds: Iterable<string>
+): Record<string, SessionActivityState> {
+  const nextSessionActivityById = { ...sessionActivityById }
+
+  for (const sessionId of sessionIds) {
+    delete nextSessionActivityById[sessionId]
+  }
+
+  return nextSessionActivityById
+}
+
+function normalizeSessionActivityState(
+  sessionActivityById: PersistedChatState["sessionActivityById"] | undefined,
+  chatByWorktree: Record<string, ProjectChatState>
+): Record<string, SessionActivityState> {
+  const knownSessionIds = getKnownSessionIds(chatByWorktree)
+
+  return Object.fromEntries(
+    Object.entries(sessionActivityById ?? {})
+      .filter(([sessionId]) => knownSessionIds.has(sessionId))
+      .map(([sessionId, activity]) => [
+        sessionId,
+        {
+          status: "idle",
+          unread: activity?.unread ?? false,
+        } satisfies SessionActivityState,
+      ])
+  )
+}
+
 function getProjectSessionMatch(
   chatByWorktree: Record<string, ProjectChatState>,
   worktreeId: string,
@@ -336,6 +398,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   chatByWorktree: {},
   messagesBySession: {},
   activePromptBySession: {},
+  sessionActivityById: {},
   currentSessionId: null,
   childSessions: new Map<string, ChildSessionState>(),
   workspaceSetupByProject: {},
@@ -363,6 +426,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const persisted = await store.get<PersistedChatState>("chatState")
         const normalizedChatByWorktree = await migratePersistedChatState(persisted)
         const normalizedMessagesBySession = normalizeMessagesBySession(persisted?.messagesBySession)
+        const normalizedSessionActivityById = normalizeSessionActivityState(
+          persisted?.sessionActivityById,
+          normalizedChatByWorktree
+        )
 
         set({
           chatByWorktree: normalizedChatByWorktree,
@@ -371,6 +438,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           // still tracks the corresponding pending request. After a reload they
           // become stale UI, so we intentionally drop them on startup.
           activePromptBySession: {},
+          sessionActivityById: normalizedSessionActivityById,
           isLoading: false,
           isInitialized: true,
         })
@@ -482,6 +550,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
           activeSessionId: session.id,
         },
       },
+      sessionActivityById: replaceSessionActivity(get().sessionActivityById, session.id, {
+        status: "idle",
+        unread: false,
+      }),
       currentSessionId: session.id,
       childSessions: new Map<string, ChildSessionState>(),
       status: "idle",
@@ -511,6 +583,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
           activeSessionId: session.id,
         },
       },
+      sessionActivityById: replaceSessionActivity(get().sessionActivityById, session.id, {
+        status: "idle",
+        unread: false,
+      }),
       currentSessionId: session.id,
       childSessions: new Map<string, ChildSessionState>(),
       status: "idle",
@@ -575,6 +651,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         chatByWorktree: nextChatByWorktree,
         messagesBySession: nextMessagesBySession,
         activePromptBySession: nextActivePromptBySession,
+        sessionActivityById: removeSessionActivity(state.sessionActivityById, sessionIdsToRemove),
         workspaceSetupByProject: nextWorkspaceSetupByProject,
         currentSessionId: isRemovingCurrentSession ? null : state.currentSessionId,
         childSessions: isRemovingCurrentSession
@@ -619,6 +696,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         chatByWorktree: nextChatByWorktree,
         messagesBySession: nextMessagesBySession,
         activePromptBySession: nextActivePromptBySession,
+        sessionActivityById: removeSessionActivity(state.sessionActivityById, sessionIdsToRemove),
         workspaceSetupByProject: nextWorkspaceSetupByProject,
         currentSessionId: isRemovingCurrentSession ? null : state.currentSessionId,
         childSessions: isRemovingCurrentSession
@@ -633,7 +711,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   selectSession: async (worktreeId: string, sessionId: string) => {
-    const { chatByWorktree, isInitialized } = get()
+    const { chatByWorktree, isInitialized, sessionActivityById } = get()
     if (!isInitialized) {
       return
     }
@@ -661,9 +739,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
           activeSessionId: sessionId,
         },
       },
+      sessionActivityById: replaceSessionActivity(
+        sessionActivityById,
+        sessionId,
+        {
+          ...getSessionActivityState(sessionActivityById, sessionId),
+          unread: false,
+        }
+      ),
       currentSessionId: sessionId,
       childSessions: new Map<string, ChildSessionState>(),
-      status: "idle",
+      status: getSessionActivityState(sessionActivityById, sessionId).status,
       error: null,
     })
 
@@ -671,7 +757,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   deleteSession: async (worktreeId: string, sessionId: string) => {
-    const { chatByWorktree, messagesBySession, activePromptBySession, currentSessionId } = get()
+    const {
+      chatByWorktree,
+      messagesBySession,
+      activePromptBySession,
+      sessionActivityById,
+      currentSessionId,
+    } = get()
     const projectChat = chatByWorktree[worktreeId]
     if (!projectChat) {
       return
@@ -700,6 +792,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       },
       messagesBySession: nextMessages,
       activePromptBySession: nextPromptState,
+      sessionActivityById: removeSessionActivity(sessionActivityById, [sessionId]),
       currentSessionId: currentSessionId === sessionId ? nextActiveSessionId : currentSessionId,
       childSessions: currentSessionId === sessionId ? new Map<string, ChildSessionState>() : get().childSessions,
       status: currentSessionId === sessionId ? "idle" : get().status,
@@ -710,7 +803,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   archiveSession: async (worktreeId: string, sessionId: string) => {
-    const { chatByWorktree, activePromptBySession, currentSessionId } = get()
+    const { chatByWorktree, activePromptBySession, sessionActivityById, currentSessionId } = get()
     const projectChat = chatByWorktree[worktreeId]
     if (!projectChat) {
       return
@@ -739,6 +832,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         },
       },
       activePromptBySession: nextPromptState,
+      sessionActivityById: removeSessionActivity(sessionActivityById, [sessionId]),
       currentSessionId: currentSessionId === sessionId ? nextActiveSessionId : currentSessionId,
       childSessions: currentSessionId === sessionId ? new Map<string, ChildSessionState>() : get().childSessions,
       status: currentSessionId === sessionId ? "idle" : get().status,
@@ -1069,6 +1163,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const nextSessionTitle =
       session.title?.trim() ? session.title : deriveSessionTitle(trimmedText, attachments)
     const nextSessionModel = options?.model?.trim() || session.model?.trim() || null
+    const nextTurnStatus = session.harnessId === "codex" ? "connecting" : "streaming"
     let nextSession: RuntimeSession = {
       ...touchSession(session, nextSessionTitle),
       model: nextSessionModel,
@@ -1088,9 +1183,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ...get().messagesBySession,
         [sessionId]: nextMessages,
       },
+      sessionActivityById: replaceSessionActivity(get().sessionActivityById, sessionId, {
+        status: nextTurnStatus,
+        unread: false,
+      }),
       currentSessionId: sessionId,
       childSessions: new Map<string, ChildSessionState>(),
-      status: "streaming",
+      status: nextTurnStatus,
       error: null,
     })
 
@@ -1151,6 +1250,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
             [sessionId]: sessionMessages,
           },
           activePromptBySession: nextPromptState,
+          sessionActivityById: replaceSessionActivity(state.sessionActivityById, sessionId, {
+            status: "streaming",
+            unread: false,
+          }),
           status: "streaming",
           error: null,
         }
@@ -1187,6 +1290,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
             sessionId,
             normalizedPromptState
           ),
+          sessionActivityById: replaceSessionActivity(state.sessionActivityById, sessionId, {
+            status: "idle",
+            unread: state.currentSessionId !== sessionId,
+          }),
           childSessions: createChildSessionMap(result.childSessions),
           status: "idle",
           error: null,
@@ -1240,6 +1347,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     } catch (error) {
       if (shouldRecreateRemoteSession(session, error)) {
         try {
+          set({
+            currentSessionId: sessionId,
+            sessionActivityById: replaceSessionActivity(get().sessionActivityById, sessionId, {
+              status: "connecting",
+              unread: false,
+            }),
+            status: "connecting",
+            error: null,
+          })
+
           const recreatedRemoteSession = await adapter.createSession(
             projectChat.worktreePath ?? session.projectPath ?? ""
           )
@@ -1257,12 +1374,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }
 
           syncLiveSession(recoveredSession)
-
-          set({
-            currentSessionId: sessionId,
-            status: "streaming",
-            error: null,
-          })
 
           const retriedResult = await runSend(recoveredSession)
           if (!getProjectSessionMatch(get().chatByWorktree, worktreeId, sessionId)) {
@@ -1303,6 +1414,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
             ...state.messagesBySession,
             [sessionId]: sessionMessages,
           },
+          sessionActivityById: replaceSessionActivity(state.sessionActivityById, sessionId, {
+            status: "error",
+            unread: state.currentSessionId !== sessionId,
+          }),
           status: "error",
           error: String(error),
         }
@@ -1323,7 +1438,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
 
     await getHarnessAdapter(sessionMatch.session.harnessId).abortSession(sessionMatch.session)
-    set({ status: "idle" })
+    set({
+      sessionActivityById: replaceSessionActivity(get().sessionActivityById, sessionId, {
+        status: "idle",
+        unread: false,
+      }),
+      status: "idle",
+    })
   },
 
   executeCommand: async (sessionId: string, command: string, args: string = "") => {
@@ -1345,6 +1466,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
           activeSessionId: sessionId,
         },
       },
+      sessionActivityById: replaceSessionActivity(get().sessionActivityById, sessionId, {
+        status: "streaming",
+        unread: false,
+      }),
+      currentSessionId: sessionId,
       status: "streaming",
       error: null,
     })
@@ -1382,6 +1508,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
             sessionId,
             normalizedPromptState
           ),
+          sessionActivityById: replaceSessionActivity(state.sessionActivityById, sessionId, {
+            status: "idle",
+            unread: state.currentSessionId !== sessionId,
+          }),
           status: "idle",
         }
       })
@@ -1396,6 +1526,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
 
         return {
+          sessionActivityById: replaceSessionActivity(state.sessionActivityById, sessionId, {
+            status: "error",
+            unread: state.currentSessionId !== sessionId,
+          }),
           status: "error",
           error: String(error),
         }
@@ -1415,12 +1549,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
 
     clearScheduledPersist()
-    const { chatByWorktree, messagesBySession } = get()
+    const { chatByWorktree, messagesBySession, sessionActivityById } = get()
     const store = await getStore()
     await store.set("chatState", {
       chatByWorktree,
       messagesBySession,
       activePromptBySession: {},
+      sessionActivityById,
     } satisfies PersistedChatState)
     await store.save()
   },

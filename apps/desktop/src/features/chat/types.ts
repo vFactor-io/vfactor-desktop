@@ -3,7 +3,12 @@
  * These types are owned by the app so multiple agent harnesses can map into one UI.
  */
 
-export type ChatStatus = "idle" | "streaming" | "error";
+export type ChatStatus = "idle" | "connecting" | "streaming" | "error";
+
+export interface SessionActivityState {
+  status: ChatStatus;
+  unread: boolean;
+}
 
 export type TabType = "chat-session" | "file" | "diff" | "terminal";
 

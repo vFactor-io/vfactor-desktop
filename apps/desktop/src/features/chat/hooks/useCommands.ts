@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { desktop } from "@/desktop/client"
 import type { SkillsSyncResponse } from "@/features/skills/types"
+import type { ProjectAction } from "@/features/workspace/types"
 import { getHarnessAdapter } from "../runtime/harnesses"
 import type { HarnessId } from "../types"
 
@@ -9,26 +10,37 @@ export interface NormalizedCommand {
   name: string
   description: string
   kind: "builtin" | "custom"
-  section: "system" | "skills"
+  section: "actions" | "custom-actions" | "skills"
   execution: "insert" | "run"
-  action?: "new-chat"
-  icon?: "skill" | "new-chat"
+  action?: "new-chat" | "new-terminal"
+  icon?: "skill" | "new-chat" | "new-terminal"
   agent?: string
   model?: string
   isPreview?: boolean
   referenceName?: string
+  projectAction?: ProjectAction
 }
 
-const SYSTEM_COMMANDS: NormalizedCommand[] = [
+const ACTION_COMMANDS: NormalizedCommand[] = [
   {
-    id: "system:new-chat",
+    id: "action:new-chat",
     name: "New Chat",
     description: "Open a new chat tab in the current project.",
     kind: "builtin",
-    section: "system",
+    section: "actions",
     execution: "run",
     action: "new-chat",
     icon: "new-chat",
+  },
+  {
+    id: "action:new-terminal",
+    name: "New Terminal",
+    description: "Open a new terminal tab in the current project.",
+    kind: "builtin",
+    section: "actions",
+    execution: "run",
+    action: "new-terminal",
+    icon: "new-terminal",
   },
 ]
 
@@ -57,8 +69,8 @@ const BUILTIN_PREVIEW_COMMANDS: NormalizedCommand[] = [
   },
 ]
 
-export function useCommands(harnessId: HarnessId | null) {
-  const [commands, setCommands] = useState<NormalizedCommand[]>(SYSTEM_COMMANDS)
+export function useCommands(harnessId: HarnessId | null, projectActions: ProjectAction[] = []) {
+  const [commands, setCommands] = useState<NormalizedCommand[]>(ACTION_COMMANDS)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -126,15 +138,34 @@ export function useCommands(harnessId: HarnessId | null) {
         return a.name.localeCompare(b.name)
       })
 
-      setCommands([...SYSTEM_COMMANDS, ...skillCommands])
+      const projectActionCommands: NormalizedCommand[] = projectActions.map((action) => ({
+        id: `project-action:${action.id}`,
+        name: action.name,
+        description: "Run this project action in the current worktree terminal.",
+        kind: "custom",
+        section: "custom-actions",
+        execution: "run",
+        projectAction: action,
+      }))
+
+      setCommands([...ACTION_COMMANDS, ...projectActionCommands, ...skillCommands])
     } catch (err) {
       console.error("[useCommands] Failed to fetch commands:", err)
       setError(String(err))
-      setCommands([...SYSTEM_COMMANDS, ...BUILTIN_PREVIEW_COMMANDS])
+      const projectActionCommands: NormalizedCommand[] = projectActions.map((action) => ({
+        id: `project-action:${action.id}`,
+        name: action.name,
+        description: "Run this project action in the current worktree terminal.",
+        kind: "custom",
+        section: "custom-actions",
+        execution: "run",
+        projectAction: action,
+      }))
+      setCommands([...ACTION_COMMANDS, ...projectActionCommands, ...BUILTIN_PREVIEW_COMMANDS])
     } finally {
       setIsLoading(false)
     }
-  }, [harnessId])
+  }, [harnessId, projectActions])
 
   useEffect(() => {
     fetchCommands()

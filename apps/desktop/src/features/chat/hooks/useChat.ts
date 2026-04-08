@@ -45,10 +45,6 @@ function getActiveSessionId(projectChat: ProjectChatState | null): string | null
     : null
 }
 
-function getUiStatus(status: ChatStatus | "connecting"): ChatStatus {
-  return status === "connecting" ? "idle" : status
-}
-
 export function useChatProjectState(): {
   selectedProjectId: string | null
   selectedProject: Project | null
@@ -110,7 +106,9 @@ export function useChatTimelineState(activeSessionId: string | null): {
   )
   const currentSessionId = useChatStore((state) => state.currentSessionId)
   const childSessions = useChatStore((state) => state.childSessions)
-  const status = useChatStore((state) => state.status)
+  const sessionStatus = useChatStore((state) =>
+    activeSessionId ? state.sessionActivityById[activeSessionId]?.status ?? "idle" : "idle"
+  )
   const activePromptState = useChatStore((state) =>
     activeSessionId ? state.activePromptBySession[activeSessionId] ?? null : null
   )
@@ -120,8 +118,8 @@ export function useChatTimelineState(activeSessionId: string | null): {
   return {
     messages,
     childSessions: isResolvedActiveSession ? childSessions : undefined,
-    status: isResolvedActiveSession ? getUiStatus(status) : "idle",
-    activePromptState: isResolvedActiveSession ? activePromptState : null,
+    status: sessionStatus,
+    activePromptState,
   }
 }
 
@@ -169,8 +167,7 @@ export function useChatComposerState({
   const [draftStateBySessionKey, setDraftStateBySessionKey] = useState<Record<string, ComposerDraftState>>({})
   const {
     initialize,
-    currentSessionId,
-    status,
+    sessionActivityById,
     activePromptBySession,
     createSession,
     createOptimisticSession,
@@ -182,8 +179,7 @@ export function useChatComposerState({
   } = useChatStore(
     useShallow((state) => ({
       initialize: state.initialize,
-      currentSessionId: state.currentSessionId,
-      status: state.status,
+      sessionActivityById: state.sessionActivityById,
       activePromptBySession: state.activePromptBySession,
       createSession: state.createSession,
       createOptimisticSession: state.createOptimisticSession,
@@ -203,8 +199,7 @@ export function useChatComposerState({
   const activePromptState: RuntimePromptState | null =
     activeSessionId ? activePromptBySession[activeSessionId] ?? null : null
   const activePrompt = activePromptState?.status === "active" ? activePromptState.prompt : null
-  const isResolvedActiveSession = activeSessionId != null && currentSessionId === activeSessionId
-  const uiStatus = isResolvedActiveSession ? getUiStatus(status) : "idle"
+  const uiStatus = activeSessionId ? sessionActivityById[activeSessionId]?.status ?? "idle" : "idle"
 
   const setInput = useCallback(
     (value: string) => {
@@ -258,7 +253,11 @@ export function useChatComposerState({
     ) => {
       const attachmentsToSend = options?.attachments ?? attachments
 
-      if ((!text.trim() && attachmentsToSend.length === 0) || uiStatus === "streaming") {
+      if (
+        (!text.trim() && attachmentsToSend.length === 0) ||
+        uiStatus === "streaming" ||
+        uiStatus === "connecting"
+      ) {
         return false
       }
 

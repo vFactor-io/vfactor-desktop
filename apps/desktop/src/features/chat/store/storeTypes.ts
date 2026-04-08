@@ -3,6 +3,7 @@ import type {
   MessageWithParts,
   RuntimePromptState,
   RuntimeSession,
+  SessionActivityState,
 } from "../types"
 
 export interface WorktreeChatState {
@@ -20,6 +21,7 @@ export interface PersistedChatState {
   chatByWorktree?: Record<string, WorktreeChatState>
   messagesBySession: Record<string, MessageWithParts[]>
   activePromptBySession?: Record<string, RuntimePromptState>
+  sessionActivityById?: Record<string, SessionActivityState>
 }
 
 export interface FileChangeEvent {

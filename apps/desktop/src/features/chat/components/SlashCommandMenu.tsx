@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react"
 import { cn } from "@/lib/utils"
-import { BookOpen, InformationCircle, PencilSimple } from "@/components/icons"
+import { BookOpen, InformationCircle, PencilSimple, Terminal } from "@/components/icons"
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/features/shared/components/ui/tooltip"
+import { ProjectActionIcon } from "@/features/workspace/components/ProjectActionIcon"
 import type { NormalizedCommand } from "../hooks/useCommands"
 
 export interface SlashCommandMenuProps {
@@ -20,7 +21,7 @@ export interface SlashCommandMenuProps {
 
 export function SlashCommandMenu({
   commands,
-  query,
+  query: _query,
   isLoading,
   onSelect,
   onClose,
@@ -28,12 +29,18 @@ export function SlashCommandMenu({
   className,
 }: SlashCommandMenuProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const selectedRef = useRef<HTMLDivElement>(null)
   const sections = [
     {
-      key: "system",
+      key: "actions",
       label: "System",
-      commands: commands.filter((command) => command.section === "system"),
+      commands: commands.filter((command) => command.section === "actions"),
+    },
+    {
+      key: "custom-actions",
+      label: "Custom Actions",
+      commands: commands.filter((command) => command.section === "custom-actions"),
     },
     {
       key: "skills",
@@ -44,6 +51,11 @@ export function SlashCommandMenu({
 
   // Scroll selected item into view
   useEffect(() => {
+    if (selectedIndex === 0) {
+      scrollContainerRef.current?.scrollTo({ top: 0 })
+      return
+    }
+
     if (selectedRef.current) {
       selectedRef.current.scrollIntoView({ block: "nearest" })
     }
@@ -101,7 +113,7 @@ export function SlashCommandMenu({
         className
       )}
     >
-      <div className="app-scrollbar max-h-64 overflow-y-auto p-1">
+      <div ref={scrollContainerRef} className="app-scrollbar max-h-64 overflow-y-auto p-1">
         {sections.map((section, sectionIndex) => {
           let runningIndex = 0
           for (let i = 0; i < sectionIndex; i += 1) {
@@ -112,17 +124,17 @@ export function SlashCommandMenu({
             <div key={section.key} className={cn(sectionIndex > 0 && "mt-1.5")}>
               <div className="px-2 pt-1.5 pb-1 text-[10px] font-medium uppercase tracking-[0.15em] text-muted-foreground/70">
                 {section.label}
-                {sectionIndex === 0 && query ? (
-                  <span className="ml-1.5 normal-case tracking-normal">
-                    — <span className="font-mono text-foreground/70">/{query}</span>
-                  </span>
-                ) : null}
               </div>
 
               {section.commands.map((cmd, index) => {
                 const flatIndex = runningIndex + index
                 const isSelected = selectedIndex === flatIndex
-                const Icon = cmd.icon === "new-chat" ? PencilSimple : BookOpen
+                const Icon =
+                  cmd.icon === "new-chat"
+                    ? PencilSimple
+                    : cmd.icon === "new-terminal"
+                      ? Terminal
+                      : BookOpen
 
                 return (
                   <div
@@ -137,7 +149,15 @@ export function SlashCommandMenu({
                         : "hover:bg-accent/50"
                     )}
                   >
-                    <Icon size={14} className="shrink-0 text-muted-foreground" />
+                    {cmd.projectAction ? (
+                      <ProjectActionIcon
+                        action={cmd.projectAction}
+                        size={14}
+                        className="shrink-0 text-muted-foreground"
+                      />
+                    ) : (
+                      <Icon size={14} className="shrink-0 text-muted-foreground" />
+                    )}
 
                     <span className="min-w-0 truncate font-medium text-foreground">
                       {cmd.name}

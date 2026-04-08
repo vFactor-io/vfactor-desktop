@@ -66,6 +66,8 @@ import { useCurrentProjectWorktree } from "@/features/shared/hooks"
 import { useChatStore } from "../store"
 import { useSettingsStore } from "@/features/settings/store/settingsStore"
 import { useTabStore } from "@/features/editor/store"
+import { runCommandInProjectTerminal } from "@/features/terminal/utils/projectTerminal"
+import { getProjectActionCommands } from "@/features/workspace/utils/projectActions"
 import {
   formatShortcutBinding,
   getShortcutBinding,
@@ -111,7 +113,7 @@ interface ChatInputProps {
   ) => void
   onAbort?: () => void
   onExecuteCommand?: (command: string, args?: string) => void
-  status: "idle" | "streaming" | "error"
+  status: "idle" | "connecting" | "streaming" | "error"
   activePlan?: ComposerPlan | null
   prompt?: ComposerPrompt | null
   onAnswerPrompt?: (response: RuntimePromptResponse) => void
@@ -136,6 +138,26 @@ function getHarnessGroupMeta(selectedHarnessId: "codex" | "claude-code" | null):
     label: "Codex",
     logoKind: "codex",
   }
+}
+
+function formatFocusShortcutHint(binding: ReturnType<typeof getShortcutBinding>): string {
+  const modifierSymbols = binding.modifiers.map((modifier) => {
+    switch (modifier) {
+      case "meta":
+        return "\u2318"
+      case "ctrl":
+        return "\u2303"
+      case "alt":
+        return "\u2325"
+      case "shift":
+        return "\u21e7"
+      default:
+        return ""
+    }
+  })
+
+  const key = binding.key.length === 1 ? binding.key.toUpperCase() : binding.key
+  return `${modifierSymbols.join("")}${key}`
 }
 
 function formatReasoningEffortLabel(value: string): string {
@@ -165,13 +187,14 @@ export function ChatInput({
   onDismissPrompt,
 }: ChatInputProps) {
   const attachments = normalizeChatInputAttachments(rawAttachments)
-  const { selectedWorktreeId, selectedWorktreePath } = useCurrentProjectWorktree()
+  const { selectedProject, selectedWorktreeId, selectedWorktreePath } = useCurrentProjectWorktree()
   const projectChat = useChatStore((state) =>
     selectedWorktreeId ? state.getProjectChat(selectedWorktreeId) : null
   )
   const createOptimisticSession = useChatStore((state) => state.createOptimisticSession)
   const setSessionModel = useChatStore((state) => state.setSessionModel)
   const openChatSession = useTabStore((state) => state.openChatSession)
+  const openTerminalTab = useTabStore((state) => state.openTerminalTab)
   const initializeSettings = useSettingsStore((state) => state.initialize)
   const codexDefaultModel = useSettingsStore((state) => state.codexDefaultModel)
   const codexDefaultReasoningEffort = useSettingsStore((state) => state.codexDefaultReasoningEffort)
@@ -190,6 +213,7 @@ export function ChatInput({
   const [dismissedMenuKey, setDismissedMenuKey] = useState<string | null>(null)
   const [isSlashMenuDismissed, setIsSlashMenuDismissed] = useState(false)
   const [isPlanModeEnabled, setIsPlanModeEnabled] = useState(false)
+  const [isComposerFocused, setIsComposerFocused] = useState(false)
   const [reasoningEffortOverride, setReasoningEffortOverride] = useState<RuntimeReasoningEffort | null>(null)
   const [fastModeOverride, setFastModeOverride] = useState<boolean | null>(null)
   const [promptAnswers, setPromptAnswers] = useState<Record<string, string | string[]>>({})
@@ -199,6 +223,10 @@ export function ChatInput({
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const focusChatInputShortcut = useMemo(() => getShortcutBinding("focus-chat-input"), [])
+  const focusChatInputHint = useMemo(
+    () => formatFocusShortcutHint(focusChatInputShortcut),
+    [focusChatInputShortcut]
+  )
   const planModeShortcut = useMemo(() => getShortcutBinding("toggle-plan-mode"), [])
   const planModeShortcutLabel = useMemo(
     () => formatShortcutBinding(planModeShortcut),
@@ -244,7 +272,10 @@ export function ChatInput({
     editor.focus()
   }, [])
 
-  const { commands, isLoading: isLoadingCommands } = useCommands(selectedHarnessId)
+  const { commands, isLoading: isLoadingCommands } = useCommands(
+    selectedHarnessId,
+    selectedProject?.actions ?? []
+  )
   const { agents, isLoading: isLoadingAgents } = useAgents(selectedHarnessId)
   const { results: fileResults, isLoading: isLoadingFiles, search: searchFiles, clear: clearFiles } = useFileSearch()
   const isCodexHarness = selectedHarnessId === "codex"
@@ -385,6 +416,7 @@ export function ChatInput({
   )
 
   const isStreaming = status === "streaming"
+  const isWorking = status === "connecting" || status === "streaming"
   const isPromptActive = !!prompt
   const isComposerLocked = isLocked && !isPromptActive
   const activeQuestionPrompt = isRuntimeQuestionPrompt(prompt) ? prompt : null
@@ -407,7 +439,7 @@ export function ChatInput({
     allowSlashCommands &&
     !isPromptActive &&
     !isComposerLocked &&
-    !isStreaming &&
+    !isWorking &&
     slashCommandQuery !== null &&
     !isSlashMenuDismissed
 
@@ -415,7 +447,7 @@ export function ChatInput({
     !isPromptActive &&
     !isComposerLocked &&
     composerTextInput.startsWith("@") &&
-    !isStreaming &&
+    !isWorking &&
     dismissedMenuKey !== atMenuKey
   const atQuery = showAtMenu ? composerTextInput.slice(1) : ""
   const canSubmit = activeQuestionPrompt
@@ -423,7 +455,7 @@ export function ChatInput({
     : activeApprovalPrompt
       ? false
     : (composerTextInput.trim().length > 0 || attachments.length > 0) &&
-        !isStreaming &&
+        !isWorking &&
         !isComposerLocked
 
   useEffect(() => {
@@ -628,9 +660,53 @@ export function ChatInput({
           setIsSlashMenuDismissed(false)
           openChatSession(session.id, session.title)
         }
+        return
+      }
+
+      if (command.action === "new-terminal") {
+        if (!selectedWorktreeId) {
+          return
+        }
+
+        setInput("")
+        setDismissedMenuKey(null)
+        setIsSlashMenuDismissed(false)
+        openTerminalTab(selectedWorktreeId)
+        return
+      }
+
+      if (command.projectAction) {
+        if (!selectedWorktreeId || !selectedWorktreePath) {
+          return
+        }
+
+        const commandLines = getProjectActionCommands(command.projectAction.command)
+        if (commandLines.length === 0) {
+          return
+        }
+
+        setInput("")
+        setDismissedMenuKey(null)
+        setIsSlashMenuDismissed(false)
+
+        void runCommandInProjectTerminal({
+          projectId: selectedWorktreeId,
+          cwd: selectedWorktreePath,
+          command: commandLines.join("\n"),
+        }).catch((error) => {
+          console.error(`Failed to run project action "${command.projectAction?.name}":`, error)
+        })
       }
     },
-    [createOptimisticSession, openChatSession, selectedWorktreeId, selectedWorktreePath, setInput]
+    [
+      createOptimisticSession,
+      openTerminalTab,
+      openChatSession,
+      selectedProject,
+      selectedWorktreeId,
+      selectedWorktreePath,
+      setInput,
+    ]
   )
 
   const handleSelectCommand = useCallback(
@@ -1730,7 +1806,7 @@ export function ChatInput({
                 editorRef={editorRef}
                 initialConfig={composerInitialConfig}
                 isLocked={isComposerLocked}
-                isStreaming={isStreaming}
+                isStreaming={isWorking}
                 onChange={handleComposerChange}
                 onKeyDown={handleKeyDown}
                 onPaste={handleComposerPaste}
@@ -1738,8 +1814,17 @@ export function ChatInput({
                 onDrop={handleComposerDrop}
                 onCompositionStart={() => setIsImeComposing(true)}
                 onCompositionEnd={() => setIsImeComposing(false)}
+                onFocus={() => setIsComposerFocused(true)}
+                onBlur={() => setIsComposerFocused(false)}
                 placeholder={placeholder}
               />
+
+              {!isComposerFocused ? (
+                <div className="pointer-events-none absolute top-3 right-4 z-10 text-sm leading-5 text-muted-foreground/58">
+                  <span className="text-foreground/84">{focusChatInputHint}</span>
+                  <span className="text-muted-foreground/58"> to focus</span>
+                </div>
+              ) : null}
 
               {showSlashMenu ? (
                 <ComposerFloatingOverlay anchorRef={composerMenuAnchorRef}>
@@ -1911,7 +1996,7 @@ export function ChatInput({
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  disabled={isStreaming}
+                  disabled={isWorking}
                   className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-transparent text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
                   aria-label="Add upload"
                 >

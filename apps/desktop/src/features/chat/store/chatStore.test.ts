@@ -106,6 +106,7 @@ function resetChatStore() {
     chatByWorktree: {},
     messagesBySession: {},
     activePromptBySession: {},
+    sessionActivityById: {},
     currentSessionId: null,
     childSessions: new Map(),
     workspaceSetupByProject: {},
@@ -273,6 +274,7 @@ describe("chatStore worktree scoping", () => {
       chatByWorktree: {},
       messagesBySession: {},
       activePromptBySession: {},
+      sessionActivityById: {},
       currentSessionId: null,
       childSessions: new Map(),
       workspaceSetupByProject: {},
@@ -314,6 +316,7 @@ describe("chatStore worktree scoping", () => {
       chatByWorktree: {},
       messagesBySession: {},
       activePromptBySession: {},
+      sessionActivityById: {},
       currentSessionId: null,
       childSessions: new Map(),
       workspaceSetupByProject: {},
@@ -387,6 +390,81 @@ describe("chatStore worktree scoping", () => {
     await sendPromise
   })
 
+  test("marks a finished background session as unread until it is reselected", async () => {
+    type HarnessTurnValue = {
+      messages: Array<{
+        info: { id: string; sessionId: string; role: "assistant"; createdAt: number }
+        parts: Array<{ id: string; type: "text"; text: string }>
+      }>
+    }
+
+    let resolveHarnessTurn: ((value: HarnessTurnValue) => void) | null = null
+    pendingHarnessTurn = new Promise((resolve) => {
+      resolveHarnessTurn = resolve
+    })
+
+    const firstSession = useChatStore.getState().createOptimisticSession("worktree-1", "/tmp/worktree-1")
+    const secondSession = useChatStore.getState().createOptimisticSession("worktree-1", "/tmp/worktree-1")
+
+    expect(firstSession).not.toBeNull()
+    expect(secondSession).not.toBeNull()
+
+    await useChatStore.getState().selectSession("worktree-1", firstSession!.id)
+    const sendPromise = useChatStore.getState().sendMessage(firstSession!.id, "Ping")
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(useChatStore.getState().sessionActivityById[firstSession!.id]).toEqual({
+      status: "connecting",
+      unread: false,
+    })
+
+    await useChatStore.getState().selectSession("worktree-1", secondSession!.id)
+
+    resolveHarnessTurn!({
+      messages: [
+        {
+          info: {
+            id: "assistant-message",
+            sessionId: firstSession!.id,
+            role: "assistant",
+            createdAt: Date.now(),
+          },
+          parts: [
+            {
+              id: "assistant-text",
+              type: "text",
+              text: "Pong",
+            },
+          ],
+        },
+      ],
+    })
+
+    await sendPromise
+
+    expect(useChatStore.getState().sessionActivityById[firstSession!.id]).toEqual({
+      status: "idle",
+      unread: true,
+    })
+
+    const persisted = storeData.get("chatState") as {
+      sessionActivityById: Record<string, { status: string; unread: boolean }>
+    }
+
+    expect(persisted.sessionActivityById[firstSession!.id]).toEqual({
+      status: "idle",
+      unread: true,
+    })
+
+    await useChatStore.getState().selectSession("worktree-1", firstSession!.id)
+
+    expect(useChatStore.getState().sessionActivityById[firstSession!.id]).toEqual({
+      status: "idle",
+      unread: false,
+    })
+  })
+
   test("sends attachment context through text transport while persisting local attachment parts", async () => {
     const session = useChatStore.getState().createOptimisticSession("worktree-1", "/tmp/worktree-1")
 
@@ -430,5 +508,57 @@ describe("chatStore worktree scoping", () => {
         relativePath: ".nucleus/chat-inputs/2026-04-07/attachment-1-diagram.png",
       }),
     ])
+  })
+
+  test("normalizes persisted running session badges back to idle on startup", async () => {
+    storeData.set("chatState", {
+      chatByWorktree: {
+        "worktree-1": {
+          sessions: [
+            {
+              id: "draft-session-1",
+              harnessId: "codex",
+              projectPath: "/tmp/worktree-1",
+              title: "Ping",
+              createdAt: 100,
+              updatedAt: 200,
+            },
+          ],
+          activeSessionId: "draft-session-1",
+          worktreePath: "/tmp/worktree-1",
+          archivedSessionIds: [],
+          selectedHarnessId: "codex",
+        },
+      },
+      messagesBySession: {},
+      activePromptBySession: {},
+      sessionActivityById: {
+        "draft-session-1": {
+          status: "streaming",
+          unread: true,
+        },
+      },
+    })
+
+    useChatStore.setState({
+      chatByWorktree: {},
+      messagesBySession: {},
+      activePromptBySession: {},
+      sessionActivityById: {},
+      currentSessionId: null,
+      childSessions: new Map(),
+      workspaceSetupByProject: {},
+      status: "idle",
+      error: null,
+      isLoading: false,
+      isInitialized: false,
+    })
+
+    await useChatStore.getState().loadSessionsForProject("worktree-1", "/tmp/worktree-1")
+
+    expect(useChatStore.getState().sessionActivityById["draft-session-1"]).toEqual({
+      status: "idle",
+      unread: true,
+    })
   })
 })

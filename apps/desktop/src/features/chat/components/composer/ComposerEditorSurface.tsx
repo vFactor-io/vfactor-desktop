@@ -25,6 +25,8 @@ interface ComposerEditorSurfaceProps {
   onDrop?: (event: ReactDragEvent<HTMLDivElement>) => void
   onCompositionStart: () => void
   onCompositionEnd: () => void
+  onFocus?: () => void
+  onBlur?: () => void
   placeholder: string
 }
 
@@ -39,6 +41,8 @@ export function ComposerEditorSurface({
   onDrop,
   onCompositionStart,
   onCompositionEnd,
+  onFocus,
+  onBlur,
   placeholder,
 }: ComposerEditorSurfaceProps) {
   return (
@@ -55,9 +59,11 @@ export function ComposerEditorSurface({
             onDrop={onDrop}
             onCompositionStart={onCompositionStart}
             onCompositionEnd={onCompositionEnd}
+            onFocus={onFocus}
+            onBlur={onBlur}
             aria-placeholder={placeholder}
             placeholder={<></>}
-            className="app-scrollbar w-full min-h-[46px] max-h-[328px] overflow-y-auto bg-transparent text-sm leading-5 text-foreground outline-none"
+            className="app-scrollbar w-full min-h-[58px] max-h-[328px] overflow-y-auto bg-transparent text-sm leading-5 text-foreground outline-none"
           />
         }
         placeholder={
