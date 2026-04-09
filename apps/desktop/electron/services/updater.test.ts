@@ -1,39 +1,39 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test"
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
 
 const appMock = {
   isPackaged: true,
   getVersion: mock(() => "0.1.1"),
 }
 
-const existsSyncMock = mock(() => true)
 const captureMock = mock(() => {})
 const captureExceptionMock = mock(() => {})
+const consoleErrorMock = mock(() => {})
+const updaterListeners = new Map<string, Array<(payload?: unknown) => void>>()
+const originalConsoleError = console.error
 
-const onceListeners = new Map<string, (payload?: unknown) => void>()
+function emitUpdaterEvent(event: string, payload?: unknown) {
+  for (const listener of updaterListeners.get(event) ?? []) {
+    listener(payload)
+  }
+}
 
 const autoUpdater = {
-  autoDownload: true,
+  autoDownload: false,
   autoInstallOnAppQuit: true,
-  once: mock((event: string, listener: (payload?: unknown) => void) => {
-    onceListeners.set(event, listener)
-  }),
-  on: mock(() => autoUpdater),
-  removeListener: mock((event: string, listener: (payload?: unknown) => void) => {
-    if (onceListeners.get(event) === listener) {
-      onceListeners.delete(event)
-    }
+  disableDifferentialDownload: false,
+  setFeedURL: mock(() => {}),
+  on: mock((event: string, listener: (payload?: unknown) => void) => {
+    const listeners = updaterListeners.get(event) ?? []
+    listeners.push(listener)
+    updaterListeners.set(event, listeners)
+    return autoUpdater
   }),
   checkForUpdates: mock(async () => {}),
-  downloadUpdate: mock(async () => {}),
   quitAndInstall: mock(() => {}),
 }
 
 mock.module("electron", () => ({
   app: appMock,
-}))
-
-mock.module("node:fs", () => ({
-  existsSync: existsSyncMock,
 }))
 
 mock.module("electron-updater", () => ({
@@ -47,110 +47,214 @@ mock.module("./analytics", () => ({
 }))
 
 const { UpdaterService } = await import("./updater")
-const originalResourcesPath = process.resourcesPath
 
-describe("UpdaterService.checkForUpdates", () => {
+describe("UpdaterService", () => {
   beforeEach(() => {
-    Object.defineProperty(process, "resourcesPath", {
-      configurable: true,
-      value: "/tmp/nucleus-test-resources",
-    })
     appMock.isPackaged = true
-    existsSyncMock.mockReset()
-    existsSyncMock.mockReturnValue(true)
-    captureMock.mockReset()
-    captureExceptionMock.mockReset()
     appMock.getVersion.mockReset()
     appMock.getVersion.mockReturnValue("0.1.1")
-    autoUpdater.autoDownload = true
+    captureMock.mockReset()
+    captureExceptionMock.mockReset()
+    consoleErrorMock.mockReset()
+    console.error = consoleErrorMock as typeof console.error
+    updaterListeners.clear()
+    autoUpdater.autoDownload = false
     autoUpdater.autoInstallOnAppQuit = true
-    autoUpdater.once.mockReset()
-    autoUpdater.once.mockImplementation((event: string, listener: (payload?: unknown) => void) => {
-      onceListeners.set(event, listener)
-    })
+    autoUpdater.disableDifferentialDownload = false
+    autoUpdater.setFeedURL.mockReset()
     autoUpdater.on.mockReset()
-    autoUpdater.on.mockImplementation(() => autoUpdater)
-    autoUpdater.removeListener.mockReset()
-    autoUpdater.removeListener.mockImplementation((event: string, listener: (payload?: unknown) => void) => {
-      if (onceListeners.get(event) === listener) {
-        onceListeners.delete(event)
-      }
+    autoUpdater.on.mockImplementation((event: string, listener: (payload?: unknown) => void) => {
+      const listeners = updaterListeners.get(event) ?? []
+      listeners.push(listener)
+      updaterListeners.set(event, listeners)
+      return autoUpdater
     })
     autoUpdater.checkForUpdates.mockReset()
     autoUpdater.checkForUpdates.mockImplementation(async () => {})
-    autoUpdater.downloadUpdate.mockReset()
     autoUpdater.quitAndInstall.mockReset()
-    onceListeners.clear()
   })
 
-  test("returns early for unpackaged builds", async () => {
+  afterEach(() => {
+    console.error = originalConsoleError
+  })
+
+  test("reports disabled state for unpackaged builds", async () => {
     appMock.isPackaged = false
 
     const service = new UpdaterService(() => {})
+    const state = service.getState()
     const result = await service.checkForUpdates()
 
-    expect(result).toBeNull()
+    expect(state.enabled).toBe(false)
+    expect(state.status).toBe("disabled")
+    expect(result.checked).toBe(false)
     expect(autoUpdater.checkForUpdates).not.toHaveBeenCalled()
   })
 
-  test("throws a friendly error when the update config is missing", async () => {
-    existsSyncMock.mockReturnValue(false)
-
-    const service = new UpdaterService(() => {})
-
-    await expect(service.checkForUpdates()).rejects.toThrow(
-      "In-app updates are unavailable in this build. Download the latest GitHub release manually to update."
-    )
-
-    expect(autoUpdater.checkForUpdates).not.toHaveBeenCalled()
-    expect(captureMock).toHaveBeenCalledWith(
-      "update_check_unavailable",
-      expect.objectContaining({
-        reason: "missing_update_config",
-        current_version: "0.1.1",
-      })
-    )
-  })
-
-  test("maps update information when an update is available", async () => {
+  test("mirrors a background download through to ready state", async () => {
     autoUpdater.checkForUpdates.mockImplementation(async () => {
-      onceListeners.get("update-available")?.({
+      emitUpdaterEvent("checking-for-update")
+      emitUpdaterEvent("update-available", {
         version: "0.2.0",
-        releaseName: "Nucleus 0.2.0",
-        releaseDate: "2026-04-05T18:00:00.000Z",
+        releaseNotes: "Shipped a quieter updater.",
       })
+      emitUpdaterEvent("download-progress", {
+        percent: 48.6,
+      })
+      emitUpdaterEvent("update-downloaded", {
+        version: "0.2.0",
+        releaseNotes: "Shipped a quieter updater.",
+      })
+    })
+
+    const snapshots: Array<{ status: string; downloadPercent: number | null }> = []
+    const service = new UpdaterService((_channel, payload) => {
+      const snapshot = payload as { status: string; downloadPercent: number | null }
+      snapshots.push({
+        status: snapshot.status,
+        downloadPercent: snapshot.downloadPercent,
+      })
+    })
+
+    const result = await service.checkForUpdates()
+
+    expect(result.checked).toBe(true)
+    expect(result.state.status).toBe("ready")
+    expect(result.state.availableVersion).toBe("0.2.0")
+    expect(result.state.downloadedVersion).toBe("0.2.0")
+    expect(result.state.downloadPercent).toBe(100)
+    expect(result.state.canInstall).toBe(true)
+    expect(autoUpdater.autoDownload).toBe(true)
+    expect(autoUpdater.autoInstallOnAppQuit).toBe(false)
+    expect(autoUpdater.disableDifferentialDownload).toBe(true)
+    expect(autoUpdater.setFeedURL).toHaveBeenCalledWith({
+      provider: "generic",
+      url: "https://github.com/bradleygibsongit/nucleus-desktop/releases/latest/download",
+    })
+    expect(snapshots.some((snapshot) => snapshot.status === "downloading")).toBe(true)
+  })
+
+  test("moves to up-to-date when no release is available", async () => {
+    autoUpdater.checkForUpdates.mockImplementation(async () => {
+      emitUpdaterEvent("checking-for-update")
+      emitUpdaterEvent("update-not-available")
     })
 
     const service = new UpdaterService(() => {})
     const result = await service.checkForUpdates()
 
-    expect(result).toEqual({
-      version: "0.2.0",
-      currentVersion: "0.1.1",
-      notes: "Nucleus 0.2.0",
-      pubDate: "2026-04-05T18:00:00.000Z",
-      target: process.platform,
-    })
-    expect(autoUpdater.autoDownload).toBe(false)
-    expect(autoUpdater.autoInstallOnAppQuit).toBe(false)
+    expect(result.checked).toBe(true)
+    expect(result.state.status).toBe("up-to-date")
+    expect(result.state.availableVersion).toBeNull()
   })
 
-  test("surfaces a friendly error for private GitHub release feeds", async () => {
-    autoUpdater.checkForUpdates.mockRejectedValue(
-      new Error(
-        'HttpError: 404 "method: GET url: https://github.com/bradleygibsongit/nucleus-desktop/releases.atom\\n\\nPlease double check that your authentication token is correct. Due to security reasons, actual status maybe not reported, but 404.\\n"'
-      )
-    )
+  test("keeps background check failures silent", async () => {
+    autoUpdater.checkForUpdates.mockRejectedValue(new Error("Network down"))
 
     const service = new UpdaterService(() => {})
+    const result = await service.checkForUpdates({ manual: false })
 
-    await expect(service.checkForUpdates()).rejects.toThrow(
-      "Automatic updates are unavailable because this build checks a private or inaccessible GitHub Releases feed. Publish updates from a public release feed or install the latest release manually."
-    )
+    expect(result.checked).toBe(false)
+    expect(result.state.status).toBe("idle")
+    expect(result.state.message).toBeNull()
   })
-})
 
-Object.defineProperty(process, "resourcesPath", {
-  configurable: true,
-  value: originalResourcesPath,
+  test("blocks restart when active work is present", async () => {
+    autoUpdater.checkForUpdates.mockImplementation(async () => {
+      emitUpdaterEvent("checking-for-update")
+      emitUpdaterEvent("update-available", { version: "0.2.0" })
+      emitUpdaterEvent("update-downloaded", { version: "0.2.0" })
+    })
+
+    const service = new UpdaterService(() => {}, {
+      getActiveUpdateWork: () => ({
+        activeTurns: 1,
+        activeTerminalSessions: 2,
+        labels: ["1 active coding turn", "2 active terminal sessions"],
+      }),
+    })
+
+    await service.checkForUpdates()
+    const result = await service.installUpdate()
+
+    expect(result.accepted).toBe(true)
+    expect(result.completed).toBe(false)
+    expect(result.state.status).toBe("blocked")
+    expect(result.state.activeWork?.activeTurns).toBe(1)
+    expect(autoUpdater.quitAndInstall).not.toHaveBeenCalled()
+  })
+
+  test("forces restart through the installer handoff when requested", async () => {
+    autoUpdater.checkForUpdates.mockImplementation(async () => {
+      emitUpdaterEvent("checking-for-update")
+      emitUpdaterEvent("update-available", { version: "0.2.0" })
+      emitUpdaterEvent("update-downloaded", { version: "0.2.0" })
+    })
+
+    const prepareForInstall = mock(async () => {})
+    const service = new UpdaterService(() => {}, {
+      prepareForInstall,
+    })
+
+    await service.checkForUpdates()
+    const result = await service.installUpdate({ force: true })
+
+    expect(result.accepted).toBe(true)
+    expect(result.completed).toBe(true)
+    expect(result.state.status).toBe("installing")
+    expect(prepareForInstall).toHaveBeenCalled()
+    expect(autoUpdater.quitAndInstall).toHaveBeenCalledWith(false, true)
+  })
+
+  test("does not replace a blocked install snapshot with a new update check", async () => {
+    autoUpdater.checkForUpdates.mockImplementation(async () => {
+      emitUpdaterEvent("checking-for-update")
+      emitUpdaterEvent("update-available", { version: "0.2.0" })
+      emitUpdaterEvent("update-downloaded", { version: "0.2.0" })
+    })
+
+    const service = new UpdaterService(() => {}, {
+      getActiveUpdateWork: () => ({
+        activeTurns: 1,
+        activeTerminalSessions: 0,
+        labels: ["1 active coding turn"],
+      }),
+    })
+
+    await service.checkForUpdates()
+    await service.installUpdate()
+    autoUpdater.checkForUpdates.mockClear()
+
+    const result = await service.checkForUpdates({ manual: false })
+
+    expect(result.checked).toBe(false)
+    expect(result.state.status).toBe("blocked")
+    expect(autoUpdater.checkForUpdates).not.toHaveBeenCalled()
+  })
+
+  test("returns to an install error state when quitAndInstall throws", async () => {
+    autoUpdater.checkForUpdates.mockImplementation(async () => {
+      emitUpdaterEvent("checking-for-update")
+      emitUpdaterEvent("update-available", { version: "0.2.0" })
+      emitUpdaterEvent("update-downloaded", { version: "0.2.0" })
+    })
+    autoUpdater.quitAndInstall.mockImplementation(() => {
+      throw new Error("Installer handoff failed")
+    })
+
+    const restoreAfterInstallFailure = mock(async () => {})
+    const service = new UpdaterService(() => {}, {
+      restoreAfterInstallFailure,
+    })
+
+    await service.checkForUpdates()
+    const result = await service.installUpdate({ force: true })
+
+    expect(result.accepted).toBe(true)
+    expect(result.completed).toBe(false)
+    expect(result.state.status).toBe("error")
+    expect(result.state.errorContext).toBe("install")
+    expect(result.state.canInstall).toBe(true)
+    expect(restoreAfterInstallFailure).toHaveBeenCalled()
+  })
 })

@@ -1,106 +1,121 @@
-import { ArrowDown, CheckCircle, Refresh } from "@/components/icons"
-import { Badge } from "@/features/shared/components/ui/badge"
+import { CheckCircle, Refresh } from "@/components/icons"
+import type { AppUpdateState } from "@/desktop/client"
 import { Button } from "@/features/shared/components/ui/button"
 import { useAppUpdateStore } from "@/features/updates/store/updateStore"
+import { formatUpdateTime, getUpdateStatusLabel } from "./updatePresentation"
 
-function formatCheckedAt(timestamp: number | null): string {
-  if (!timestamp) {
-    return "Not checked yet"
+function renderReleaseNotes(message: string | null, status: AppUpdateState["status"]) {
+  if (!message) {
+    return null
   }
 
-  return new Date(timestamp).toLocaleString()
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024 * 1024) {
-    return `${Math.max(1, Math.round(bytes / 1024)).toLocaleString()} KB`
+  if (status === "error" || status === "blocked" || status === "disabled" || status === "idle") {
+    return null
   }
 
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return (
+    <div className="rounded-xl border border-border/70 bg-muted/35 px-3 py-3">
+      <p className="text-sm font-medium text-card-foreground">Release notes</p>
+      <p className="mt-1.5 text-sm leading-6 text-muted-foreground">{message}</p>
+    </div>
+  )
 }
 
 export function UpdatesSection() {
-  const phase = useAppUpdateStore((state) => state.phase)
-  const availableUpdate = useAppUpdateStore((state) => state.availableUpdate)
-  const lastCheckedAt = useAppUpdateStore((state) => state.lastCheckedAt)
-  const error = useAppUpdateStore((state) => state.error)
-  const downloadedBytes = useAppUpdateStore((state) => state.downloadedBytes)
-  const contentLength = useAppUpdateStore((state) => state.contentLength)
+  const updateState = useAppUpdateStore((state) => state.updateState)
   const checkForUpdates = useAppUpdateStore((state) => state.checkForUpdates)
   const installUpdate = useAppUpdateStore((state) => state.installUpdate)
+  const dismissUpdate = useAppUpdateStore((state) => state.dismissUpdate)
 
-  const statusLabel =
-    phase === "available"
-      ? `Version ${availableUpdate?.version} is available`
-      : phase === "checking"
-        ? "Checking GitHub Releases"
-        : phase === "downloading"
-          ? contentLength
-            ? `Downloading ${formatBytes(downloadedBytes)} of ${formatBytes(contentLength)}`
-            : `Downloading ${formatBytes(downloadedBytes)}`
-          : phase === "installing"
-            ? "Installing update"
-            : phase === "installed"
-              ? "Update installed. The app will relaunch to finish."
-              : phase === "up-to-date"
-                ? "You are on the latest release"
-                : phase === "error"
-                  ? "Update check failed"
-                  : "Ready to check for updates"
+  const currentVersion = updateState.currentVersion || "Unknown"
+  const activeVersion =
+    updateState.downloadedVersion ?? updateState.availableVersion ?? currentVersion
+  const showRestartAction =
+    updateState.canInstall &&
+    updateState.status !== "downloading" &&
+    updateState.status !== "installing"
+  const showDismissAction = updateState.canDismiss && updateState.status !== "downloading"
+  const showErrorDetail = updateState.status === "error" && updateState.message
 
   return (
-    <div className="space-y-4">
-      <section className="overflow-hidden rounded-xl border border-border/80 bg-card text-card-foreground shadow-sm">
-        <div className="flex flex-col gap-4 px-4 py-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="max-w-[560px]">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant={availableUpdate ? "secondary" : "outline"}>
-                {availableUpdate ? "Update available" : "Release feed"}
-              </Badge>
-              <p className="text-sm font-medium tracking-tight text-card-foreground">{statusLabel}</p>
-            </div>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Nucleus checks GitHub Releases for signed installer updates and can install them in-app.
-            </p>
-            <div className="mt-3 space-y-1.5 text-sm text-muted-foreground">
-              <div>Last checked: {formatCheckedAt(lastCheckedAt)}</div>
-              <div>Source: GitHub Releases for bradleygibsongit/nucleus-desktop</div>
-              {availableUpdate ? <div>Current version: {availableUpdate.currentVersion}</div> : null}
-              {availableUpdate ? <div>Latest version: {availableUpdate.version}</div> : null}
-            </div>
-            {availableUpdate?.notes ? (
-              <div className="mt-3 rounded-xl border border-border/70 bg-muted/35 px-3 py-2.5 text-sm leading-6 text-muted-foreground">
-                {availableUpdate.notes}
+    <section className="rounded-xl border border-border/80 bg-card text-card-foreground shadow-sm">
+      <div className="space-y-5 px-4 py-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            {updateState.status === "up-to-date" ? (
+              <div className="flex items-center gap-2">
+                <CheckCircle size={15} className="shrink-0 text-emerald-500" />
+                <p className="text-sm font-medium">Nucleus is up to date</p>
               </div>
-            ) : null}
-            {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
+            ) : (
+              <p className="text-sm font-medium">{getUpdateStatusLabel(updateState)}</p>
+            )}
+            <p className="mt-1 text-sm text-muted-foreground">
+              Current version: v{currentVersion}
+              {activeVersion !== currentVersion ? `  •  Latest version: v${activeVersion}` : ""}
+            </p>
           </div>
 
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => void checkForUpdates()}
-              disabled={phase === "checking" || phase === "downloading" || phase === "installing"}
-            >
-              <Refresh size={14} />
-              {phase === "checking" ? "Checking..." : "Check now"}
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => void installUpdate()}
-              disabled={!availableUpdate || phase === "checking" || phase === "downloading" || phase === "installing"}
-            >
-              {availableUpdate ? <ArrowDown size={14} /> : <CheckCircle size={14} />}
-              {phase === "downloading"
-                ? "Downloading..."
-                : phase === "installing"
-                  ? "Installing..."
-                  : "Install update"}
-            </Button>
+          <p className="shrink-0 text-xs text-muted-foreground">
+            Checked {formatUpdateTime(updateState.checkedAt)}
+          </p>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="rounded-xl border border-border/70 bg-background/40 px-3 py-3">
+            <p className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+              Status
+            </p>
+            <p className="mt-2 text-sm text-card-foreground">{getUpdateStatusLabel(updateState)}</p>
+          </div>
+
+          <div className="rounded-xl border border-border/70 bg-background/40 px-3 py-3">
+            <p className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+              Progress
+            </p>
+            <p className="mt-2 text-sm text-card-foreground">
+              {updateState.downloadPercent != null ? `${updateState.downloadPercent}%` : "No active download"}
+            </p>
           </div>
         </div>
-      </section>
-    </div>
+
+        {renderReleaseNotes(updateState.message, updateState.status)}
+
+        {showErrorDetail ? (
+          <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-3">
+            <p className="text-sm font-medium text-destructive">Updater error</p>
+            <p className="mt-1.5 text-sm leading-6 text-muted-foreground">{updateState.message}</p>
+          </div>
+        ) : null}
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void checkForUpdates()}
+            disabled={
+              updateState.status === "checking" ||
+              updateState.status === "downloading" ||
+              updateState.status === "installing"
+            }
+          >
+            <Refresh size={14} />
+            {updateState.status === "checking" ? "Checking..." : "Check now"}
+          </Button>
+
+          {showRestartAction ? (
+            <Button size="sm" onClick={() => void installUpdate()}>
+              Restart to install
+            </Button>
+          ) : null}
+
+          {showDismissAction ? (
+            <Button size="sm" variant="ghost" onClick={() => void dismissUpdate()}>
+              Later
+            </Button>
+          ) : null}
+        </div>
+      </div>
+    </section>
   )
 }

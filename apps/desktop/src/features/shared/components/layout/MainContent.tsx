@@ -15,7 +15,6 @@ import { Terminal } from "@/features/terminal/components"
 import { getTerminalSessionId } from "@/features/terminal/utils/terminalTabs"
 import type { Tab } from "@/features/chat/types"
 import type { SettingsSectionId } from "@/features/settings/config"
-import { UpdateBanner } from "@/features/updates/components/UpdateBanner"
 import { QuickStartModal } from "@/features/workspace/components/modals/QuickStartModal"
 import { getVisibleTab } from "./mainContentTabs"
 
@@ -295,7 +294,6 @@ export function MainContent({ activeView, activeSettingsSection }: MainContentPr
   if (activeView === "settings") {
     return (
       <main className="flex-1 min-w-80 bg-main-content text-main-content-foreground overflow-hidden flex flex-col">
-        <UpdateBanner />
         <SettingsPage activeSection={activeSettingsSection} />
       </main>
     )
@@ -304,7 +302,6 @@ export function MainContent({ activeView, activeSettingsSection }: MainContentPr
   if (activeView === "automations") {
     return (
       <main className="flex-1 min-w-80 bg-main-content text-main-content-foreground overflow-hidden flex flex-col">
-        <UpdateBanner />
         <AutomationsPage />
       </main>
     )
@@ -313,7 +310,6 @@ export function MainContent({ activeView, activeSettingsSection }: MainContentPr
   if (focusedProjectId && newWorkspaceSetupProjectId === focusedProjectId) {
     return (
       <main className="flex-1 min-w-80 bg-main-content text-main-content-foreground overflow-hidden flex flex-col">
-        <UpdateBanner />
         <NewWorkspaceSetupView />
       </main>
     )
@@ -322,7 +318,6 @@ export function MainContent({ activeView, activeSettingsSection }: MainContentPr
   if (!activeWorktreeId) {
     return (
       <main className="flex-1 min-w-80 bg-main-content text-main-content-foreground overflow-hidden flex flex-col">
-        <UpdateBanner />
         <NoWorkspaceSelectedState
           onOpenProject={async () => {
             const folderPath = await openFolderPicker()
@@ -339,7 +334,6 @@ export function MainContent({ activeView, activeSettingsSection }: MainContentPr
 
   return (
     <main className="flex-1 min-w-80 bg-main-content text-main-content-foreground overflow-hidden flex flex-col">
-      <UpdateBanner />
       <TabBar
         tabs={tabs}
         activeTabId={activeTabId ?? ""}

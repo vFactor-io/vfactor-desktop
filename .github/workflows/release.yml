@@ -6,19 +6,22 @@ on:
       - "v*"
 
 jobs:
-  publish-electron:
+  build-electron:
     permissions:
-      contents: write
+      contents: read
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest
-            build-args: ""
-          - platform: macos-latest
-            build-args: "--x64"
-          - platform: windows-latest
-            build-args: ""
+          - artifact_name: macos-arm64
+            platform: macos-latest
+            build_args: ""
+          - artifact_name: macos-x64
+            platform: macos-latest
+            build_args: "--x64"
+          - artifact_name: windows-x64
+            platform: windows-latest
+            build_args: ""
 
     runs-on: ${{ matrix.platform }}
     env:
@@ -43,12 +46,82 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Build and publish release assets
+      - name: Build release assets
         shell: bash
         run: |
+          bun run --cwd apps/desktop build
           if [[ "${{ matrix.platform }}" == "macos-latest" ]]; then
             unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
-            CSC_IDENTITY_AUTO_DISCOVERY=false bun run --cwd apps/desktop release ${{ matrix.build-args }} -c.mac.identity=-
+            CSC_IDENTITY_AUTO_DISCOVERY=false ./node_modules/.bin/electron-builder --projectDir apps/desktop --publish never ${{ matrix.build_args }} -c.mac.identity=-
           else
-            bun run --cwd apps/desktop release ${{ matrix.build-args }}
+            ./node_modules/.bin/electron-builder --projectDir apps/desktop --publish never ${{ matrix.build_args }}
           fi
+
+      - name: Upload packaged artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          if-no-files-found: error
+          path: |
+            apps/desktop/dist/*.blockmap
+            apps/desktop/dist/*.dmg
+            apps/desktop/dist/*.exe
+            apps/desktop/dist/*.yml
+            apps/desktop/dist/*.zip
+
+  publish-release:
+    needs: build-electron
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Download arm64 mac artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-arm64
+          path: release-artifacts/macos-arm64
+
+      - name: Download x64 mac artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-x64
+          path: release-artifacts/macos-x64
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-x64
+          path: release-artifacts/windows-x64
+
+      - name: Stage release assets
+        shell: bash
+        run: |
+          mkdir -p release-artifacts/staged
+          cp release-artifacts/macos-arm64/* release-artifacts/staged/
+          cp release-artifacts/windows-x64/* release-artifacts/staged/
+          find release-artifacts/macos-x64 -maxdepth 1 -type f ! -name 'latest-mac.yml' -exec cp {} release-artifacts/staged/ \;
+          cp release-artifacts/macos-x64/latest-mac.yml release-artifacts/macos-x64/latest-mac-x64.yml
+
+      - name: Merge mac update manifests
+        run: |
+          bun run scripts/merge-mac-update-manifests.ts \
+            --arm64 release-artifacts/macos-arm64/latest-mac.yml \
+            --x64 release-artifacts/macos-x64/latest-mac-x64.yml \
+            --output release-artifacts/staged/latest-mac.yml
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          fail_on_unmatched_files: true
+          files: release-artifacts/staged/*
+          generate_release_notes: true

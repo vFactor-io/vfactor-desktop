@@ -1,13 +1,10 @@
 import { useEffect } from "react"
 import { desktop } from "@/desktop/client"
-import {
-  type AppUpdateDownloadEvent,
-  useAppUpdateStore,
-} from "@/features/updates/store/updateStore"
+import { useAppUpdateStore } from "@/features/updates/store/updateStore"
 
 export function AppUpdateBootstrap() {
   const initialize = useAppUpdateStore((state) => state.initialize)
-  const handleDownloadEvent = useAppUpdateStore((state) => state.handleDownloadEvent)
+  const setUpdateState = useAppUpdateStore((state) => state.setUpdateState)
 
   useEffect(() => {
     let isMounted = true
@@ -16,8 +13,8 @@ export function AppUpdateBootstrap() {
     void initialize()
 
     try {
-      const dispose = desktop.app.onUpdateEvent((event: AppUpdateDownloadEvent) => {
-        handleDownloadEvent(event)
+      const dispose = desktop.app.onUpdateState((state) => {
+        setUpdateState(state)
       })
 
       if (isMounted) {
@@ -33,7 +30,7 @@ export function AppUpdateBootstrap() {
       isMounted = false
       unlisten?.()
     }
-  }, [handleDownloadEvent, initialize])
+  }, [initialize, setUpdateState])
 
   return null
 }

@@ -104,7 +104,77 @@ const skillsService = new SkillsService()
 const codexServerService = new CodexServerService(sendToRenderer)
 const terminalService = new TerminalService(sendToRenderer)
 const projectWatcherService = new ProjectWatcherService(sendToRenderer)
-const updaterService = new UpdaterService(sendToRenderer)
+
+type QuitReason = "none" | "normal" | "update-install"
+
+let quitReason: QuitReason = "none"
+let isFinalizingQuit = false
+
+function getActiveUpdateWork() {
+  const activeTurns = codexServerService.getActiveTurnCount()
+  const activeTerminalSessions = terminalService.getActiveSessionCount()
+
+  if (activeTurns === 0 && activeTerminalSessions === 0) {
+    return null
+  }
+
+  const labels: string[] = []
+
+  if (activeTurns > 0) {
+    labels.push(`${activeTurns} active coding ${activeTurns === 1 ? "turn" : "turns"}`)
+  }
+
+  if (activeTerminalSessions > 0) {
+    labels.push(
+      `${activeTerminalSessions} active terminal ${activeTerminalSessions === 1 ? "session" : "sessions"}`
+    )
+  }
+
+  return {
+    activeTurns,
+    activeTerminalSessions,
+    labels,
+  }
+}
+
+async function cleanupForQuit(options: { includeAnalytics: boolean }): Promise<void> {
+  await projectWatcherService.stop().catch((error) => {
+    console.warn("[watcher] Failed to stop project watcher:", error)
+  })
+  terminalService.dispose()
+  codexServerService.dispose()
+
+  if (!options.includeAnalytics) {
+    return
+  }
+
+  await shutdownAnalytics(2_000).catch((error) => {
+    console.warn("[posthog] Failed to flush analytics during shutdown:", error)
+  })
+}
+
+async function prepareForUpdateInstall(): Promise<void> {
+  quitReason = "update-install"
+  await cleanupForQuit({ includeAnalytics: false })
+
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.close()
+  }
+}
+
+async function restoreAfterFailedUpdateInstall(): Promise<void> {
+  quitReason = "none"
+
+  if (BrowserWindow.getAllWindows().length === 0) {
+    mainWindow = createWindow()
+  }
+}
+
+const updaterService = new UpdaterService(sendToRenderer, {
+  getActiveUpdateWork,
+  prepareForInstall: prepareForUpdateInstall,
+  restoreAfterInstallFailure: restoreAfterFailedUpdateInstall,
+})
 
 function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
@@ -167,8 +237,13 @@ function createWindow(): BrowserWindow {
 
 function registerIpcHandlers(storeService: JsonStoreService): void {
   ipcMain.handle(IPC_CHANNELS.appGetVersion, () => app.getVersion())
+  ipcMain.handle(IPC_CHANNELS.appGetUpdateState, () => updaterService.getState())
   ipcMain.handle(IPC_CHANNELS.appCheckForUpdates, () => updaterService.checkForUpdates())
-  ipcMain.handle(IPC_CHANNELS.appInstallUpdate, () => updaterService.installUpdate())
+  ipcMain.handle(
+    IPC_CHANNELS.appInstallUpdate,
+    (_event, options?: { force?: boolean }) => updaterService.installUpdate(options)
+  )
+  ipcMain.handle(IPC_CHANNELS.appDismissUpdate, () => updaterService.dismissUpdate())
 
   ipcMain.handle(IPC_CHANNELS.dialogOpenProjectFolder, () => {
     if (!mainWindow) {
@@ -376,6 +451,7 @@ async function bootstrap(): Promise<void> {
   registerIpcHandlers(storeService)
 
   mainWindow = createWindow()
+  updaterService.start()
   capture("app_launched", { version: app.getVersion(), platform: process.platform })
 
   app.on("activate", () => {
@@ -386,34 +462,31 @@ async function bootstrap(): Promise<void> {
 }
 
 app.on("window-all-closed", () => {
+  if (quitReason === "update-install") {
+    return
+  }
+
   if (process.platform !== "darwin") {
     app.quit()
   }
 })
 
-let isFinalizingQuit = false
-
 app.on("before-quit", (event) => {
+  if (quitReason === "update-install") {
+    return
+  }
+
   if (isFinalizingQuit) {
     return
   }
 
   isFinalizingQuit = true
+  quitReason = "normal"
   event.preventDefault()
 
-  projectWatcherService.stop().catch((error) => {
-    console.warn("[watcher] Failed to stop project watcher:", error)
+  void cleanupForQuit({ includeAnalytics: true }).finally(() => {
+    app.quit()
   })
-  terminalService.dispose()
-  codexServerService.dispose()
-
-  void shutdownAnalytics(2_000)
-    .catch((error) => {
-      console.warn("[posthog] Failed to flush analytics during shutdown:", error)
-    })
-    .finally(() => {
-      app.quit()
-    })
 })
 
 void bootstrap().catch((error) => {

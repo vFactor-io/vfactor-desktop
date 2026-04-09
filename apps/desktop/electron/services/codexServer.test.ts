@@ -149,4 +149,36 @@ describe("CodexServerService", () => {
     await expect(service.ensureServer()).rejects.toThrow("spawn failed")
     expect(sendEvent).toHaveBeenCalledWith("codex-rpc:status", "closed")
   })
+
+  test("counts pending turn starts as active work after a successful send", async () => {
+    executablePaths.add("/Users/tester/.bun/bin/codex")
+
+    const service = new CodexServerService(() => {})
+    await service.ensureServer()
+    await service.send(JSON.stringify({ jsonrpc: "2.0", id: 7, method: "turn/start" }))
+
+    expect(service.getActiveTurnCount()).toBe(1)
+  })
+
+  test("does not count pending turn starts when stdin write fails", async () => {
+    executablePaths.add("/Users/tester/.bun/bin/codex")
+
+    const service = new CodexServerService(() => {})
+    await service.ensureServer()
+    const child = pendingChildren[0]
+
+    if (!child) {
+      throw new Error("Expected a spawned child process")
+    }
+
+    child.stdin.write = (_chunk: string, callback?: (error?: Error | null) => void) => {
+      callback?.(new Error("write failed"))
+      return false
+    }
+
+    await expect(
+      service.send(JSON.stringify({ jsonrpc: "2.0", id: 9, method: "turn/start" }))
+    ).rejects.toThrow("write failed")
+    expect(service.getActiveTurnCount()).toBe(0)
+  })
 })

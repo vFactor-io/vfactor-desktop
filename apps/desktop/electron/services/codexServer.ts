@@ -188,6 +188,8 @@ function waitForSpawn(child: ChildProcessWithoutNullStreams): Promise<void> {
 export class CodexServerService {
   private process: ChildProcessWithoutNullStreams | null = null
   private isDisposingProcess = false
+  private readonly pendingTurnStartRequestIds = new Set<number | string>()
+  private readonly activeTurnIds = new Set<string>()
 
   constructor(private readonly sendEvent: EventSender) {}
 
@@ -218,6 +220,8 @@ export class CodexServerService {
 
     child.on("exit", (code, signal) => {
       const wasIntentionalExit = this.isDisposingProcess
+      this.pendingTurnStartRequestIds.clear()
+      this.activeTurnIds.clear()
 
       if (!hasReportedUnexpectedExit && !wasIntentionalExit && (code !== 0 || signal !== null)) {
         hasReportedUnexpectedExit = true
@@ -239,6 +243,7 @@ export class CodexServerService {
         return
       }
 
+      this.trackIncomingMessage(payload)
       this.sendEvent(EVENT_CHANNELS.codexMessage, payload)
     })
 
@@ -268,6 +273,8 @@ export class CodexServerService {
         resolve()
       })
     })
+
+    this.trackOutgoingMessage(message)
   }
 
   dispose(): void {
@@ -276,7 +283,100 @@ export class CodexServerService {
     }
 
     this.isDisposingProcess = true
+    this.pendingTurnStartRequestIds.clear()
+    this.activeTurnIds.clear()
     this.process.kill()
     this.process = null
+  }
+
+  getActiveTurnCount(): number {
+    return this.activeTurnIds.size + this.pendingTurnStartRequestIds.size
+  }
+
+  private trackOutgoingMessage(rawMessage: string): void {
+    const payload = this.parseJsonMessage(rawMessage)
+    if (!payload || typeof payload !== "object" || !("method" in payload)) {
+      return
+    }
+
+    if (payload.method === "turn/start" && "id" in payload) {
+      this.pendingTurnStartRequestIds.add(payload.id)
+      return
+    }
+
+    if (payload.method === "turn/interrupt") {
+      const params =
+        "params" in payload && payload.params && typeof payload.params === "object"
+          ? payload.params
+          : null
+      const turnId = params && "turnId" in params && typeof params.turnId === "string"
+        ? params.turnId
+        : null
+
+      if (turnId) {
+        this.activeTurnIds.delete(turnId)
+      }
+    }
+  }
+
+  private trackIncomingMessage(rawMessage: string): void {
+    const payload = this.parseJsonMessage(rawMessage)
+    if (!payload || typeof payload !== "object") {
+      return
+    }
+
+    if ("id" in payload && !("method" in payload)) {
+      if (this.pendingTurnStartRequestIds.has(payload.id)) {
+        this.pendingTurnStartRequestIds.delete(payload.id)
+        const turnId =
+          "result" in payload &&
+            payload.result &&
+            typeof payload.result === "object" &&
+            "turn" in payload.result &&
+            payload.result.turn &&
+            typeof payload.result.turn === "object" &&
+            "id" in payload.result.turn &&
+            typeof payload.result.turn.id === "string"
+            ? payload.result.turn.id
+            : null
+
+        if (turnId) {
+          this.activeTurnIds.add(turnId)
+        }
+      }
+
+      return
+    }
+
+    if (!("method" in payload) || payload.method !== "turn/completed") {
+      return
+    }
+
+    const params =
+      "params" in payload && payload.params && typeof payload.params === "object"
+        ? payload.params
+        : null
+    const turnId =
+      params &&
+        "turn" in params &&
+        params.turn &&
+        typeof params.turn === "object" &&
+        "id" in params.turn &&
+        typeof params.turn.id === "string"
+        ? params.turn.id
+        : null
+
+    if (turnId) {
+      this.activeTurnIds.delete(turnId)
+    }
+  }
+
+  private parseJsonMessage(rawMessage: string): Record<string, unknown> | null {
+    try {
+      const parsed = JSON.parse(rawMessage) as unknown
+      return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null
+    } catch {
+      return null
+    }
   }
 }
