@@ -7,6 +7,8 @@ import { RightSidebarProvider } from "./RightSidebarContext"
 import { CenterToolbar } from "./CenterToolbar"
 import type { SettingsSectionId } from "@/features/settings/config"
 import { AppUpdateBootstrap } from "@/features/updates/components/AppUpdateBootstrap"
+import { UpdateBlockedDialog } from "@/features/updates/components/UpdateBlockedDialog"
+import { UpdateReadyToast } from "@/features/updates/components/UpdateReadyToast"
 import { HarnessBootstrap } from "@/features/chat/components/HarnessBootstrap"
 
 export function AppLayout() {
@@ -36,6 +38,8 @@ export function AppLayout() {
           </div>
           <RightSidebar activeView={activeView} />
         </div>
+        <UpdateReadyToast />
+        <UpdateBlockedDialog />
       </RightSidebarProvider>
     </SidebarProvider>
   )

@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron"
 import { EVENT_CHANNELS, IPC_CHANNELS } from "./ipc/channels"
 import type {
-  AppUpdateDownloadEvent,
+  AppUpdateState,
   CopyPathsIntoDirectoryOptions,
   DesktopDirEntry,
   GitActionProgressEvent,
@@ -45,11 +45,14 @@ function subscribe<T>(channel: string, listener: (payload: T) => void): () => vo
 contextBridge.exposeInMainWorld("nucleus", {
   app: {
     getVersion: () => ipcRenderer.invoke(IPC_CHANNELS.appGetVersion) as Promise<string>,
+    getUpdateState: () => ipcRenderer.invoke(IPC_CHANNELS.appGetUpdateState) as Promise<unknown>,
     checkForUpdates: () =>
       ipcRenderer.invoke(IPC_CHANNELS.appCheckForUpdates) as Promise<unknown>,
-    installUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.appInstallUpdate) as Promise<void>,
-    onUpdateEvent: (listener: (event: AppUpdateDownloadEvent) => void) =>
-      subscribe(EVENT_CHANNELS.appUpdate, listener),
+    installUpdate: (options?: { force?: boolean }) =>
+      ipcRenderer.invoke(IPC_CHANNELS.appInstallUpdate, options) as Promise<unknown>,
+    dismissUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.appDismissUpdate) as Promise<unknown>,
+    onUpdateState: (listener: (state: AppUpdateState) => void) =>
+      subscribe(EVENT_CHANNELS.appUpdateState, listener),
   },
   dialog: {
     openProjectFolder: () =>

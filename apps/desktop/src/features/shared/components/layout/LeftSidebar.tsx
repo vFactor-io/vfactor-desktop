@@ -46,6 +46,7 @@ import {
 import { ModelLogo } from "@/features/chat/components/ModelLogo"
 import { isWorktreeReady } from "@/features/workspace/utils/worktrees"
 import { prewarmProjectData } from "@/features/shared/utils/prewarmProjectData"
+import { SidebarUpdatePill } from "@/features/updates/components/SidebarUpdatePill"
 
 const OPEN_PROJECT_SETTINGS_EVENT = "nucleus:open-project-settings"
 
@@ -740,19 +741,22 @@ export function LeftSidebar({
           </div>
 
           <div className="shrink-0 border-t border-sidebar-border/50 px-2 py-2">
-            <button
-              type="button"
-              onClick={() => onOpenSettings?.()}
-              className={cn(
-                expandedRowClass,
-                activeView === "settings"
-                  ? expandedRowActiveClass
-                  : expandedRowIdleClass
-              )}
-            >
-              <GearSix size={16} className="shrink-0" />
-              <span className="truncate">Settings</span>
-            </button>
+            <div className="space-y-2">
+              <SidebarUpdatePill />
+              <button
+                type="button"
+                onClick={() => onOpenSettings?.()}
+                className={cn(
+                  expandedRowClass,
+                  activeView === "settings"
+                    ? expandedRowActiveClass
+                    : expandedRowIdleClass
+                )}
+              >
+                <GearSix size={16} className="shrink-0" />
+                <span className="truncate">Settings</span>
+              </button>
+            </div>
           </div>
         </>
       )}

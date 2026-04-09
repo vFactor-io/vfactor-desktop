@@ -1,32 +1,55 @@
-import { existsSync } from "node:fs"
-import { join } from "node:path"
-import { app } from "electron"
 import electronUpdater from "electron-updater"
-import type { ProgressInfo, UpdateInfo } from "electron-updater"
-import type { AppUpdateDownloadEvent, AppUpdateInfo } from "../../src/desktop/contracts"
+import { app } from "electron"
+import type { ProgressInfo, UpdateDownloadedEvent, UpdateInfo } from "electron-updater"
+import type {
+  AppUpdateActionResult,
+  AppUpdateActiveWork,
+  AppUpdateCheckResult,
+  AppUpdateErrorContext,
+  AppUpdateState,
+} from "../../src/desktop/contracts"
 import { EVENT_CHANNELS } from "../ipc/channels"
 import { capture, captureException } from "./analytics"
 
 const { autoUpdater } = electronUpdater
-const APP_UPDATE_CONFIG = "app-update.yml"
-const UPDATE_UNAVAILABLE_MESSAGE =
-  "In-app updates are unavailable in this build. Download the latest GitHub release manually to update."
+
+const UPDATE_FEED_URL =
+  "https://github.com/bradleygibsongit/nucleus-desktop/releases/latest/download"
+const AUTO_CHECK_DELAY_MS = 30_000
+const AUTO_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1_000
+const UPDATE_DISABLED_MESSAGE =
+  "Automatic updates are unavailable in this build. Install Nucleus from a packaged release to use the updater."
 const PRIVATE_GITHUB_RELEASES_MESSAGE =
-  "Automatic updates are unavailable because this build checks a private or inaccessible GitHub Releases feed. Publish updates from a public release feed or install the latest release manually."
+  "Automatic updates are unavailable because the release feed is private or inaccessible. Publish the release publicly or install the latest version manually."
 
 type EventSender = (channel: string, payload: unknown) => void
+type CheckOrigin = "manual" | "background" | null
+type PrepareForInstall = () => Promise<void> | void
+type RestoreAfterInstallFailure = () => Promise<void> | void
+type GetActiveUpdateWork = () => AppUpdateActiveWork | null
 
-function mapUpdateInfo(info: UpdateInfo): AppUpdateInfo {
-  return {
-    version: info.version,
-    currentVersion: app.getVersion(),
-    notes:
-      typeof info.releaseNotes === "string"
-        ? info.releaseNotes
-        : info.releaseName ?? null,
-    pubDate: info.releaseDate ?? null,
-    target: process.platform,
+interface UpdaterServiceOptions {
+  getActiveUpdateWork?: GetActiveUpdateWork
+  prepareForInstall?: PrepareForInstall
+  restoreAfterInstallFailure?: RestoreAfterInstallFailure
+  autoCheckDelayMs?: number
+  autoCheckIntervalMs?: number
+}
+
+function getReleaseMessage(info: UpdateInfo | null): string | null {
+  if (!info) {
+    return null
   }
+
+  if (typeof info.releaseNotes === "string" && info.releaseNotes.trim().length > 0) {
+    return info.releaseNotes.trim()
+  }
+
+  if (typeof info.releaseName === "string" && info.releaseName.trim().length > 0) {
+    return info.releaseName.trim()
+  }
+
+  return null
 }
 
 function normalizeUpdateError(error: unknown): Error {
@@ -36,7 +59,6 @@ function normalizeUpdateError(error: unknown): Error {
 
   const message = error.message
   const isGithubFeed404 =
-    message.includes("releases.atom") &&
     message.includes("github.com") &&
     (message.includes("HttpError: 404") ||
       message.includes("status maybe not reported, but 404") ||
@@ -49,84 +71,243 @@ function normalizeUpdateError(error: unknown): Error {
   return error
 }
 
-export class UpdaterService {
-  private availableUpdate: UpdateInfo | null = null
-  private isBound = false
-
-  constructor(private readonly sendEvent: EventSender) {
-    autoUpdater.autoDownload = false
-    autoUpdater.autoInstallOnAppQuit = false
+function hasActiveWork(activeWork: AppUpdateActiveWork | null): boolean {
+  if (!activeWork) {
+    return false
   }
 
-  async checkForUpdates(): Promise<AppUpdateInfo | null> {
-    if (!app.isPackaged) {
-      return null
+  return activeWork.activeTerminalSessions > 0 || activeWork.activeTurns > 0
+}
+
+function cloneState(state: AppUpdateState): AppUpdateState {
+  return {
+    ...state,
+    activeWork: state.activeWork
+      ? {
+          ...state.activeWork,
+          labels: [...state.activeWork.labels],
+        }
+      : null,
+  }
+}
+
+export class UpdaterService {
+  private readonly getActiveUpdateWork: GetActiveUpdateWork
+  private readonly prepareForInstall: PrepareForInstall
+  private readonly restoreAfterInstallFailure: RestoreAfterInstallFailure
+  private readonly autoCheckDelayMs: number
+  private readonly autoCheckIntervalMs: number
+  private state: AppUpdateState
+  private availableInfo: UpdateInfo | null = null
+  private downloadedInfo: UpdateInfo | null = null
+  private dismissedVersion: string | null = null
+  private isBound = false
+  private isConfigured = false
+  private checkOrigin: CheckOrigin = null
+  private errorContext: Exclude<AppUpdateErrorContext, "blocked"> = null
+  private startupCheckTimeout: ReturnType<typeof setTimeout> | null = null
+  private pollInterval: ReturnType<typeof setInterval> | null = null
+
+  constructor(
+    private readonly sendEvent: EventSender,
+    options: UpdaterServiceOptions = {},
+  ) {
+    this.getActiveUpdateWork = options.getActiveUpdateWork ?? (() => null)
+    this.prepareForInstall = options.prepareForInstall ?? (() => {})
+    this.restoreAfterInstallFailure = options.restoreAfterInstallFailure ?? (() => {})
+    this.autoCheckDelayMs = options.autoCheckDelayMs ?? AUTO_CHECK_DELAY_MS
+    this.autoCheckIntervalMs = options.autoCheckIntervalMs ?? AUTO_CHECK_INTERVAL_MS
+    this.state = this.createInitialState()
+  }
+
+  start(): void {
+    if (!this.state.enabled) {
+      this.broadcastState()
+      return
     }
 
-    const updateConfigPath = this.getUpdateConfigPath()
-    if (!existsSync(updateConfigPath)) {
-      capture("update_check_unavailable", {
-        reason: "missing_update_config",
-        config_path: updateConfigPath,
-        current_version: app.getVersion(),
-      })
-      throw new Error(UPDATE_UNAVAILABLE_MESSAGE)
-    }
-
+    this.configureUpdater()
     this.bindEvents()
+    this.scheduleAutomaticChecks()
+    this.broadcastState()
+  }
 
-    this.availableUpdate = null
-    let sawAvailable = false
+  getState(): AppUpdateState {
+    return cloneState(this.state)
+  }
 
-    const availableListener = (info: UpdateInfo) => {
-      sawAvailable = true
-      this.availableUpdate = info
+  async checkForUpdates(options: { manual?: boolean } = {}): Promise<AppUpdateCheckResult> {
+    const manual = options.manual ?? true
+
+    if (!this.state.enabled) {
+      return { checked: false, state: this.getState() }
     }
 
-    autoUpdater.once("update-available", availableListener)
-    autoUpdater.once("update-not-available", () => {
-      sawAvailable = false
-      this.availableUpdate = null
+    if (
+      this.state.status === "checking" ||
+      this.state.status === "downloading" ||
+      this.state.status === "installing" ||
+      this.state.status === "ready"
+    ) {
+      return { checked: false, state: this.getState() }
+    }
+
+    this.configureUpdater()
+    this.bindEvents()
+    this.checkOrigin = manual ? "manual" : "background"
+    this.errorContext = "check"
+
+    capture("update_check_requested", {
+      origin: this.checkOrigin,
+      current_version: this.state.currentVersion,
     })
 
     try {
       await autoUpdater.checkForUpdates()
+      return { checked: true, state: this.getState() }
     } catch (error) {
-      throw normalizeUpdateError(error)
+      this.handleCheckFailure(error, manual)
+      return { checked: false, state: this.getState() }
     } finally {
-      autoUpdater.removeListener("update-available", availableListener)
+      this.checkOrigin = null
+      if (this.errorContext === "check") {
+        this.errorContext = null
+      }
     }
-
-    const result = sawAvailable && this.availableUpdate ? mapUpdateInfo(this.availableUpdate) : null
-    capture("update_available_checked", {
-      update_found: Boolean(result),
-      available_version: result?.version ?? null,
-      current_version: app.getVersion(),
-    })
-    return result
   }
 
-  async installUpdate(): Promise<void> {
-    if (!this.availableUpdate) {
-      throw new Error("There is no pending app update to install.")
+  async installUpdate(options?: { force?: boolean }): Promise<AppUpdateActionResult> {
+    const force = options?.force === true
+
+    if (!this.state.enabled) {
+      return { accepted: false, completed: false, state: this.getState() }
     }
 
-    capture("update_install_started", {
-      target_version: this.availableUpdate.version,
-      current_version: app.getVersion(),
+    const downloadedVersion = this.state.downloadedVersion
+    if (!downloadedVersion) {
+      this.setState({
+        status: "error",
+        message: "There is no downloaded update ready to install.",
+        errorContext: "install",
+        activeWork: null,
+        canDismiss: true,
+        canRetry: false,
+        canInstall: false,
+      })
+      return { accepted: false, completed: false, state: this.getState() }
+    }
+
+    if (!force) {
+      const activeWork = this.getActiveUpdateWork()
+      if (hasActiveWork(activeWork)) {
+        capture("update_install_blocked", {
+          active_turns: activeWork?.activeTurns ?? 0,
+          active_terminal_sessions: activeWork?.activeTerminalSessions ?? 0,
+          target_version: downloadedVersion,
+        })
+
+        this.setState({
+          status: "blocked",
+          message: "Restarting now will interrupt active coding work.",
+          errorContext: "blocked",
+          activeWork,
+          canDismiss: true,
+          canRetry: false,
+          canInstall: true,
+        })
+
+        return { accepted: true, completed: false, state: this.getState() }
+      }
+    }
+
+    try {
+      this.errorContext = "install"
+      this.setState({
+        status: "installing",
+        message: "Preparing to restart and install the update…",
+        errorContext: null,
+        activeWork: null,
+        canDismiss: false,
+        canRetry: false,
+        canInstall: false,
+      })
+
+      await this.prepareForInstall()
+      capture("update_install_started", {
+        current_version: this.state.currentVersion,
+        target_version: downloadedVersion,
+        forced: force,
+      })
+      autoUpdater.quitAndInstall(false, true)
+      return { accepted: true, completed: true, state: this.getState() }
+    } catch (error) {
+      await this.restoreAfterInstallFailure()
+      this.handleError(error)
+      return { accepted: true, completed: false, state: this.getState() }
+    }
+  }
+
+  dismissUpdate(): AppUpdateState {
+    if (this.state.status === "blocked" && this.state.downloadedVersion) {
+      this.setState({
+        status: "ready",
+        message: getReleaseMessage(this.downloadedInfo ?? this.availableInfo),
+        errorContext: null,
+        activeWork: null,
+        canDismiss: this.dismissedVersion !== this.state.downloadedVersion,
+        canRetry: false,
+        canInstall: true,
+      })
+      return this.getState()
+    }
+
+    const version = this.state.downloadedVersion ?? this.state.availableVersion
+    if (!version) {
+      return this.getState()
+    }
+
+    this.dismissedVersion = version
+    this.setState({ canDismiss: false })
+    return this.getState()
+  }
+
+  private createInitialState(): AppUpdateState {
+    const enabled =
+      app.isPackaged && (process.platform === "darwin" || process.platform === "win32")
+
+    return {
+      enabled,
+      status: enabled ? "idle" : "disabled",
+      currentVersion: app.getVersion(),
+      availableVersion: null,
+      downloadedVersion: null,
+      downloadPercent: null,
+      checkedAt: null,
+      message: enabled ? null : UPDATE_DISABLED_MESSAGE,
+      errorContext: null,
+      activeWork: null,
+      canDismiss: false,
+      canRetry: false,
+      canInstall: false,
+    }
+  }
+
+  private configureUpdater(): void {
+    if (this.isConfigured || !this.state.enabled) {
+      return
+    }
+
+    autoUpdater.autoDownload = true
+    autoUpdater.autoInstallOnAppQuit = false
+
+    ;(autoUpdater as typeof autoUpdater & { disableDifferentialDownload?: boolean })
+      .disableDifferentialDownload = true
+    autoUpdater.setFeedURL({
+      provider: "generic",
+      url: UPDATE_FEED_URL,
     })
 
-    this.bindEvents()
-    const startedPayload: AppUpdateDownloadEvent = {
-      event: "started",
-      chunkLength: null,
-      downloaded: 0,
-      contentLength: null,
-    }
-    this.sendEvent(EVENT_CHANNELS.appUpdate, startedPayload)
-
-    await autoUpdater.downloadUpdate()
-    autoUpdater.quitAndInstall()
+    this.isConfigured = true
   }
 
   private bindEvents(): void {
@@ -134,35 +315,213 @@ export class UpdaterService {
       return
     }
 
-    autoUpdater.on("download-progress", (progress: ProgressInfo) => {
-      const payload: AppUpdateDownloadEvent = {
-        event: "progress",
-        chunkLength: progress.delta,
-        downloaded: progress.transferred,
-        contentLength: progress.total,
+    autoUpdater.on("checking-for-update", () => {
+      if (this.state.status === "ready" || this.state.status === "installing") {
+        return
       }
-      this.sendEvent(EVENT_CHANNELS.appUpdate, payload)
+
+      this.setState({
+        status: "checking",
+        message: null,
+        errorContext: null,
+        activeWork: null,
+        canDismiss: false,
+        canRetry: false,
+        canInstall: false,
+      })
     })
 
-    autoUpdater.on("update-downloaded", () => {
-      const payload: AppUpdateDownloadEvent = {
-        event: "finished",
-        chunkLength: null,
-        downloaded: null,
-        contentLength: null,
-      }
-      this.sendEvent(EVENT_CHANNELS.appUpdate, payload)
+    autoUpdater.on("update-available", (info: UpdateInfo) => {
+      this.availableInfo = info
+      this.errorContext = "download"
+      this.setState({
+        status: "downloading",
+        availableVersion: info.version,
+        downloadedVersion: null,
+        downloadPercent: 0,
+        checkedAt: Date.now(),
+        message: getReleaseMessage(info),
+        errorContext: null,
+        activeWork: null,
+        canDismiss: false,
+        canRetry: false,
+        canInstall: false,
+      })
+    })
+
+    autoUpdater.on("download-progress", (progress: ProgressInfo) => {
+      this.errorContext = "download"
+      this.setState({
+        status: "downloading",
+        downloadPercent: Math.max(0, Math.min(100, Math.round(progress.percent))),
+      })
+    })
+
+    autoUpdater.on("update-downloaded", (info: UpdateDownloadedEvent) => {
+      this.downloadedInfo = info
+      this.availableInfo = info
+      this.errorContext = null
+
+      capture("update_download_completed", {
+        current_version: this.state.currentVersion,
+        target_version: info.version,
+      })
+
+      this.setState({
+        status: "ready",
+        availableVersion: info.version,
+        downloadedVersion: info.version,
+        downloadPercent: 100,
+        checkedAt: Date.now(),
+        message: getReleaseMessage(info),
+        errorContext: null,
+        activeWork: null,
+        canDismiss: this.dismissedVersion !== info.version,
+        canRetry: false,
+        canInstall: true,
+      })
+    })
+
+    autoUpdater.on("update-not-available", () => {
+      this.availableInfo = null
+      this.downloadedInfo = null
+      this.errorContext = null
+      this.dismissedVersion = null
+
+      this.setState({
+        status: "up-to-date",
+        availableVersion: null,
+        downloadedVersion: null,
+        downloadPercent: null,
+        checkedAt: Date.now(),
+        message: null,
+        errorContext: null,
+        activeWork: null,
+        canDismiss: false,
+        canRetry: false,
+        canInstall: false,
+      })
     })
 
     autoUpdater.on("error", (error) => {
-      console.error("[updates] Auto-update error:", error)
-      captureException(error, { context: "auto_updater" })
+      this.handleError(error)
     })
 
     this.isBound = true
   }
 
-  private getUpdateConfigPath(): string {
-    return join(process.resourcesPath, APP_UPDATE_CONFIG)
+  private scheduleAutomaticChecks(): void {
+    if (this.startupCheckTimeout) {
+      clearTimeout(this.startupCheckTimeout)
+    }
+
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval)
+    }
+
+    this.startupCheckTimeout = setTimeout(() => {
+      void this.checkForUpdates({ manual: false })
+    }, this.autoCheckDelayMs)
+
+    this.pollInterval = setInterval(() => {
+      void this.checkForUpdates({ manual: false })
+    }, this.autoCheckIntervalMs)
+  }
+
+  private handleCheckFailure(error: unknown, manual: boolean): void {
+    const normalizedError = normalizeUpdateError(error)
+    const isAlreadyHandled =
+      this.state.status === "error" &&
+      this.state.errorContext === "check" &&
+      this.state.message === normalizedError.message
+
+    if (isAlreadyHandled) {
+      return
+    }
+
+    if (!manual) {
+      if (this.state.downloadedVersion) {
+        this.setState({
+          status: "ready",
+          checkedAt: Date.now(),
+          errorContext: null,
+          canDismiss: this.dismissedVersion !== this.state.downloadedVersion,
+          canRetry: false,
+          canInstall: true,
+        })
+        return
+      }
+
+      this.setState({
+        status: "idle",
+        checkedAt: Date.now(),
+        message: null,
+        errorContext: null,
+        activeWork: null,
+        canDismiss: false,
+        canRetry: false,
+        canInstall: false,
+      })
+      return
+    }
+
+    this.setState({
+      status: "error",
+      checkedAt: Date.now(),
+      message: normalizedError.message,
+      errorContext: "check",
+      activeWork: null,
+      canDismiss: true,
+      canRetry: true,
+      canInstall: Boolean(this.state.downloadedVersion),
+    })
+  }
+
+  private handleError(error: unknown): void {
+    const normalizedError = normalizeUpdateError(error)
+    console.error("[updates] Auto-update error:", normalizedError)
+    captureException(normalizedError, { context: "auto_updater" })
+
+    if (this.errorContext === "check") {
+      this.handleCheckFailure(normalizedError, this.checkOrigin === "manual")
+      return
+    }
+
+    const errorContext: AppUpdateErrorContext =
+      this.errorContext === "install"
+        ? "install"
+        : this.errorContext === "download" || this.state.status === "downloading"
+          ? "download"
+          : "check"
+
+    if (errorContext === "install") {
+      void this.restoreAfterInstallFailure()
+    }
+
+    this.setState({
+      status: "error",
+      checkedAt: Date.now(),
+      message: normalizedError.message,
+      errorContext,
+      activeWork: null,
+      canDismiss: true,
+      canRetry: true,
+      canInstall: Boolean(this.state.downloadedVersion),
+    })
+
+    this.errorContext = null
+  }
+
+  private setState(patch: Partial<AppUpdateState>): void {
+    this.state = {
+      ...this.state,
+      ...patch,
+      currentVersion: app.getVersion(),
+    }
+    this.broadcastState()
+  }
+
+  private broadcastState(): void {
+    this.sendEvent(EVENT_CHANNELS.appUpdateState, this.getState())
   }
 }

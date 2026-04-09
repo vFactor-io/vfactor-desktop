@@ -1,7 +1,9 @@
 export const IPC_CHANNELS = {
   appGetVersion: "app:getVersion",
+  appGetUpdateState: "app:getUpdateState",
   appCheckForUpdates: "app:checkForUpdates",
   appInstallUpdate: "app:installUpdate",
+  appDismissUpdate: "app:dismissUpdate",
   dialogOpenProjectFolder: "dialog:openProjectFolder",
   fsReadTextFile: "fs:readTextFile",
   fsReadFileAsDataUrl: "fs:readFileAsDataUrl",
@@ -44,7 +46,7 @@ export const IPC_CHANNELS = {
 } as const
 
 export const EVENT_CHANNELS = {
-  appUpdate: "app-update:event",
+  appUpdateState: "app-update:state",
   projectFs: "project-fs:event",
   codexMessage: "codex-rpc:message",
   codexStatus: "codex-rpc:status",

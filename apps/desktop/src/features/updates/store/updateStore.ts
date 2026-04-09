@@ -1,41 +1,28 @@
 import { create } from "zustand"
 import { desktop } from "@/desktop/client"
-import type { AppUpdateDownloadEvent, AppUpdateInfo } from "@/desktop/client"
+import type {
+  AppUpdateActionResult,
+  AppUpdateCheckResult,
+  AppUpdateState,
+} from "@/desktop/client"
 
-export type AppUpdatePhase =
-  | "idle"
-  | "checking"
-  | "available"
-  | "up-to-date"
-  | "downloading"
-  | "installing"
-  | "installed"
-  | "error"
-
-export type { AppUpdateDownloadEvent, AppUpdateInfo } from "@/desktop/client"
-
-interface CheckForUpdatesOptions {
-  silent?: boolean
+function createInitialUpdateState(): AppUpdateState {
+  return {
+    enabled: false,
+    status: "disabled",
+    currentVersion: "",
+    availableVersion: null,
+    downloadedVersion: null,
+    downloadPercent: null,
+    checkedAt: null,
+    message: null,
+    errorContext: null,
+    activeWork: null,
+    canDismiss: false,
+    canRetry: false,
+    canInstall: false,
+  }
 }
-
-interface AppUpdateState {
-  phase: AppUpdatePhase
-  availableUpdate: AppUpdateInfo | null
-  lastCheckedAt: number | null
-  error: string | null
-  hasInitialized: boolean
-  dismissedVersion: string | null
-  downloadedBytes: number
-  contentLength: number | null
-  initialize: () => Promise<void>
-  checkForUpdates: (options?: CheckForUpdatesOptions) => Promise<AppUpdateInfo | null>
-  installUpdate: () => Promise<void>
-  dismissUpdate: () => void
-  handleDownloadEvent: (event: AppUpdateDownloadEvent) => void
-}
-
-let initializePromise: Promise<void> | null = null
-let checkPromise: Promise<AppUpdateInfo | null> | null = null
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message) {
@@ -45,15 +32,44 @@ function getErrorMessage(error: unknown): string {
   return String(error)
 }
 
-export const useAppUpdateStore = create<AppUpdateState>((set, get) => ({
-  phase: "idle",
-  availableUpdate: null,
-  lastCheckedAt: null,
-  error: null,
+function toErroredUpdateState(
+  currentState: AppUpdateState,
+  error: unknown,
+  errorContext: AppUpdateState["errorContext"],
+): AppUpdateState {
+  return {
+    ...currentState,
+    status: "error",
+    message: getErrorMessage(error),
+    errorContext,
+    canDismiss: true,
+    canRetry: true,
+    canInstall: currentState.canInstall,
+  }
+}
+
+interface AppUpdateStoreState {
+  updateState: AppUpdateState
+  hasInitialized: boolean
+  blockedDialogOpen: boolean
+  toastDismissedForStatus: AppUpdateState["status"] | null
+  initialize: () => Promise<void>
+  refreshState: () => Promise<AppUpdateState>
+  checkForUpdates: () => Promise<AppUpdateCheckResult>
+  installUpdate: (options?: { force?: boolean }) => Promise<AppUpdateActionResult>
+  dismissUpdate: () => Promise<void>
+  dismissToast: () => void
+  setUpdateState: (state: AppUpdateState) => void
+  closeBlockedDialog: () => void
+}
+
+let initializePromise: Promise<void> | null = null
+
+export const useAppUpdateStore = create<AppUpdateStoreState>((set, get) => ({
+  updateState: createInitialUpdateState(),
   hasInitialized: false,
-  dismissedVersion: null,
-  downloadedBytes: 0,
-  contentLength: null,
+  blockedDialogOpen: false,
+  toastDismissedForStatus: null,
 
   initialize: async () => {
     if (get().hasInitialized) {
@@ -67,11 +83,14 @@ export const useAppUpdateStore = create<AppUpdateState>((set, get) => ({
     set({ hasInitialized: true })
 
     initializePromise = (async () => {
-      if (import.meta.env.DEV) {
-        return
+      try {
+        const updateState = await desktop.app.getUpdateState()
+        set({ updateState })
+      } catch (error) {
+        set((state) => ({
+          updateState: toErroredUpdateState(state.updateState, error, "check"),
+        }))
       }
-
-      await get().checkForUpdates({ silent: true })
     })().finally(() => {
       initializePromise = null
     })
@@ -79,113 +98,72 @@ export const useAppUpdateStore = create<AppUpdateState>((set, get) => ({
     return initializePromise
   },
 
-  checkForUpdates: async (options) => {
-    if (checkPromise) {
-      return checkPromise
-    }
-
-    const previousPhase = get().phase
-    set({ phase: "checking", error: null })
-
-    checkPromise = (async () => {
-      try {
-        const update = await desktop.app.checkForUpdates()
-        const lastCheckedAt = Date.now()
-
-        if (update) {
-          set((state) => ({
-            availableUpdate: update,
-            phase: "available",
-            error: null,
-            lastCheckedAt,
-            downloadedBytes: 0,
-            contentLength: null,
-            dismissedVersion:
-              state.dismissedVersion === update.version ? state.dismissedVersion : null,
-          }))
-
-          return update
-        }
-
-        set({
-          availableUpdate: null,
-          phase: "up-to-date",
-          error: null,
-          lastCheckedAt,
-          downloadedBytes: 0,
-          contentLength: null,
-        })
-
-        return null
-      } catch (error) {
-        const message = getErrorMessage(error)
-
-        set((state) => ({
-          error: options?.silent ? state.error : message,
-          lastCheckedAt: Date.now(),
-          phase: options?.silent ? (state.availableUpdate ? state.phase : previousPhase) : "error",
-        }))
-
-        return null
-      } finally {
-        checkPromise = null
-      }
-    })()
-
-    return checkPromise
+  refreshState: async () => {
+    const updateState = await desktop.app.getUpdateState()
+    set({ updateState, blockedDialogOpen: updateState.status === "blocked" })
+    return updateState
   },
 
-  installUpdate: async () => {
-    const update = get().availableUpdate
-    if (!update) {
-      set({ phase: "error", error: "There is no update ready to install." })
-      return
-    }
-
-    set({
-      phase: "downloading",
-      error: null,
-      dismissedVersion: null,
-      downloadedBytes: 0,
-      contentLength: null,
-    })
-
+  checkForUpdates: async () => {
     try {
-      await desktop.app.installUpdate()
-      set({ phase: "installed", error: null })
+      const result = await desktop.app.checkForUpdates()
+      set({
+        updateState: result.state,
+        blockedDialogOpen: result.state.status === "blocked",
+      })
+      return result
     } catch (error) {
-      set({ phase: "error", error: getErrorMessage(error) })
+      const updateState = toErroredUpdateState(get().updateState, error, "check")
+      set({ updateState, blockedDialogOpen: false })
+      return { checked: false, state: updateState }
     }
   },
 
-  dismissUpdate: () => {
-    const update = get().availableUpdate
-    if (!update) {
-      return
-    }
-
-    set({ dismissedVersion: update.version })
-  },
-
-  handleDownloadEvent: (event) => {
-    switch (event.event) {
-      case "started":
-        set({
-          phase: "downloading",
-          error: null,
-          downloadedBytes: 0,
-          contentLength: event.contentLength ?? null,
-        })
-        return
-      case "progress":
-        set((state) => ({
-          phase: "downloading",
-          downloadedBytes: event.downloaded ?? state.downloadedBytes,
-          contentLength: event.contentLength ?? state.contentLength,
-        }))
-        return
-      case "finished":
-        set({ phase: "installing" })
+  installUpdate: async (options) => {
+    try {
+      const result = await desktop.app.installUpdate(options)
+      set({
+        updateState: result.state,
+        blockedDialogOpen: result.state.status === "blocked",
+      })
+      return result
+    } catch (error) {
+      const updateState = toErroredUpdateState(get().updateState, error, "install")
+      set({ updateState, blockedDialogOpen: false })
+      return { accepted: false, completed: false, state: updateState }
     }
   },
+
+  dismissUpdate: async () => {
+    try {
+      const updateState = await desktop.app.dismissUpdate()
+      set({ updateState, blockedDialogOpen: false })
+    } catch (error) {
+      set((state) => ({
+        blockedDialogOpen: false,
+        updateState: toErroredUpdateState(state.updateState, error, state.updateState.errorContext),
+      }))
+    }
+  },
+
+  dismissToast: () =>
+    set((state) => ({ toastDismissedForStatus: state.updateState.status })),
+
+  setUpdateState: (updateState) =>
+    set((state) => ({
+      updateState,
+      blockedDialogOpen: updateState.status === "blocked" ? true : state.blockedDialogOpen,
+      toastDismissedForStatus:
+        state.toastDismissedForStatus === updateState.status
+          ? state.toastDismissedForStatus
+          : null,
+    })),
+
+  closeBlockedDialog: () => set({ blockedDialogOpen: false }),
 }))
+
+export type {
+  AppUpdateActionResult,
+  AppUpdateCheckResult,
+  AppUpdateState,
+} from "@/desktop/client"

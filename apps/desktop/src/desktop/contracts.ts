@@ -224,19 +224,50 @@ export interface TerminalExitEvent {
   exitCode?: number
 }
 
-export interface AppUpdateInfo {
-  version: string
-  currentVersion: string
-  notes: string | null
-  pubDate: string | null
-  target: string
+export type AppUpdateStatus =
+  | "disabled"
+  | "idle"
+  | "checking"
+  | "up-to-date"
+  | "downloading"
+  | "ready"
+  | "blocked"
+  | "installing"
+  | "error"
+
+export type AppUpdateErrorContext = "check" | "download" | "install" | "blocked" | null
+
+export interface AppUpdateActiveWork {
+  activeTurns: number
+  activeTerminalSessions: number
+  labels: string[]
 }
 
-export interface AppUpdateDownloadEvent {
-  event: "started" | "progress" | "finished"
-  chunkLength?: number | null
-  downloaded?: number | null
-  contentLength?: number | null
+export interface AppUpdateState {
+  enabled: boolean
+  status: AppUpdateStatus
+  currentVersion: string
+  availableVersion: string | null
+  downloadedVersion: string | null
+  downloadPercent: number | null
+  checkedAt: number | null
+  message: string | null
+  errorContext: AppUpdateErrorContext
+  activeWork: AppUpdateActiveWork | null
+  canDismiss: boolean
+  canRetry: boolean
+  canInstall: boolean
+}
+
+export interface AppUpdateActionResult {
+  accepted: boolean
+  completed: boolean
+  state: AppUpdateState
+}
+
+export interface AppUpdateCheckResult {
+  checked: boolean
+  state: AppUpdateState
 }
 
 export interface ManagedSkill {

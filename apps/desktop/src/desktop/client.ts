@@ -1,6 +1,7 @@
 import type {
-  AppUpdateDownloadEvent,
-  AppUpdateInfo,
+  AppUpdateActionResult,
+  AppUpdateCheckResult,
+  AppUpdateState,
   CopyPathsIntoDirectoryOptions,
   DesktopDirEntry,
   GitActionProgressEvent,
@@ -67,10 +68,12 @@ export function loadDesktopStore(file: string): Promise<DesktopStoreHandle> {
 export const desktop = {
   app: {
     getVersion: () => window.nucleus.app.getVersion(),
+    getUpdateState: () => window.nucleus.app.getUpdateState(),
     checkForUpdates: () => window.nucleus.app.checkForUpdates(),
-    installUpdate: () => window.nucleus.app.installUpdate(),
-    onUpdateEvent: (listener: (event: AppUpdateDownloadEvent) => void) =>
-      window.nucleus.app.onUpdateEvent(listener),
+    installUpdate: (options?: { force?: boolean }) => window.nucleus.app.installUpdate(options),
+    dismissUpdate: () => window.nucleus.app.dismissUpdate(),
+    onUpdateState: (listener: (state: AppUpdateState) => void) =>
+      window.nucleus.app.onUpdateState(listener),
   },
   dialog: {
     openProjectFolder: () => window.nucleus.dialog.openProjectFolder(),
@@ -201,8 +204,9 @@ export const desktop = {
 }
 
 export type {
-  AppUpdateDownloadEvent,
-  AppUpdateInfo,
+  AppUpdateActionResult,
+  AppUpdateCheckResult,
+  AppUpdateState,
   DesktopDirEntry,
   GitActionProgressEvent,
   GitBranchesResponse,

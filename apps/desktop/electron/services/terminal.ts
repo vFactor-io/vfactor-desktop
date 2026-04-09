@@ -271,6 +271,18 @@ export class TerminalService {
     }
   }
 
+  getActiveSessionCount(): number {
+    let count = 0
+
+    for (const session of this.sessions.values()) {
+      if (!session.exited) {
+        count += 1
+      }
+    }
+
+    return count
+  }
+
   private requireSession(sessionId: string): TerminalSession {
     const session = this.sessions.get(sessionId)
     if (!session) {

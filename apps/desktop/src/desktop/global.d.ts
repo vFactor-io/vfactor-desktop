@@ -1,6 +1,7 @@
 import type {
-  AppUpdateDownloadEvent,
-  AppUpdateInfo,
+  AppUpdateActionResult,
+  AppUpdateCheckResult,
+  AppUpdateState,
   CopyPathsIntoDirectoryOptions,
   DesktopDirEntry,
   GitActionProgressEvent,
@@ -35,9 +36,11 @@ declare global {
     nucleus: {
       app: {
         getVersion: () => Promise<string>
-        checkForUpdates: () => Promise<AppUpdateInfo | null>
-        installUpdate: () => Promise<void>
-        onUpdateEvent: (listener: (event: AppUpdateDownloadEvent) => void) => () => void
+        getUpdateState: () => Promise<AppUpdateState>
+        checkForUpdates: () => Promise<AppUpdateCheckResult>
+        installUpdate: (options?: { force?: boolean }) => Promise<AppUpdateActionResult>
+        dismissUpdate: () => Promise<AppUpdateState>
+        onUpdateState: (listener: (state: AppUpdateState) => void) => () => void
       }
       dialog: {
         openProjectFolder: () => Promise<string | null>
