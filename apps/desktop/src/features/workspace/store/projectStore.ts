@@ -360,7 +360,7 @@ function restorePersistedProject(project: LegacyProject): Project {
     workspacesPath,
     rootWorktreeId,
     selectedWorktreeId,
-    targetBranch: project.targetBranch?.trim() || fallbackRootWorktree?.branchName || null,
+    targetBranch: project.targetBranch?.trim() || null,
     remoteName,
     setupScript,
     hiddenWorktreePaths,
@@ -368,6 +368,65 @@ function restorePersistedProject(project: LegacyProject): Project {
     addedAt: project.addedAt ?? now,
     actions,
     primaryActionId,
+  }
+}
+
+type ProjectBaseBranchResolution = {
+  baseBranch: string | null
+  source: "targetBranch" | "gitDefaultBranch" | "rootWorktreeBranch" | "none"
+  configuredTargetBranch: string | null
+  gitDefaultBranch: string | null
+  rootWorktreeBranch: string | null
+  rootWorktreeId: string | null
+}
+
+async function resolveProjectBaseBranch(
+  project: Pick<Project, "targetBranch" | "repoRootPath" | "rootWorktreeId" | "worktrees">
+): Promise<ProjectBaseBranchResolution> {
+  const configuredTargetBranch = project.targetBranch?.trim()
+  if (configuredTargetBranch) {
+    return {
+      baseBranch: configuredTargetBranch,
+      source: "targetBranch",
+      configuredTargetBranch,
+      gitDefaultBranch: null,
+      rootWorktreeBranch: null,
+      rootWorktreeId: project.rootWorktreeId,
+    }
+  }
+
+  let gitDefaultBranch: string | null = null
+
+  try {
+    const branchData = await desktop.git.getBranches(project.repoRootPath)
+    gitDefaultBranch = branchData?.defaultBranch?.trim() || null
+    if (gitDefaultBranch) {
+      return {
+        baseBranch: gitDefaultBranch,
+        source: "gitDefaultBranch",
+        configuredTargetBranch,
+        gitDefaultBranch,
+        rootWorktreeBranch: null,
+        rootWorktreeId: project.rootWorktreeId,
+      }
+    }
+  } catch {
+    // Fall back to local worktree metadata when git metadata is temporarily unavailable.
+  }
+
+  const rootWorktree =
+    project.worktrees.find((worktree) => worktree.id === project.rootWorktreeId) ??
+    project.worktrees.find((worktree) => worktree.source === "root") ??
+    null
+  const rootWorktreeBranch = rootWorktree?.branchName?.trim() || null
+
+  return {
+    baseBranch: rootWorktreeBranch,
+    source: rootWorktreeBranch ? "rootWorktreeBranch" : "none",
+    configuredTargetBranch,
+    gitDefaultBranch,
+    rootWorktreeBranch,
+    rootWorktreeId: rootWorktree?.id ?? project.rootWorktreeId,
   }
 }
 
@@ -874,16 +933,36 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     })
 
     try {
-      const baseBranch =
-        project.targetBranch?.trim() || getActiveWorktree(project, null)?.branchName
+      const baseBranchResolution = await resolveProjectBaseBranch(project)
+      const baseBranch = baseBranchResolution.baseBranch
+      console.debug("[workspace] createWorktree:base-branch", {
+        projectId: project.id,
+        repoRootPath: project.repoRootPath,
+        requestedBranchName: identity.branchName,
+        requestedWorkspaceName: identity.name,
+        requestedTargetPath: identity.path,
+        remoteName: project.remoteName ?? null,
+        ...baseBranchResolution,
+      })
       if (!baseBranch) {
         throw new Error("Choose a target branch before creating a worktree.")
       }
+
+      console.debug("[workspace] createWorktree:request", {
+        projectId: project.id,
+        repoRootPath: project.repoRootPath,
+        branchName: identity.branchName,
+        workspaceName: identity.name,
+        baseBranch,
+        remoteName: project.remoteName ?? null,
+        targetPath: identity.path,
+      })
 
       const result = await desktop.git.createWorktree(project.repoRootPath, {
         name: identity.name,
         branchName: identity.branchName,
         baseBranch,
+        remoteName: project.remoteName ?? null,
         targetPath: identity.path,
       })
 
@@ -916,8 +995,22 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         newWorkspaceSetupProjectId:
           get().newWorkspaceSetupProjectId === project.id ? null : get().newWorkspaceSetupProjectId,
       })
+      console.debug("[workspace] createWorktree:success", {
+        projectId: project.id,
+        requestedBranchName: identity.branchName,
+        createdBranchName: readyWorktree.branchName,
+        createdPath: readyWorktree.path,
+        activeWorktreeId: readyWorktree.id,
+      })
       return readyWorktree
     } catch (error) {
+      console.error("[workspace] createWorktree:error", {
+        projectId: project.id,
+        repoRootPath: project.repoRootPath,
+        requestedBranchName: identity.branchName,
+        requestedTargetPath: identity.path,
+        error,
+      })
       const latestProject =
         get().projects.find((candidate) => candidate.id === project.id) ?? provisionalProject
       const failedProject = {
@@ -978,16 +1071,40 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     })
 
     try {
-      const baseBranch =
-        project.targetBranch?.trim() || getActiveWorktree(project, get().activeWorktreeId)?.branchName
+      const baseBranchResolution = await resolveProjectBaseBranch(project)
+      const baseBranch = baseBranchResolution.baseBranch
+      console.debug("[workspace] createWorktreeFromIntent:base-branch", {
+        projectId: project.id,
+        repoRootPath: project.repoRootPath,
+        requestedBranchName: updates.branchName,
+        resolvedBranchName: resolvedTarget.branchName,
+        requestedWorkspaceName: updates.name ?? null,
+        resolvedWorkspaceName: resolvedTarget.name,
+        requestedTargetPath: resolvedTarget.path,
+        activateOnSuccess,
+        remoteName: project.remoteName ?? null,
+        ...baseBranchResolution,
+      })
       if (!baseBranch) {
         throw new Error("Choose a target branch before creating a worktree.")
       }
+
+      console.debug("[workspace] createWorktreeFromIntent:request", {
+        projectId: project.id,
+        repoRootPath: project.repoRootPath,
+        branchName: resolvedTarget.branchName,
+        workspaceName: resolvedTarget.name,
+        baseBranch,
+        remoteName: project.remoteName ?? null,
+        targetPath: resolvedTarget.path,
+        activateOnSuccess,
+      })
 
       const result = await desktop.git.createWorktree(project.repoRootPath, {
         name: resolvedTarget.name,
         branchName: resolvedTarget.branchName,
         baseBranch,
+        remoteName: project.remoteName ?? null,
         targetPath: resolvedTarget.path,
       })
 
@@ -1026,8 +1143,25 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         focusedProjectId: activateOnSuccess ? project.id : get().focusedProjectId,
         activeWorktreeId: activateOnSuccess ? readyWorktree.id : get().activeWorktreeId,
       })
+      console.debug("[workspace] createWorktreeFromIntent:success", {
+        projectId: project.id,
+        requestedBranchName: updates.branchName,
+        createdBranchName: readyWorktree.branchName,
+        createdPath: readyWorktree.path,
+        activateOnSuccess,
+        activeWorktreeId: activateOnSuccess ? readyWorktree.id : get().activeWorktreeId,
+      })
       return readyWorktree
     } catch (error) {
+      console.error("[workspace] createWorktreeFromIntent:error", {
+        projectId: project.id,
+        repoRootPath: project.repoRootPath,
+        requestedBranchName: updates.branchName,
+        requestedWorkspaceName: updates.name ?? null,
+        requestedTargetPath: resolvedTarget.path,
+        activateOnSuccess,
+        error,
+      })
       const latestProject =
         get().projects.find((candidate) => candidate.id === project.id) ?? provisionalProject
       const failedProject = {

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react"
+import { Sidebar } from "@/components/icons"
 import { desktop, type GitPullRequest } from "@/desktop/client"
 import { FileChangesList, FileChangesToolbar, FileTreeViewer, useFileChangesState } from "@/features/version-control/components"
 import { useFileTreeStore } from "@/features/workspace/store"
@@ -13,8 +14,10 @@ import { PullRequestChecksPanel } from "./PullRequestChecksPanel"
 import { getChecksTabBadgeCount, shouldAutoOpenChecksTab } from "./pullRequestChecks"
 import { useRightSidebar } from "./useRightSidebar"
 import { SidebarShell } from "./SidebarShell"
+import { SourceControlActionGroup } from "./AppHeader"
 import { RightSidebarEmptyState } from "./RightSidebarEmptyState"
 import { LayoutGroup, motion } from "framer-motion"
+import { Button } from "@/features/shared/components/ui/button"
 import { cn } from "@/lib/utils"
 import { prewarmProjectData } from "@/features/shared/utils/prewarmProjectData"
 
@@ -40,7 +43,7 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
   const previousChecksStatusByPullRequestRef = useRef<
     Map<string, GitPullRequest["checksStatus"] | null>
   >(new Map())
-  const { isAvailable, isCollapsed, width, setWidth, activeTab, setActiveTab, expand } = useRightSidebar()
+  const { isAvailable, isCollapsed, width, setWidth, activeTab, setActiveTab, expand, toggle } = useRightSidebar()
   const { selectedWorktreeId, selectedWorktree, selectedWorktreePath } = useCurrentProjectWorktree()
   const {
     activeProjectPath,
@@ -208,15 +211,30 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
     }
   }, [activeView, isAvailable, isHoverPreviewOpen])
 
-  if (!isAvailable || isCollapsed || activeView !== "chat") {
-    if (!isAvailable || activeView !== "chat") {
-      return null
-    }
+  if (!isAvailable || activeView !== "chat") {
+    return null
   }
+
+  const headerControls = (
+    <div className="flex shrink-0 items-center gap-2">
+      <SourceControlActionGroup projectPath={selectedWorktreePath} />
+      <Button
+        type="button"
+        onClick={toggle}
+        variant="ghost"
+        size="icon-sm"
+        className="text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+        aria-label="Toggle right sidebar"
+      >
+        <Sidebar size={14} className="scale-x-[-1]" />
+      </Button>
+    </div>
+  )
 
   const sidebarHeader = (
     <div className="flex h-11 shrink-0 items-center border-b border-sidebar-border/70 px-3">
       <div className="drag-region min-w-0 flex-1 self-stretch" />
+      {headerControls}
     </div>
   )
 
@@ -381,7 +399,7 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
     return (
       <>
         <div
-          className="fixed inset-y-0 right-0 z-30"
+          className="fixed top-11 right-0 bottom-0 z-30"
           style={{ width: COLLAPSED_HOVER_TRIGGER_WIDTH }}
           onMouseEnter={() => {
             handleHoverPreviewIntent()

@@ -790,6 +790,19 @@ function getRemoteNameFromBranchRef(branchRef: string | null | undefined): strin
   return branchRef.slice(0, slashIndex)
 }
 
+function getBranchNameFromBranchRef(branchRef: string | null | undefined): string | null {
+  if (!branchRef) {
+    return null
+  }
+
+  const slashIndex = branchRef.indexOf("/")
+  if (slashIndex <= 0 || slashIndex >= branchRef.length - 1) {
+    return null
+  }
+
+  return branchRef.slice(slashIndex + 1)
+}
+
 async function resolvePullRequestHeadRef(
   projectPath: string,
   branchName: string,
@@ -862,6 +875,105 @@ async function getCurrentUpstreamBranch(projectPath: string): Promise<string | n
   } catch {
     return null
   }
+}
+
+async function resolveWorktreeBaseRemote(
+  projectPath: string,
+  preferredRemoteName: string | null = null
+): Promise<string> {
+  const remoteNames = await listRemoteNames(projectPath)
+
+  if (preferredRemoteName) {
+    if (remoteNames.includes(preferredRemoteName)) {
+      return preferredRemoteName
+    }
+
+    throw new Error(`The configured remote "${preferredRemoteName}" is not available for this repository.`)
+  }
+
+  if (remoteNames.includes("origin")) {
+    return "origin"
+  }
+
+  if (remoteNames.length === 1 && remoteNames[0]) {
+    return remoteNames[0]
+  }
+
+  const upstreamRemote = getRemoteNameFromBranchRef(await getCurrentUpstreamBranch(projectPath))
+  if (upstreamRemote && remoteNames.includes(upstreamRemote)) {
+    return upstreamRemote
+  }
+
+  if (remoteNames.length === 0) {
+    throw new Error(
+      "A remote is required to create a worktree from the target branch. Configure the repository remote and try again."
+    )
+  }
+
+  throw new Error(
+    "Unable to determine which remote to use for the target branch. Configure a single remote or use origin."
+  )
+}
+
+async function resolveWorktreeBaseRef(
+  projectPath: string,
+  branchName: string,
+  preferredRemoteName: string | null = null
+): Promise<{ remoteName: string; remoteRef: string }> {
+  const remoteName = await resolveWorktreeBaseRemote(projectPath, preferredRemoteName)
+  const remoteRef = `refs/remotes/${remoteName}/${branchName}`
+  console.debug("[git] resolveWorktreeBaseRef:start", {
+    projectPath,
+    branchName,
+    preferredRemoteName,
+    remoteName,
+    remoteRef,
+  })
+
+  let remoteBranchOutput = ""
+  try {
+    remoteBranchOutput = await runGitCommand(projectPath, ["ls-remote", "--heads", remoteName, branchName])
+  } catch {
+    throw new Error(
+      `Unable to verify the target branch "${branchName}" on ${remoteName}. Fetch the branch from GitHub and try again.`
+    )
+  }
+
+  if (!remoteBranchOutput.trim()) {
+    throw new Error(
+      `The target branch "${branchName}" is not available on ${remoteName}. Worktree creation stopped instead of using a local fallback.`
+    )
+  }
+
+  try {
+    await runGitCommand(projectPath, [
+      "fetch",
+      "--no-tags",
+      remoteName,
+      `refs/heads/${branchName}:${remoteRef}`,
+    ])
+  } catch {
+    throw new Error(
+      `Unable to fetch the latest state for "${branchName}" from ${remoteName}. Worktree creation stopped before using stale files.`
+    )
+  }
+
+  try {
+    await runGitCommand(projectPath, ["rev-parse", `${remoteRef}^{commit}`])
+  } catch {
+    throw new Error(
+      `Unable to resolve the fetched target branch "${branchName}" from ${remoteName}. Worktree creation stopped.`
+    )
+  }
+
+  console.debug("[git] resolveWorktreeBaseRef:resolved", {
+    projectPath,
+    branchName,
+    remoteName,
+    remoteRef,
+  })
+
+  return { remoteName, remoteRef }
 }
 
 async function listLocalBranchNames(projectPath: string): Promise<string[]> {
@@ -1941,10 +2053,16 @@ async function pushCurrentBranch(
   remoteName?: string | null
 ): Promise<GitRunStackedActionResult["push"]> {
   const branchData = await getGitBranchesResponse(projectPath)
+  const upstreamRemote = getRemoteNameFromBranchRef(branchData.upstreamBranch)
+  const upstreamBranchName = getBranchNameFromBranchRef(branchData.upstreamBranch)
   const targetRemote =
-    remoteName?.trim() || (branchData.hasOriginRemote ? "origin" : branchData.remoteNames[0] ?? "origin")
+    remoteName?.trim() ||
+    upstreamRemote ||
+    (branchData.hasOriginRemote ? "origin" : branchData.remoteNames[0] ?? "origin")
+  const tracksTargetBranch =
+    branchData.hasUpstream && upstreamRemote === targetRemote && upstreamBranchName === branchName
 
-  if (branchData.hasUpstream && branchData.aheadCount === 0 && branchData.behindCount === 0) {
+  if (tracksTargetBranch && branchData.aheadCount === 0 && branchData.behindCount === 0) {
     return {
       status: "skipped_up_to_date",
       branch: branchName,
@@ -1957,7 +2075,7 @@ async function pushCurrentBranch(
       throw new Error(`Cannot push because this project has no "${targetRemote}" remote configured.`)
     }
 
-    await runGitCommand(projectPath, ["push", "-u", targetRemote, branchName])
+    await runGitCommand(projectPath, ["push", "-u", targetRemote, `HEAD:${branchName}`])
     return {
       status: "pushed",
       branch: branchName,
@@ -1966,7 +2084,21 @@ async function pushCurrentBranch(
     }
   }
 
-  await runGitCommand(projectPath, ["push"])
+  if (!branchData.remoteNames.includes(targetRemote)) {
+    throw new Error(`Cannot push because this project has no "${targetRemote}" remote configured.`)
+  }
+
+  if (!tracksTargetBranch) {
+    await runGitCommand(projectPath, ["push", "-u", targetRemote, `HEAD:${branchName}`])
+    return {
+      status: "pushed",
+      branch: branchName,
+      upstreamBranch: `${targetRemote}/${branchName}`,
+      setUpstream: true,
+    }
+  }
+
+  await runGitCommand(projectPath, ["push", targetRemote, `HEAD:${branchName}`])
   return {
     status: "pushed",
     branch: branchName,
@@ -2204,6 +2336,7 @@ export class GitService {
     const repoRoot = await runGitCommand(trimmedPath, ["rev-parse", "--show-toplevel"])
     const requestedBranchName = input.branchName.trim()
     const baseBranch = input.baseBranch.trim()
+    const remoteName = input.remoteName?.trim() || null
     const requestedTargetPath = input.targetPath?.trim() || null
 
     if (!input.name.trim()) {
@@ -2216,18 +2349,45 @@ export class GitService {
       throw new Error("A base branch is required to create a worktree.")
     }
 
+    console.debug("[git] createWorktree:start", {
+      projectPath: trimmedPath,
+      repoRoot,
+      requestedBranchName,
+      baseBranch,
+      remoteName,
+      requestedTargetPath,
+      requestedName: input.name.trim(),
+    })
+
     await runGitCommand(trimmedPath, ["check-ref-format", "--branch", requestedBranchName])
     const existingBranches = await listLocalBranchNames(repoRoot)
     const branchName = ensureUniqueBranchName(requestedBranchName, existingBranches, {
       sanitize: false,
     })
+    const { remoteName: resolvedRemoteName, remoteRef: baseRef } = await resolveWorktreeBaseRef(
+      repoRoot,
+      baseBranch,
+      remoteName
+    )
     const requestedDefaultPath = resolveDefaultManagedWorktreePath(repoRoot, requestedBranchName)
     const worktreePath =
       !requestedTargetPath || path.resolve(requestedTargetPath) === path.resolve(requestedDefaultPath)
         ? resolveDefaultManagedWorktreePath(repoRoot, branchName)
         : requestedTargetPath
+    console.debug("[git] createWorktree:resolved-input", {
+      projectPath: trimmedPath,
+      repoRoot,
+      requestedBranchName,
+      finalBranchName: branchName,
+      baseBranch,
+      baseRef,
+      remoteName: resolvedRemoteName,
+      requestedTargetPath,
+      finalWorktreePath: worktreePath,
+      requestedName: input.name.trim(),
+    })
     await mkdir(path.dirname(worktreePath), { recursive: true })
-    await runGitCommand(repoRoot, ["worktree", "add", "-b", branchName, worktreePath, baseBranch])
+    await runGitCommand(repoRoot, ["worktree", "add", "-b", branchName, worktreePath, baseRef])
 
     const createdWorktree =
       (await listGitWorktrees(worktreePath)).find(
@@ -2244,6 +2404,17 @@ export class GitService {
     capture("worktree_created", {
       used_default_base_branch: baseBranch === "main",
       used_custom_path: Boolean(requestedTargetPath),
+    })
+    console.debug("[git] createWorktree:success", {
+      projectPath: trimmedPath,
+      repoRoot,
+      baseBranch,
+      baseRef,
+      remoteName: resolvedRemoteName,
+      createdBranchName: createdWorktree.branchName,
+      createdWorktreePath: createdWorktree.path,
+      requestedTargetPath,
+      finalWorktreePath: worktreePath,
     })
     return {
       worktree: createdWorktree,

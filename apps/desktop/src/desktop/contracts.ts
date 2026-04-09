@@ -113,6 +113,7 @@ export interface GitCreateWorktreeInput {
   name: string
   branchName: string
   baseBranch: string
+  remoteName?: string | null
   targetPath?: string | null
 }
 

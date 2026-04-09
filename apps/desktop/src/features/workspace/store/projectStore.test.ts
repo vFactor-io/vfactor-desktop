@@ -27,7 +27,13 @@ let getBranchesImpl = async (_projectPath: string) => gitBranchesResponse
 let listWorktreesImpl = async (_projectPath: string) => discoveredWorktrees
 let createWorktreeImpl = async (
   _repoRootPath: string,
-  options: { name?: string; branchName: string; baseBranch?: string; targetPath: string }
+  options: {
+    name?: string
+    branchName: string
+    baseBranch?: string
+    remoteName?: string | null
+    targetPath: string
+  }
 ) => ({
   worktree: {
     branchName: options.branchName,
@@ -64,7 +70,13 @@ mock.module("@/desktop/client", () => ({
       listWorktrees: async (projectPath: string) => listWorktreesImpl(projectPath),
       createWorktree: async (
         repoRootPath: string,
-        options: { name?: string; branchName: string; baseBranch?: string; targetPath: string }
+        options: {
+          name?: string
+          branchName: string
+          baseBranch?: string
+          remoteName?: string | null
+          targetPath: string
+        }
       ) => createWorktreeImpl(repoRootPath, options),
       renameWorktree: async (
         repoRootPath: string,
@@ -479,6 +491,47 @@ describe("projectStore", () => {
     expect((storeData.get("activeWorktreeId") as string | null) ?? null).toBeNull()
   })
 
+  test("loadProjects leaves targetBranch unset until git metadata resolves", async () => {
+    storeData.set("projects", [
+      createPersistedProject({
+        rootWorktreeId: "root-worktree",
+        selectedWorktreeId: "root-worktree",
+      }),
+    ])
+    storeData.set("selectedProjectId", "project-1")
+
+    let releaseBranches: (() => void) | null = null
+    const branchesGate = new Promise<void>((resolve) => {
+      releaseBranches = resolve
+    })
+
+    listWorktreesImpl = async () => [
+      {
+        path: "/tmp/repo",
+        branchName: "tests/app",
+        isMain: true,
+      },
+    ]
+
+    getBranchesImpl = async () => {
+      await branchesGate
+      return {
+        currentBranch: "tests/app",
+        defaultBranch: "main",
+      }
+    }
+
+    const loadPromise = useProjectStore.getState().loadProjects()
+    await waitFor(() => useProjectStore.getState().isLoading === false)
+
+    expect(useProjectStore.getState().projects[0]?.targetBranch).toBeNull()
+
+    releaseBranches?.()
+    await loadPromise
+
+    expect(useProjectStore.getState().projects[0]?.targetBranch).toBe("main")
+  })
+
   test("background refresh preserves a project selected during startup", async () => {
     storeData.set("projects", [
       createPersistedProject({
@@ -725,6 +778,42 @@ describe("projectStore", () => {
     expect(project?.selectedWorktreeId).toBe("root-worktree")
     expect(state.activeWorktreeId).toBe("root-worktree")
     expect(state.focusedProjectId).toBe("project-1")
+  })
+
+  test("createWorktreeFromIntent uses the repo default branch when targetBranch is unset", async () => {
+    let createWorktreeBaseBranch: string | null = null
+    createWorktreeImpl = async (_repoRootPath, options) => {
+      createWorktreeBaseBranch = options.baseBranch ?? null
+      return {
+        worktree: {
+          branchName: options.branchName,
+          path: options.targetPath,
+        },
+      }
+    }
+    getBranchesImpl = async () => ({
+      currentBranch: "tests/app",
+      defaultBranch: "main",
+    })
+
+    useProjectStore.setState({
+      projects: [
+        createProject({
+          targetBranch: null,
+          worktrees: [createRootWorktree({ branchName: "tests/app" })],
+        }),
+      ],
+      focusedProjectId: "project-1",
+      activeWorktreeId: "root-worktree",
+      isLoading: false,
+    })
+
+    await useProjectStore.getState().createWorktreeFromIntent("project-1", {
+      branchName: "feature/fix-first-turn-setup",
+      name: "Fix first turn setup",
+    })
+
+    expect(createWorktreeBaseBranch).toBe("main")
   })
 
   test("selectWorktree updates project-local selection and global active state", async () => {

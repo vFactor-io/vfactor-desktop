@@ -3,7 +3,7 @@ import type { FileTreeItem } from "@/features/version-control/types"
 
 /**
  * Directories to skip when reading project files.
- * These are typically hidden, cache, or build directories that:
+ * These are typically internal, cache, or build directories that:
  * - Users don't need to see
  * - May have permission issues
  * - Can be very large and slow down the tree
@@ -20,7 +20,6 @@ const IGNORED_DIRECTORIES = new Set([
   ".tox",
   ".venv",
   "venv",
-  ".env",
   "dist",
   "build",
   ".next",
@@ -39,41 +38,7 @@ const IGNORED_DIRECTORIES = new Set([
  * Check if a file/directory should be ignored.
  */
 export function shouldIgnoreFileSystemEntry(name: string): boolean {
-  // Ignore entries in the ignore list
-  if (IGNORED_DIRECTORIES.has(name)) {
-    return true
-  }
-  // Ignore hidden files/folders starting with . (except common config files)
-  if (name.startsWith(".") && !isCommonConfigFile(name)) {
-    return true
-  }
-  return false
-}
-
-/**
- * Common config files that start with . but should be visible.
- */
-function isCommonConfigFile(name: string): boolean {
-  const commonConfigs = [
-    ".env",
-    ".env.local",
-    ".env.development",
-    ".env.production",
-    ".gitignore",
-    ".dockerignore",
-    ".editorconfig",
-    ".prettierrc",
-    ".eslintrc",
-    ".eslintrc.js",
-    ".eslintrc.json",
-    ".babelrc",
-    ".npmrc",
-    ".nvmrc",
-    ".python-version",
-    ".ruby-version",
-    ".tool-versions",
-  ]
-  return commonConfigs.includes(name) || name.startsWith(".env")
+  return IGNORED_DIRECTORIES.has(name)
 }
 
 /**

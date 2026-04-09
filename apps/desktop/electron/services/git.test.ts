@@ -48,6 +48,22 @@ async function createRepository(): Promise<string> {
   return repoDir
 }
 
+async function createRepositoryWithOrigin(): Promise<{ repoDir: string; remoteDir: string }> {
+  const repoDir = await createRepository()
+  const remoteDir = await mkdtemp(path.join(tmpdir(), "nucleus-git-remote-"))
+
+  try {
+    await git(remoteDir, ["init", "--bare", "--initial-branch=main"])
+    await git(repoDir, ["remote", "add", "origin", remoteDir])
+    await git(repoDir, ["push", "-u", "origin", "main"])
+    return { repoDir, remoteDir }
+  } catch (error) {
+    await rm(repoDir, { recursive: true, force: true })
+    await rm(remoteDir, { recursive: true, force: true })
+    throw error
+  }
+}
+
 describe("GitService.runStackedAction", () => {
   test("commits selected files with a custom message without clearing unrelated staged work", async () => {
     const repoDir = await createRepository()
@@ -104,11 +120,112 @@ describe("GitService.runStackedAction", () => {
       await rm(remoteDir, { recursive: true, force: true })
     }
   })
+
+  test("repairs mismatched upstream tracking before pushing the current branch", async () => {
+    const { repoDir, remoteDir } = await createRepositoryWithOrigin()
+
+    try {
+      await git(repoDir, ["switch", "-c", "feature"])
+      await appendFile(path.join(repoDir, "a.txt"), "feature change\n", "utf8")
+      await git(repoDir, ["commit", "-am", "Feature commit"])
+      await git(repoDir, ["branch", "--set-upstream-to=origin/main", "feature"])
+
+      const service = new GitService()
+      const result = await service.runStackedAction(repoDir, {
+        action: "commit_push",
+      })
+
+      expect(result.commit.status).toBe("skipped_no_changes")
+      expect(result.push.status).toBe("pushed")
+      expect(result.push.upstreamBranch).toBe("origin/feature")
+      expect(result.push.setUpstream).toBe(true)
+      expect(await git(repoDir, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"])).toBe(
+        "origin/feature"
+      )
+      expect(await git(remoteDir, ["rev-parse", "feature"])).toBe(await git(repoDir, ["rev-parse", "HEAD"]))
+    } finally {
+      await rm(repoDir, { recursive: true, force: true })
+      await rm(remoteDir, { recursive: true, force: true })
+    }
+  })
 })
 
 describe("GitService worktrees", () => {
+  test("creates a worktree from the fetched remote target branch state", async () => {
+    const { repoDir, remoteDir } = await createRepositoryWithOrigin()
+    const cloneRoot = await mkdtemp(path.join(tmpdir(), "nucleus-git-clone-"))
+    const cloneDir = path.join(cloneRoot, "repo")
+    const worktreeDir = path.join(repoDir, "..", ".nucleus-worktrees-test", "kolkata")
+
+    try {
+      await git(cloneRoot, ["clone", remoteDir, cloneDir])
+      await git(cloneDir, ["config", "user.name", "Nucleus Test"])
+      await git(cloneDir, ["config", "user.email", "nucleus@example.com"])
+      await mkdir(path.join(cloneDir, "remote-only"), { recursive: true })
+      await writeFile(path.join(cloneDir, "remote-only", "state.txt"), "from remote\n", "utf8")
+      await git(cloneDir, ["add", "."])
+      await git(cloneDir, ["commit", "-m", "Remote update"])
+      await git(cloneDir, ["push", "origin", "main"])
+
+      const service = new GitService()
+      const created = await service.createWorktree(repoDir, {
+        name: "Kolkata",
+        branchName: "kolkata",
+        baseBranch: "main",
+        targetPath: worktreeDir,
+      })
+      const resolvedWorktreeDir = await realpath(worktreeDir)
+
+      expect(created.worktree.path).toBe(resolvedWorktreeDir)
+      expect(created.worktree.branchName).toBe("kolkata")
+      expect(await git(worktreeDir, ["branch", "--show-current"])).toBe("kolkata")
+      expect(await readFile(path.join(worktreeDir, "remote-only", "state.txt"), "utf8")).toBe(
+        "from remote\n"
+      )
+
+      await service.removeWorktree(repoDir, { worktreePath: worktreeDir })
+
+      expect(existsSync(worktreeDir)).toBe(false)
+      expect(await git(repoDir, ["branch", "--list", "kolkata"])).toContain("kolkata")
+    } finally {
+      await rm(repoDir, { recursive: true, force: true })
+      await rm(remoteDir, { recursive: true, force: true })
+      await rm(cloneRoot, { recursive: true, force: true })
+      await rm(path.join(repoDir, "..", ".nucleus-worktrees-test"), { recursive: true, force: true })
+    }
+  })
+
+  test("fails when the target branch only exists locally", async () => {
+    const { repoDir, remoteDir } = await createRepositoryWithOrigin()
+    const worktreeDir = path.join(repoDir, "..", ".nucleus-worktrees-test", "release")
+
+    try {
+      await git(repoDir, ["checkout", "-b", "release/candidate"])
+      await appendFile(path.join(repoDir, "a.txt"), "local release only\n", "utf8")
+      await git(repoDir, ["commit", "-am", "Local release only"])
+      await git(repoDir, ["checkout", "main"])
+
+      const service = new GitService()
+
+      await expect(
+        service.createWorktree(repoDir, {
+          name: "Release",
+          branchName: "release-worktree",
+          baseBranch: "release/candidate",
+          targetPath: worktreeDir,
+        })
+      ).rejects.toThrow('The target branch "release/candidate" is not available on origin')
+
+      expect(existsSync(worktreeDir)).toBe(false)
+    } finally {
+      await rm(repoDir, { recursive: true, force: true })
+      await rm(remoteDir, { recursive: true, force: true })
+      await rm(path.join(repoDir, "..", ".nucleus-worktrees-test"), { recursive: true, force: true })
+    }
+  })
+
   test("creates and removes a managed worktree without deleting its branch", async () => {
-    const repoDir = await createRepository()
+    const { repoDir, remoteDir } = await createRepositoryWithOrigin()
     const worktreeDir = path.join(repoDir, "..", ".nucleus-worktrees-test", "kolkata")
 
     try {
@@ -134,12 +251,13 @@ describe("GitService worktrees", () => {
       expect(await git(repoDir, ["branch", "--list", "kolkata"])).toContain("kolkata")
     } finally {
       await rm(repoDir, { recursive: true, force: true })
+      await rm(remoteDir, { recursive: true, force: true })
       await rm(path.join(repoDir, "..", ".nucleus-worktrees-test"), { recursive: true, force: true })
     }
   })
 
   test("blocks removing a dirty worktree", async () => {
-    const repoDir = await createRepository()
+    const { repoDir, remoteDir } = await createRepositoryWithOrigin()
     const worktreeDir = path.join(repoDir, "..", ".nucleus-worktrees-test", "oslo")
 
     try {
@@ -158,12 +276,13 @@ describe("GitService worktrees", () => {
       ).rejects.toThrow("uncommitted changes")
     } finally {
       await rm(repoDir, { recursive: true, force: true })
+      await rm(remoteDir, { recursive: true, force: true })
       await rm(path.join(repoDir, "..", ".nucleus-worktrees-test"), { recursive: true, force: true })
     }
   })
 
   test("ignores prunable worktree entries when listing and creating worktrees", async () => {
-    const repoDir = await createRepository()
+    const { repoDir, remoteDir } = await createRepositoryWithOrigin()
     const staleWorktreeDir = path.join(repoDir, "..", ".nucleus-worktrees-test", "stale")
     const freshWorktreeDir = path.join(repoDir, "..", ".nucleus-worktrees-test", "fresh")
 
@@ -194,12 +313,13 @@ describe("GitService worktrees", () => {
       expect(await git(freshWorktreeDir, ["branch", "--show-current"])).toBe("fresh")
     } finally {
       await rm(repoDir, { recursive: true, force: true })
+      await rm(remoteDir, { recursive: true, force: true })
       await rm(path.join(repoDir, "..", ".nucleus-worktrees-test"), { recursive: true, force: true })
     }
   })
 
   test("creates a unique branch when the requested worktree branch already exists", async () => {
-    const repoDir = await createRepository()
+    const { repoDir, remoteDir } = await createRepositoryWithOrigin()
     const worktreesRoot = path.join(repoDir, "..", ".nucleus-worktrees", path.basename(repoDir))
 
     try {
@@ -217,12 +337,13 @@ describe("GitService worktrees", () => {
       expect(await git(created.worktree.path, ["branch", "--show-current"])).toBe("hobart-2")
     } finally {
       await rm(repoDir, { recursive: true, force: true })
+      await rm(remoteDir, { recursive: true, force: true })
       await rm(path.join(repoDir, "..", ".nucleus-worktrees"), { recursive: true, force: true })
     }
   })
 
   test("preserves slash-separated branch names when creating a worktree", async () => {
-    const repoDir = await createRepository()
+    const { repoDir, remoteDir } = await createRepositoryWithOrigin()
     const worktreeDir = path.join(repoDir, "..", ".nucleus-worktrees-test", "feature-foo")
 
     try {
@@ -238,12 +359,13 @@ describe("GitService worktrees", () => {
       expect(await git(worktreeDir, ["branch", "--show-current"])).toBe("feature/foo")
     } finally {
       await rm(repoDir, { recursive: true, force: true })
+      await rm(remoteDir, { recursive: true, force: true })
       await rm(path.join(repoDir, "..", ".nucleus-worktrees-test"), { recursive: true, force: true })
     }
   })
 
   test("renames a managed worktree branch and path", async () => {
-    const repoDir = await createRepository()
+    const { repoDir, remoteDir } = await createRepositoryWithOrigin()
     const originalWorktreeDir = path.join(repoDir, "..", ".nucleus-worktrees-test", "draft-task")
     const renamedWorktreeDir = path.join(repoDir, "..", ".nucleus-worktrees-test", "fix-first-turn")
 
@@ -271,12 +393,13 @@ describe("GitService worktrees", () => {
       expect(existsSync(originalWorktreeDir)).toBe(false)
     } finally {
       await rm(repoDir, { recursive: true, force: true })
+      await rm(remoteDir, { recursive: true, force: true })
       await rm(path.join(repoDir, "..", ".nucleus-worktrees-test"), { recursive: true, force: true })
     }
   })
 
   test("does not rename the branch when the destination path is unavailable", async () => {
-    const repoDir = await createRepository()
+    const { repoDir, remoteDir } = await createRepositoryWithOrigin()
     const originalWorktreeDir = path.join(repoDir, "..", ".nucleus-worktrees-test", "draft-task")
     const blockedWorktreeDir = path.join(repoDir, "..", ".nucleus-worktrees-test", "blocked")
 
@@ -302,6 +425,7 @@ describe("GitService worktrees", () => {
       expect(await git(originalWorktreeDir, ["branch", "--show-current"])).toBe("draft-task")
     } finally {
       await rm(repoDir, { recursive: true, force: true })
+      await rm(remoteDir, { recursive: true, force: true })
       await rm(path.join(repoDir, "..", ".nucleus-worktrees-test"), { recursive: true, force: true })
     }
   })

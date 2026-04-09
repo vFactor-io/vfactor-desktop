@@ -38,6 +38,7 @@ export function CenterToolbar({ activeView = "chat" }: CenterToolbarProps) {
 
   const canToggleRightSidebar =
     activeView === "chat" && isRightSidebarAvailable && !isNewWorkspaceSetupActive
+  const showRightSidebar = canToggleRightSidebar && !isRightCollapsed
   const collapsedBranchOffset = isCollapsed && activeView === "chat" ? COLLAPSED_BRANCH_OFFSET : 0
   const handleRightSidebarIntent = () => {
     void prewarmProjectData(activeWorktreeId, activeWorktreePath, rightSidebarActiveTab)
@@ -89,8 +90,8 @@ export function CenterToolbar({ activeView = "chat" }: CenterToolbarProps) {
         {activeView === "chat" && !isNewWorkspaceSetupActive ? (
           <div className="hidden shrink-0 items-center gap-2 pr-3 md:flex">
             {activeWorktreePath ? <ProjectActionsControl /> : null}
-            {activeWorktreePath ? <SourceControlActionGroup /> : null}
-            {canToggleRightSidebar ? (
+            {activeWorktreePath && !showRightSidebar ? <SourceControlActionGroup /> : null}
+            {canToggleRightSidebar && !showRightSidebar ? (
               <Button
                 type="button"
                 onClick={toggleRight}
