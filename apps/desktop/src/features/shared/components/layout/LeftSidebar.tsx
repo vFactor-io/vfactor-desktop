@@ -48,7 +48,7 @@ import { ModelLogo } from "@/features/chat/components/ModelLogo"
 import { isWorktreeReady } from "@/features/workspace/utils/worktrees"
 import { prewarmProjectData } from "@/features/shared/utils/prewarmProjectData"
 import { SidebarUpdatePill } from "@/features/updates/components/SidebarUpdatePill"
-import { getWorktreeActivityStatus } from "./worktreeActivity"
+import { getVisibleWorktreeActivityById } from "./worktreeActivity"
 
 const OPEN_PROJECT_SETTINGS_EVENT = "nucleus:open-project-settings"
 
@@ -209,14 +209,10 @@ export function LeftSidebar({
   )
   const worktreeActivityById = useChatStore(
     useShallow((state) =>
-      Object.fromEntries(
-        visibleWorktreeIds.map((worktreeId) => [
-          worktreeId,
-          getWorktreeActivityStatus(
-            state.chatByWorktree[worktreeId],
-            state.sessionActivityById
-          ),
-        ])
+      getVisibleWorktreeActivityById(
+        visibleWorktreeIds,
+        state.chatByWorktree,
+        state.sessionActivityById
       )
     )
   )

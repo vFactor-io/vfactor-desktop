@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { getWorktreeActivityStatus } from "./worktreeActivity"
+import { getVisibleWorktreeActivityById, getWorktreeActivityStatus } from "./worktreeActivity"
 
 describe("getWorktreeActivityStatus", () => {
   test("returns the active status for a worktree session even when another session is selected elsewhere", () => {
@@ -93,5 +93,44 @@ describe("getWorktreeActivityStatus", () => {
         }
       )
     ).toBe("connecting")
+  })
+})
+
+describe("getVisibleWorktreeActivityById", () => {
+  test("recomputes a worktree's status when only session activity changes", () => {
+    const visibleWorktreeIds = ["worktree-1"]
+    const chatByWorktree = {
+      "worktree-1": {
+        sessions: [
+          {
+            id: "session-1",
+            harnessId: "codex",
+            createdAt: 1,
+            updatedAt: 2,
+          },
+        ],
+        activeSessionId: "session-1",
+        archivedSessionIds: [],
+        selectedHarnessId: "codex",
+      },
+    }
+
+    expect(
+      getVisibleWorktreeActivityById(visibleWorktreeIds, chatByWorktree, {
+        "session-1": {
+          status: "idle",
+          unread: false,
+        },
+      })
+    ).toEqual({ "worktree-1": null })
+
+    expect(
+      getVisibleWorktreeActivityById(visibleWorktreeIds, chatByWorktree, {
+        "session-1": {
+          status: "streaming",
+          unread: true,
+        },
+      })
+    ).toEqual({ "worktree-1": "streaming" })
   })
 })

@@ -1,6 +1,8 @@
 import type { ProjectChatState } from "@/features/chat/store/storeTypes"
 import type { ChatStatus, SessionActivityState } from "@/features/chat/types"
 
+type WorktreeActivityStatus = Extract<ChatStatus, "connecting" | "streaming"> | null
+
 /**
  * Returns the first active chat status found for a worktree's non-archived sessions.
  * Array order determines precedence, so the first matching session wins.
@@ -8,7 +10,7 @@ import type { ChatStatus, SessionActivityState } from "@/features/chat/types"
 export function getWorktreeActivityStatus(
   projectChat: ProjectChatState | null | undefined,
   sessionActivityById: Record<string, SessionActivityState>
-): Extract<ChatStatus, "connecting" | "streaming"> | null {
+): WorktreeActivityStatus {
   if (!projectChat) {
     return null
   }
@@ -27,4 +29,21 @@ export function getWorktreeActivityStatus(
   }
 
   return null
+}
+
+export function getVisibleWorktreeActivityById(
+  visibleWorktreeIds: string[],
+  chatByWorktree: Record<string, ProjectChatState | undefined>,
+  sessionActivityById: Record<string, SessionActivityState>
+): Record<string, WorktreeActivityStatus> {
+  const worktreeActivityById: Record<string, WorktreeActivityStatus> = {}
+
+  for (const worktreeId of visibleWorktreeIds) {
+    worktreeActivityById[worktreeId] = getWorktreeActivityStatus(
+      chatByWorktree[worktreeId],
+      sessionActivityById
+    )
+  }
+
+  return worktreeActivityById
 }

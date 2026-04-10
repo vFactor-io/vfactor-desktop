@@ -9,6 +9,7 @@ import {
   type TerminalStartResponse,
 } from "@/desktop/client"
 import { cn } from "@/lib/utils"
+import { shouldRecoverTerminal, type TerminalRenderState } from "./terminalRecovery"
 import "@xterm/xterm/css/xterm.css"
 
 interface TerminalProps {
@@ -21,6 +22,29 @@ interface TerminalProps {
 
 const INACTIVE_MESSAGE = "\x1b[90mSelect a project to open a terminal.\x1b[0m"
 let preferDomTerminalRenderer = false
+
+function getTerminalRenderState(container: HTMLDivElement | null): TerminalRenderState {
+  if (!container) {
+    return {
+      isConnected: false,
+      display: "none",
+      visibility: "hidden",
+      width: 0,
+      height: 0,
+    }
+  }
+
+  const style = getComputedStyle(container)
+  const rect = container.getBoundingClientRect()
+
+  return {
+    isConnected: container.isConnected,
+    display: style.display,
+    visibility: style.visibility,
+    width: rect.width,
+    height: rect.height,
+  }
+}
 
 function resolveThemeColor(variableName: string, fallback: string) {
   const probe = document.createElement("div")
@@ -87,10 +111,12 @@ export function Terminal({
   const terminalRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
+  const webglAddonRef = useRef<WebglAddon | null>(null)
   const sessionIdRef = useRef<string | null>(null)
   const isSessionReadyRef = useRef(false)
   const isRestoringBufferRef = useRef(false)
   const lastSyncedSizeRef = useRef<{ cols: number; rows: number } | null>(null)
+  const repaintFrameRef = useRef<number | null>(null)
   const [connectionError, setConnectionError] = useState<string | null>(null)
 
   const updateTheme = useCallback(() => {
@@ -112,7 +138,7 @@ export function Terminal({
     }
   }, [])
 
-  const pushTerminalSize = useCallback((cols: number, rows: number) => {
+  const pushTerminalSize = useCallback((cols: number, rows: number, force = false) => {
     const term = xtermRef.current
     const sessionId = sessionIdRef.current
 
@@ -125,6 +151,7 @@ export function Terminal({
     const lastSyncedSize = lastSyncedSizeRef.current
 
     if (
+      !force &&
       lastSyncedSize &&
       lastSyncedSize.cols === nextCols &&
       lastSyncedSize.rows === nextRows
@@ -139,7 +166,7 @@ export function Terminal({
     })
   }, [])
 
-  const fitTerminal = useCallback(() => {
+  const fitTerminal = useCallback((forceResizeSync = false) => {
     const fitAddon = fitAddonRef.current
     const term = xtermRef.current
 
@@ -148,8 +175,35 @@ export function Terminal({
     }
 
     fitAddon.fit()
-    pushTerminalSize(term.cols, term.rows)
+    pushTerminalSize(term.cols, term.rows, forceResizeSync)
   }, [pushTerminalSize])
+
+  const repaintTerminal = useCallback(() => {
+    const term = xtermRef.current
+    if (!term) {
+      return
+    }
+
+    ;(webglAddonRef.current as (WebglAddon & { clearTextureAtlas?: () => void }) | null)?.clearTextureAtlas?.()
+    term.refresh(0, Math.max(0, term.rows - 1))
+  }, [])
+
+  const scheduleTerminalRepaint = useCallback((forceResizeSync = false) => {
+    if (repaintFrameRef.current != null) {
+      cancelAnimationFrame(repaintFrameRef.current)
+    }
+
+    // Wait until the current layout pass settles so xterm redraws against the final size.
+    repaintFrameRef.current = requestAnimationFrame(() => {
+      repaintFrameRef.current = null
+      if (!shouldRecoverTerminal(document.visibilityState, getTerminalRenderState(terminalRef.current))) {
+        return
+      }
+
+      fitTerminal(forceResizeSync)
+      repaintTerminal()
+    })
+  }, [fitTerminal, repaintTerminal])
 
   useEffect(() => {
     if (!terminalRef.current || xtermRef.current) return
@@ -184,12 +238,16 @@ export function Terminal({
           }
 
           webglAddon = null
-          term.refresh(0, Math.max(0, term.rows - 1))
+          webglAddonRef.current = null
+          repaintTerminal()
         })
         term.loadAddon(webglAddon)
+        webglAddonRef.current = webglAddon
+        scheduleTerminalRepaint()
       } catch {
         preferDomTerminalRenderer = true
         webglAddon = null
+        webglAddonRef.current = null
       }
     })
 
@@ -215,7 +273,7 @@ export function Terminal({
     })
 
     const resizeObserver = new ResizeObserver(() => {
-      fitTerminal()
+      scheduleTerminalRepaint()
     })
     resizeObserver.observe(terminalRef.current)
 
@@ -224,22 +282,28 @@ export function Terminal({
       terminalResizeDisposable.dispose()
       resizeObserver.disconnect()
       cancelAnimationFrame(webglLoadFrame)
+      if (repaintFrameRef.current != null) {
+        cancelAnimationFrame(repaintFrameRef.current)
+        repaintFrameRef.current = null
+      }
       try {
         webglAddon?.dispose()
       } catch {
         // Ignore renderer teardown errors during terminal disposal.
       }
+      webglAddonRef.current = null
       term.dispose()
       xtermRef.current = null
       fitAddonRef.current = null
     }
-  }, [fitTerminal, pushTerminalSize, updateTheme])
+  }, [fitTerminal, pushTerminalSize, repaintTerminal, scheduleTerminalRepaint, updateTheme])
 
   useEffect(() => {
     const observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
         if (mutation.attributeName === "class" || mutation.attributeName === "style") {
           updateTheme()
+          scheduleTerminalRepaint()
         }
       }
     })
@@ -247,7 +311,21 @@ export function Terminal({
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style"] })
 
     return () => observer.disconnect()
-  }, [updateTheme])
+  }, [scheduleTerminalRepaint, updateTheme])
+
+  useEffect(() => {
+    const handleVisibilityOrFocus = () => {
+      scheduleTerminalRepaint(true)
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityOrFocus)
+    window.addEventListener("focus", handleVisibilityOrFocus)
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityOrFocus)
+      window.removeEventListener("focus", handleVisibilityOrFocus)
+    }
+  }, [scheduleTerminalRepaint])
 
   useEffect(() => {
     let isActive = true
@@ -299,13 +377,13 @@ export function Terminal({
 
             isRestoringBufferRef.current = false
             isSessionReadyRef.current = true
-            fitTerminal()
+            scheduleTerminalRepaint(true)
           })
           return
         }
 
         isSessionReadyRef.current = true
-        fitTerminal()
+        scheduleTerminalRepaint(true)
       } catch (error) {
         if (!isActive || sessionIdRef.current !== sessionId) {
           return
@@ -330,7 +408,7 @@ export function Terminal({
       isRestoringBufferRef.current = false
       lastSyncedSizeRef.current = null
     }
-  }, [cwd, emptyStateMessage, fitTerminal, sessionId])
+  }, [cwd, emptyStateMessage, scheduleTerminalRepaint, sessionId])
 
   useEffect(() => {
     let isDisposed = false
