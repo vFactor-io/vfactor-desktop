@@ -58,7 +58,7 @@ describe("getWorktreeActivityStatus", () => {
     ).toBeNull()
   })
 
-  test("prefers the newest active session order already stored on the worktree", () => {
+  test("returns the first active session status found in array order", () => {
     expect(
       getWorktreeActivityStatus(
         {
@@ -76,6 +76,7 @@ describe("getWorktreeActivityStatus", () => {
               updatedAt: 2,
             },
           ],
+          // Included to mirror the real store shape; getWorktreeActivityStatus does not read it.
           activeSessionId: "session-connecting",
           archivedSessionIds: [],
           selectedHarnessId: "codex",

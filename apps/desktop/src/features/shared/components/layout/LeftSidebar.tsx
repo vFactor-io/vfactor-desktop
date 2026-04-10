@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, type ReactNode } from "react"
+import { useShallow } from "zustand/react/shallow"
 import { Reorder } from "framer-motion"
 import {
   GearSix,
@@ -153,8 +154,6 @@ export function LeftSidebar({
   } = useProjectStore()
   const setWorkspaceSetupState = useChatStore((state) => state.setWorkspaceSetupState)
   const setWorkspaceSetupIntent = useChatStore((state) => state.setWorkspaceSetupIntent)
-  const chatByWorktree = useChatStore((state) => state.chatByWorktree)
-  const sessionActivityById = useChatStore((state) => state.sessionActivityById)
   const requestGitRefresh = useProjectGitStore((state) => state.requestRefresh)
   const ensureGitEntry = useProjectGitStore((state) => state.ensureEntry)
   const [projectOrderPreview, setProjectOrderPreview] = useState<string[] | null>(null)
@@ -203,6 +202,23 @@ export function LeftSidebar({
   const projectById = useMemo(
     () => new Map(projects.map((project) => [project.id, project])),
     [projects]
+  )
+  const visibleWorktreeIds = useMemo(
+    () => projects.flatMap((project) => project.worktrees.map((worktree) => worktree.id)),
+    [projects]
+  )
+  const worktreeActivityById = useChatStore(
+    useShallow((state) =>
+      Object.fromEntries(
+        visibleWorktreeIds.map((worktreeId) => [
+          worktreeId,
+          getWorktreeActivityStatus(
+            state.chatByWorktree[worktreeId],
+            state.sessionActivityById
+          ),
+        ])
+      )
+    )
   )
   const orderedProjectIds = projectOrderPreview ?? projects.map((project) => project.id)
 
@@ -456,10 +472,7 @@ export function LeftSidebar({
                   activeWorktreeId === worktree.id
                 const isWorktreeMenuOpen = openMenuId === worktree.id
                 const isWorktreeReadyForSelection = isWorktreeReady(worktree)
-                const worktreeActivityStatus = getWorktreeActivityStatus(
-                  chatByWorktree[worktree.id],
-                  sessionActivityById
-                )
+                const worktreeActivityStatus = worktreeActivityById[worktree.id] ?? null
                 const isWorktreeRunning = worktreeActivityStatus != null
                 const removeWorktreeDisabledReason = getWorktreeRemovalDisabledReason({
                   worktree,

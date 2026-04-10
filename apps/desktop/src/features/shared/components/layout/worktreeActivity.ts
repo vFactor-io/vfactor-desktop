@@ -1,6 +1,10 @@
 import type { ProjectChatState } from "@/features/chat/store/storeTypes"
 import type { ChatStatus, SessionActivityState } from "@/features/chat/types"
 
+/**
+ * Returns the first active chat status found for a worktree's non-archived sessions.
+ * Array order determines precedence, so the first matching session wins.
+ */
 export function getWorktreeActivityStatus(
   projectChat: ProjectChatState | null | undefined,
   sessionActivityById: Record<string, SessionActivityState>
