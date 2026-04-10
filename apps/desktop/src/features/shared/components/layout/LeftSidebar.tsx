@@ -47,6 +47,7 @@ import { ModelLogo } from "@/features/chat/components/ModelLogo"
 import { isWorktreeReady } from "@/features/workspace/utils/worktrees"
 import { prewarmProjectData } from "@/features/shared/utils/prewarmProjectData"
 import { SidebarUpdatePill } from "@/features/updates/components/SidebarUpdatePill"
+import { getWorktreeActivityStatus } from "./worktreeActivity"
 
 const OPEN_PROJECT_SETTINGS_EVENT = "nucleus:open-project-settings"
 
@@ -77,29 +78,6 @@ function getWorktreeRemovalDisabledReason({
   }
 
   return null
-}
-
-function isWorktreeChatRunning({
-  worktreeId,
-  currentSessionId,
-  status,
-  chatByWorktree,
-}: {
-  worktreeId: string
-  currentSessionId: string | null
-  status: "idle" | "streaming" | "error" | "connecting"
-  chatByWorktree: ReturnType<typeof useChatStore.getState>["chatByWorktree"]
-}) {
-  if (!currentSessionId || (status !== "streaming" && status !== "connecting")) {
-    return false
-  }
-
-  const worktreeChat = chatByWorktree[worktreeId]
-  if (!worktreeChat) {
-    return false
-  }
-
-  return worktreeChat.sessions.some((session) => session.id === currentSessionId)
 }
 
 function ReorderableProjectItem(props: {
@@ -176,8 +154,7 @@ export function LeftSidebar({
   const setWorkspaceSetupState = useChatStore((state) => state.setWorkspaceSetupState)
   const setWorkspaceSetupIntent = useChatStore((state) => state.setWorkspaceSetupIntent)
   const chatByWorktree = useChatStore((state) => state.chatByWorktree)
-  const currentChatSessionId = useChatStore((state) => state.currentSessionId)
-  const chatStatus = useChatStore((state) => state.status)
+  const sessionActivityById = useChatStore((state) => state.sessionActivityById)
   const requestGitRefresh = useProjectGitStore((state) => state.requestRefresh)
   const ensureGitEntry = useProjectGitStore((state) => state.ensureEntry)
   const [projectOrderPreview, setProjectOrderPreview] = useState<string[] | null>(null)
@@ -479,12 +456,11 @@ export function LeftSidebar({
                   activeWorktreeId === worktree.id
                 const isWorktreeMenuOpen = openMenuId === worktree.id
                 const isWorktreeReadyForSelection = isWorktreeReady(worktree)
-                const isWorktreeRunning = isWorktreeChatRunning({
-                  worktreeId: worktree.id,
-                  currentSessionId: currentChatSessionId,
-                  status: chatStatus,
-                  chatByWorktree,
-                })
+                const worktreeActivityStatus = getWorktreeActivityStatus(
+                  chatByWorktree[worktree.id],
+                  sessionActivityById
+                )
+                const isWorktreeRunning = worktreeActivityStatus != null
                 const removeWorktreeDisabledReason = getWorktreeRemovalDisabledReason({
                   worktree,
                 })
@@ -528,7 +504,16 @@ export function LeftSidebar({
                             : "text-muted-foreground"
                         )}
                       >
-                        {isWorktreeRunning ? <LoadingDots className="shrink-0" /> : <GitBranch size={13} />}
+                        {isWorktreeRunning ? (
+                          <LoadingDots
+                            variant={
+                              worktreeActivityStatus === "connecting" ? "connecting" : "loading"
+                            }
+                            className="shrink-0"
+                          />
+                        ) : (
+                          <GitBranch size={13} />
+                        )}
                       </span>
                       <span className="min-w-0 flex-1 truncate text-[13px] font-medium leading-none">
                         {worktree.name}
