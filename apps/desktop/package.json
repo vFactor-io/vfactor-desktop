@@ -13,9 +13,10 @@
     "dev": "electron-vite dev",
     "preview": "electron-vite preview",
     "build": "electron-vite build",
-    "dist": "bun run build && electron-builder",
-    "dist:local": "bun run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir --mac -c.mac.identity=-",
-    "release": "bun run build && electron-builder --publish onTag",
+    "prepare:runtime-env": "bun run ../../scripts/write-desktop-runtime-env.ts",
+    "dist": "bun run build && bun run prepare:runtime-env && electron-builder",
+    "dist:local": "bun run build && bun run prepare:runtime-env && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir --mac -c.mac.identity=-",
+    "release": "bun run build && bun run prepare:runtime-env && electron-builder --publish onTag",
     "cli": "bun run index.ts",
     "typecheck": "tsc --noEmit",
     "postinstall": "electron-builder install-app-deps"
@@ -80,6 +81,15 @@
     "directories": {
       "buildResources": "build"
     },
+    "extraResources": [
+      {
+        "from": "build/runtime",
+        "to": ".",
+        "filter": [
+          ".env"
+        ]
+      }
+    ],
     "publish": [
       {
         "provider": "github",

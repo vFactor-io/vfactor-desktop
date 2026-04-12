@@ -33,6 +33,9 @@ jobs:
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
       WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+      POSTHOG_ENABLED: "true"
+      POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+      POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
 
     steps:
       - name: Checkout repository
@@ -50,7 +53,12 @@ jobs:
         shell: bash
         run: |
           bun run --cwd apps/desktop build
+          bun run --cwd apps/desktop prepare:runtime-env
           if [[ "${{ matrix.platform }}" == "macos-latest" ]]; then
+            # Temporary: mac builds are intentionally unsigned until the Apple Developer
+            # account / Developer ID setup is complete. These artifacts can be downloaded
+            # manually, but in-app auto-update install on macOS will fail ShipIt signature
+            # validation until this block is replaced with real signing + notarization.
             unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
             CSC_IDENTITY_AUTO_DISCOVERY=false ./node_modules/.bin/electron-builder --projectDir apps/desktop --publish never ${{ matrix.build_args }} -c.mac.identity=-
           else

@@ -55,9 +55,9 @@ if (stableUserDataPath !== app.getPath("userData")) {
   app.setPath("userData", stableUserDataPath)
 }
 
-function loadDesktopEnv(): void {
+function loadDesktopEnv(): string[] {
   if (typeof process.loadEnvFile !== "function") {
-    return
+    return []
   }
 
   const envPaths = [
@@ -73,6 +73,7 @@ function loadDesktopEnv(): void {
     join(process.cwd(), ".env"),
   ]
   const seenPaths = new Set<string>()
+  const loadedPaths: string[] = []
 
   for (const envPath of envPaths) {
     if (seenPaths.has(envPath)) {
@@ -86,7 +87,10 @@ function loadDesktopEnv(): void {
     }
 
     process.loadEnvFile(envPath)
+    loadedPaths.push(envPath)
   }
+
+  return loadedPaths
 }
 
 function sendToRenderer(channel: string, payload: unknown): void {
@@ -416,14 +420,21 @@ async function getOrCreateDeviceId(userDataPath: string): Promise<string> {
 }
 
 async function initializeAnalytics(): Promise<void> {
-  loadDesktopEnv()
+  const loadedEnvPaths = loadDesktopEnv()
 
   if (!isAnalyticsConfigured()) {
+    if (app.isPackaged) {
+      console.warn(
+        `[posthog] Analytics disabled: POSTHOG_API_KEY is not set. Loaded runtime env files: ${loadedEnvPaths.join(", ") || "none"}.`
+      )
+    }
     return
   }
 
   if (!isAnalyticsExplicitlyEnabled()) {
-    console.warn("[posthog] Analytics disabled: POSTHOG_ENABLED is not set to true")
+    console.warn(
+      `[posthog] Analytics disabled: POSTHOG_ENABLED is not set to true. Loaded runtime env files: ${loadedEnvPaths.join(", ") || "none"}.`
+    )
     return
   }
 

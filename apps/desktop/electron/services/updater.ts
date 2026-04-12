@@ -17,6 +17,7 @@ const UPDATE_FEED_URL =
   "https://github.com/bradleygibsongit/nucleus-desktop/releases/latest/download"
 const AUTO_CHECK_DELAY_MS = 30_000
 const AUTO_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1_000
+const INSTALL_HANDOFF_TIMEOUT_MS = 15_000
 const UPDATE_DISABLED_MESSAGE =
   "Automatic updates are unavailable in this build. Install Nucleus from a packaged release to use the updater."
 const PRIVATE_GITHUB_RELEASES_MESSAGE =
@@ -34,6 +35,7 @@ interface UpdaterServiceOptions {
   restoreAfterInstallFailure?: RestoreAfterInstallFailure
   autoCheckDelayMs?: number
   autoCheckIntervalMs?: number
+  installHandoffTimeoutMs?: number
 }
 
 function getReleaseMessage(info: UpdateInfo | null): string | null {
@@ -97,6 +99,7 @@ export class UpdaterService {
   private readonly restoreAfterInstallFailure: RestoreAfterInstallFailure
   private readonly autoCheckDelayMs: number
   private readonly autoCheckIntervalMs: number
+  private readonly installHandoffTimeoutMs: number
   private state: AppUpdateState
   private availableInfo: UpdateInfo | null = null
   private downloadedInfo: UpdateInfo | null = null
@@ -107,6 +110,7 @@ export class UpdaterService {
   private errorContext: Exclude<AppUpdateErrorContext, "blocked"> = null
   private startupCheckTimeout: ReturnType<typeof setTimeout> | null = null
   private pollInterval: ReturnType<typeof setInterval> | null = null
+  private installHandoffTimeout: ReturnType<typeof setTimeout> | null = null
 
   constructor(
     private readonly sendEvent: EventSender,
@@ -117,6 +121,7 @@ export class UpdaterService {
     this.restoreAfterInstallFailure = options.restoreAfterInstallFailure ?? (() => {})
     this.autoCheckDelayMs = options.autoCheckDelayMs ?? AUTO_CHECK_DELAY_MS
     this.autoCheckIntervalMs = options.autoCheckIntervalMs ?? AUTO_CHECK_INTERVAL_MS
+    this.installHandoffTimeoutMs = options.installHandoffTimeoutMs ?? INSTALL_HANDOFF_TIMEOUT_MS
     this.state = this.createInitialState()
   }
 
@@ -239,9 +244,11 @@ export class UpdaterService {
         target_version: downloadedVersion,
         forced: force,
       })
+      this.armInstallHandoffTimeout(downloadedVersion, force)
       autoUpdater.quitAndInstall(false, true)
       return { accepted: true, completed: true, state: this.getState() }
     } catch (error) {
+      this.clearInstallHandoffTimeout()
       await this.restoreAfterInstallFailure()
       this.handleError(error)
       return { accepted: true, completed: false, state: this.getState() }
@@ -335,6 +342,11 @@ export class UpdaterService {
     autoUpdater.on("update-available", (info: UpdateInfo) => {
       this.availableInfo = info
       this.errorContext = "download"
+      capture("update_download_started", {
+        origin: this.checkOrigin,
+        current_version: this.state.currentVersion,
+        target_version: info.version,
+      })
       this.setState({
         status: "downloading",
         availableVersion: info.version,
@@ -388,6 +400,10 @@ export class UpdaterService {
       this.downloadedInfo = null
       this.errorContext = null
       this.dismissedVersion = null
+      capture("update_not_available", {
+        origin: this.checkOrigin,
+        current_version: this.state.currentVersion,
+      })
 
       this.setState({
         status: "up-to-date",
@@ -430,6 +446,7 @@ export class UpdaterService {
   }
 
   private handleCheckFailure(error: unknown, manual: boolean): void {
+    this.clearInstallHandoffTimeout()
     const normalizedError = normalizeUpdateError(error)
     const isAlreadyHandled =
       this.state.status === "error" &&
@@ -479,6 +496,7 @@ export class UpdaterService {
   }
 
   private handleError(error: unknown): void {
+    this.clearInstallHandoffTimeout()
     const normalizedError = normalizeUpdateError(error)
     console.error("[updates] Auto-update error:", normalizedError)
     captureException(normalizedError, { context: "auto_updater" })
@@ -524,5 +542,46 @@ export class UpdaterService {
 
   private broadcastState(): void {
     this.sendEvent(EVENT_CHANNELS.appUpdateState, this.getState())
+  }
+
+  private clearInstallHandoffTimeout(): void {
+    if (!this.installHandoffTimeout) {
+      return
+    }
+
+    clearTimeout(this.installHandoffTimeout)
+    this.installHandoffTimeout = null
+  }
+
+  private armInstallHandoffTimeout(targetVersion: string, force: boolean): void {
+    this.clearInstallHandoffTimeout()
+
+    this.installHandoffTimeout = setTimeout(() => {
+      this.installHandoffTimeout = null
+
+      capture("update_install_handoff_timed_out", {
+        current_version: this.state.currentVersion,
+        target_version: targetVersion,
+        forced: force,
+      })
+
+      void this.restoreAfterInstallFailure().finally(() => {
+        const error = new Error(
+          "Nucleus couldn't restart to install the update. Retry restart, or download the latest release manually."
+        )
+        captureException(error, { context: "auto_updater_install_handoff_timeout" })
+        this.setState({
+          status: "error",
+          checkedAt: Date.now(),
+          message: error.message,
+          errorContext: "install",
+          activeWork: null,
+          canDismiss: true,
+          canRetry: true,
+          canInstall: Boolean(this.state.downloadedVersion),
+        })
+        this.errorContext = null
+      })
+    }, this.installHandoffTimeoutMs)
   }
 }

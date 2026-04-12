@@ -206,6 +206,39 @@ describe("UpdaterService", () => {
     expect(autoUpdater.quitAndInstall).toHaveBeenCalledWith(false, true)
   })
 
+  test("restores the app if installer handoff never completes", async () => {
+    autoUpdater.checkForUpdates.mockImplementation(async () => {
+      emitUpdaterEvent("checking-for-update")
+      emitUpdaterEvent("update-available", { version: "0.2.0" })
+      emitUpdaterEvent("update-downloaded", { version: "0.2.0" })
+    })
+
+    const restoreAfterInstallFailure = mock(async () => {})
+    const service = new UpdaterService(() => {}, {
+      restoreAfterInstallFailure,
+      installHandoffTimeoutMs: 5,
+    })
+
+    await service.checkForUpdates()
+    const result = await service.installUpdate({ force: true })
+
+    expect(result.accepted).toBe(true)
+    expect(result.completed).toBe(true)
+
+    await Bun.sleep(20)
+
+    const state = service.getState()
+    expect(state.status).toBe("error")
+    expect(state.errorContext).toBe("install")
+    expect(state.canInstall).toBe(true)
+    expect(restoreAfterInstallFailure).toHaveBeenCalled()
+    expect(captureMock).toHaveBeenCalledWith("update_install_handoff_timed_out", {
+      current_version: "0.1.1",
+      target_version: "0.2.0",
+      forced: true,
+    })
+  })
+
   test("does not replace a blocked install snapshot with a new update check", async () => {
     autoUpdater.checkForUpdates.mockImplementation(async () => {
       emitUpdaterEvent("checking-for-update")
