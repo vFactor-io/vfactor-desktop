@@ -10,7 +10,7 @@ import type {
   HarnessTurnResult,
   RuntimeSession,
 } from "../types"
-import { CodexHarnessAdapter } from "./codexAdapter"
+import { DesktopRuntimeHarnessAdapter } from "./desktopRuntimeAdapter"
 
 class PlaceholderHarnessAdapter implements HarnessAdapter {
   constructor(public definition: HarnessDefinition) {}
@@ -97,7 +97,7 @@ const HARNESS_DEFINITIONS: HarnessDefinition[] = [
     id: "claude-code",
     label: "Claude Code",
     description: "Anthropic Claude Code CLI harness",
-    adapterStatus: "planned",
+    adapterStatus: "experimental",
     capabilities: {
       supportsCommands: false,
       supportsAgentMentions: false,
@@ -112,9 +112,7 @@ const HARNESS_DEFINITIONS: HarnessDefinition[] = [
 const HARNESS_ADAPTERS = Object.fromEntries(
   HARNESS_DEFINITIONS.map((definition) => [
     definition.id,
-    definition.id === "codex"
-      ? new CodexHarnessAdapter(definition)
-      : new PlaceholderHarnessAdapter(definition),
+    new DesktopRuntimeHarnessAdapter(definition),
   ])
 ) as unknown as Record<HarnessId, HarnessAdapter>
 

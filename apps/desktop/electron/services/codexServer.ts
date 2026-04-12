@@ -190,6 +190,8 @@ export class CodexServerService {
   private isDisposingProcess = false
   private readonly pendingTurnStartRequestIds = new Set<number | string>()
   private readonly activeTurnIds = new Set<string>()
+  private readonly messageListeners = new Set<(message: string) => void>()
+  private readonly statusListeners = new Set<(status: string) => void>()
 
   constructor(private readonly sendEvent: EventSender) {}
 
@@ -213,7 +215,7 @@ export class CodexServerService {
       console.error("[codex] Failed to spawn Codex App Server:", error)
       captureException(error, { context: "agent_server_spawn" })
       capture("agent_server_error", { reason: "spawn_failed" })
-      this.sendEvent(EVENT_CHANNELS.codexStatus, "closed")
+      this.emitStatus("closed")
       this.isDisposingProcess = false
       this.process = null
     })
@@ -232,7 +234,7 @@ export class CodexServerService {
         })
       }
 
-      this.sendEvent(EVENT_CHANNELS.codexStatus, "closed")
+      this.emitStatus("closed")
       this.isDisposingProcess = false
       this.process = null
     })
@@ -244,7 +246,7 @@ export class CodexServerService {
       }
 
       this.trackIncomingMessage(payload)
-      this.sendEvent(EVENT_CHANNELS.codexMessage, payload)
+      this.emitMessage(payload)
     })
 
     readline.createInterface({ input: child.stderr }).on("line", (line) => {
@@ -291,6 +293,34 @@ export class CodexServerService {
 
   getActiveTurnCount(): number {
     return this.activeTurnIds.size + this.pendingTurnStartRequestIds.size
+  }
+
+  onMessage(listener: (message: string) => void): () => void {
+    this.messageListeners.add(listener)
+    return () => {
+      this.messageListeners.delete(listener)
+    }
+  }
+
+  onStatus(listener: (status: string) => void): () => void {
+    this.statusListeners.add(listener)
+    return () => {
+      this.statusListeners.delete(listener)
+    }
+  }
+
+  private emitMessage(message: string): void {
+    this.sendEvent(EVENT_CHANNELS.codexMessage, message)
+    for (const listener of this.messageListeners) {
+      listener(message)
+    }
+  }
+
+  private emitStatus(status: string): void {
+    this.sendEvent(EVENT_CHANNELS.codexStatus, status)
+    for (const listener of this.statusListeners) {
+      listener(status)
+    }
   }
 
   private trackOutgoingMessage(rawMessage: string): void {

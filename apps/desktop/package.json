@@ -34,6 +34,7 @@
     "vite": "^7.3.1"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.104",
     "@base-ui/react": "^1.0.0",
     "@headless-tree/core": "^1.6.2",
     "@headless-tree/react": "^1.6.2",

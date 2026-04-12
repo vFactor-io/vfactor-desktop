@@ -11,17 +11,17 @@ export function withTimeout<T>(
   message: string
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timeoutId = window.setTimeout(() => {
+    const timeoutId = globalThis.setTimeout(() => {
       reject(new Error(message))
     }, timeoutMs)
 
     promise.then(
       (value) => {
-        window.clearTimeout(timeoutId)
+        globalThis.clearTimeout(timeoutId)
         resolve(value)
       },
       (error) => {
-        window.clearTimeout(timeoutId)
+        globalThis.clearTimeout(timeoutId)
         reject(error)
       }
     )

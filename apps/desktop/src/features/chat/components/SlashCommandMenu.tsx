@@ -43,6 +43,11 @@ export function SlashCommandMenu({
       commands: commands.filter((command) => command.section === "custom-actions"),
     },
     {
+      key: "commands",
+      label: "Commands",
+      commands: commands.filter((command) => command.section === "commands"),
+    },
+    {
       key: "skills",
       label: "Skills",
       commands: commands.filter((command) => command.section === "skills"),
@@ -134,8 +139,9 @@ export function SlashCommandMenu({
                     ? PencilSimple
                     : cmd.icon === "new-terminal"
                       ? Terminal
+                      : cmd.icon === "command"
+                        ? Terminal
                       : BookOpen
-
                 return (
                   <div
                     key={cmd.id}
@@ -159,9 +165,18 @@ export function SlashCommandMenu({
                       <Icon size={14} className="shrink-0 text-muted-foreground" />
                     )}
 
-                    <span className="min-w-0 truncate font-medium text-foreground">
-                      {cmd.name}
-                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="truncate font-medium text-foreground">
+                          {cmd.name}
+                        </span>
+                        {cmd.inputHint ? (
+                          <span className="truncate text-xs text-muted-foreground/70">
+                            {cmd.inputHint}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
 
                     {cmd.description ? (
                       <InfoTooltip description={cmd.description} />

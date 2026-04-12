@@ -2,7 +2,7 @@ import { create } from "zustand"
 import { listHarnesses, getHarnessAdapter } from "../runtime/harnesses"
 import type { HarnessId, RuntimeModel } from "../types"
 
-export const HARNESS_MODEL_CACHE_STALE_MS = 5 * 60 * 1000
+export const HARNESS_MODEL_CACHE_STALE_MS = 30 * 60 * 1000
 
 export interface HarnessModelCacheEntry {
   models: RuntimeModel[]

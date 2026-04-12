@@ -144,6 +144,7 @@ export interface RuntimeCommand {
   kind: "builtin" | "custom";
   agent?: string;
   model?: string;
+  inputHint?: string;
 }
 
 export interface RuntimeFileSearchResult {

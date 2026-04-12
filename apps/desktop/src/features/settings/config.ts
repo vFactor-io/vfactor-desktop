@@ -42,7 +42,7 @@ export const SETTINGS_SECTION_GROUPS: SettingsSectionGroup[] = [
     sections: listHarnesses().map((harness) => ({
       id: harness.id,
       label: harness.label,
-      logoKind: harness.id === "claude-code" ? "claude" : "openai",
+      logoKind: harness.id === "claude-code" ? "claude" : "codex",
     })),
   },
 ]

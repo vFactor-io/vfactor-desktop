@@ -1,4 +1,4 @@
-import { GitDiff, Terminal, X } from "@/components/icons"
+import { ChatCircle, GitDiff, Terminal, X } from "@/components/icons"
 import { cn } from "@/lib/utils"
 import { motion } from "framer-motion"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/features/shared/components/ui/tooltip"
@@ -66,6 +66,10 @@ function TabIcon({
     case "diff":
       return <GitDiff size={15} />
     case "chat-session": {
+      if (!harnessId) {
+        return <ChatCircle size={15} />
+      }
+
       const logoKind = harnessId ? getHarnessLogoKind(harnessId) : "default"
       return <ModelLogo kind={logoKind} className="size-4" />
     }

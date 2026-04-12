@@ -39,6 +39,22 @@ function humanizeModelLabel(value: string): string {
   return formattedParts.join(" ")
 }
 
+function formatClaudeModelIdentifier(value: string): string | null {
+  const normalized = value.trim().replace(/[_\s]+/g, "-").toLowerCase()
+  if (!normalized.startsWith("claude-")) {
+    return null
+  }
+
+  const suffix = normalized.slice("claude-".length)
+  const versionMatch = suffix.match(/^(.*)-(\d+)-(\d+)$/)
+  if (!versionMatch) {
+    return humanizeModelLabel(suffix)
+  }
+
+  const [, family, major, minor] = versionMatch
+  return `${humanizeModelLabel(family)} ${major}.${minor}`
+}
+
 export function getRuntimeModelLabel(
   model: {
     displayName?: string | null
@@ -46,12 +62,17 @@ export function getRuntimeModelLabel(
   } | null | undefined,
   fallback = "Unknown model"
 ): string {
+  const id = model?.id?.trim()
+  const claudeIdentifier = id ? formatClaudeModelIdentifier(id) : null
+  if (claudeIdentifier) {
+    return claudeIdentifier
+  }
+
   const displayName = model?.displayName?.trim()
   if (displayName) {
     return humanizeModelLabel(displayName)
   }
 
-  const id = model?.id?.trim()
   if (id) {
     return humanizeModelLabel(id)
   }

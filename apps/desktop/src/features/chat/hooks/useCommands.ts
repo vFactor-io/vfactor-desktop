@@ -10,14 +10,16 @@ export interface NormalizedCommand {
   name: string
   description: string
   kind: "builtin" | "custom"
-  section: "actions" | "custom-actions" | "skills"
+  section: "actions" | "custom-actions" | "commands" | "skills"
   execution: "insert" | "run"
   action?: "new-chat" | "new-terminal"
-  icon?: "skill" | "new-chat" | "new-terminal"
+  icon?: "skill" | "command" | "new-chat" | "new-terminal"
   agent?: string
   model?: string
   isPreview?: boolean
   referenceName?: string
+  insertText?: string
+  inputHint?: string
   projectAction?: ProjectAction
 }
 
@@ -69,6 +71,17 @@ const BUILTIN_PREVIEW_COMMANDS: NormalizedCommand[] = [
   },
 ]
 
+function buildProviderCommandDescription(description: string, inputHint?: string): string {
+  const trimmedDescription = description.trim()
+  const trimmedHint = inputHint?.trim()
+
+  if (trimmedDescription && trimmedHint) {
+    return `${trimmedDescription} Usage: ${trimmedHint}`
+  }
+
+  return trimmedDescription || trimmedHint || ""
+}
+
 export function useCommands(harnessId: HarnessId | null, projectActions: ProjectAction[] = []) {
   const [commands, setCommands] = useState<NormalizedCommand[]>(ACTION_COMMANDS)
   const [isLoading, setIsLoading] = useState(false)
@@ -95,25 +108,22 @@ export function useCommands(harnessId: HarnessId | null, projectActions: Project
           referenceName: skill.id,
           icon: "skill",
         })) ?? []
-      const previewByName = new Map(
-        installedSkillCommands.map((command) => [command.name.toLowerCase(), command])
-      )
 
       const normalized: NormalizedCommand[] = rawCommands.map((cmd) => ({
         id: `command:${cmd.name.toLowerCase().replace(/\s+/g, "-")}`,
         name: cmd.name,
-        description: cmd.description ?? "",
+        description: buildProviderCommandDescription(cmd.description ?? "", cmd.inputHint),
         kind: cmd.kind,
-        section: "skills",
+        section: "commands",
         execution: "insert",
+        insertText: `/${cmd.name} `,
+        inputHint: cmd.inputHint,
         agent: cmd.agent,
         model: cmd.model,
-        referenceName: previewByName.get(cmd.name.toLowerCase())?.referenceName,
-        icon: "skill",
+        icon: "command",
       }))
 
       const skillCommands = [
-        ...normalized,
         ...installedSkillCommands.filter(
           (mockCommand) =>
             !normalized.some(
@@ -130,6 +140,8 @@ export function useCommands(harnessId: HarnessId | null, projectActions: Project
             )
         ),
       ]
+
+      normalized.sort((a, b) => a.name.localeCompare(b.name))
 
       skillCommands.sort((a, b) => {
         if (a.kind !== b.kind) {
@@ -148,7 +160,7 @@ export function useCommands(harnessId: HarnessId | null, projectActions: Project
         projectAction: action,
       }))
 
-      setCommands([...ACTION_COMMANDS, ...projectActionCommands, ...skillCommands])
+      setCommands([...ACTION_COMMANDS, ...projectActionCommands, ...normalized, ...skillCommands])
     } catch (err) {
       console.error("[useCommands] Failed to fetch commands:", err)
       setError(String(err))

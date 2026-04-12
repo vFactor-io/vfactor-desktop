@@ -23,6 +23,18 @@ import type {
   ProjectFileSystemEvent,
   ReadFileAsDataUrlOptions,
   RemovePathOptions,
+  RuntimeAgentsResult,
+  RuntimeAnswerPromptInput,
+  RuntimeCommandsResult,
+  RuntimeCreateSessionInput,
+  RuntimeInterruptTurnInput,
+  RuntimeListAgentsInput,
+  RuntimeListCommandsInput,
+  RuntimeListModelsInput,
+  RuntimeModelsResult,
+  RuntimeSendTurnInput,
+  RuntimeSessionResult,
+  RuntimeTurnUpdateEvent,
   SkillsSyncResponse,
   TerminalCreateSessionEnvironment,
   TerminalDataEvent,
@@ -110,14 +122,23 @@ contextBridge.exposeInMainWorld("nucleus", {
     onEvent: (listener: (event: ProjectFileSystemEvent) => void) =>
       subscribe(EVENT_CHANNELS.projectFs, listener),
   },
-  codex: {
-    ensureServer: () => ipcRenderer.invoke(IPC_CHANNELS.codexEnsureServer) as Promise<string>,
-    send: (message: string) =>
-      ipcRenderer.invoke(IPC_CHANNELS.codexSend, message) as Promise<void>,
-    onMessage: (listener: (message: string) => void) =>
-      subscribe(EVENT_CHANNELS.codexMessage, listener),
-    onStatus: (listener: (status: string) => void) =>
-      subscribe(EVENT_CHANNELS.codexStatus, listener),
+  runtime: {
+    createSession: (input: RuntimeCreateSessionInput) =>
+      ipcRenderer.invoke(IPC_CHANNELS.runtimeCreateSession, input) as Promise<RuntimeSessionResult>,
+    listModels: (input: RuntimeListModelsInput) =>
+      ipcRenderer.invoke(IPC_CHANNELS.runtimeListModels, input) as Promise<RuntimeModelsResult>,
+    listAgents: (input: RuntimeListAgentsInput) =>
+      ipcRenderer.invoke(IPC_CHANNELS.runtimeListAgents, input) as Promise<RuntimeAgentsResult>,
+    listCommands: (input: RuntimeListCommandsInput) =>
+      ipcRenderer.invoke(IPC_CHANNELS.runtimeListCommands, input) as Promise<RuntimeCommandsResult>,
+    sendTurn: (input: RuntimeSendTurnInput) =>
+      ipcRenderer.invoke(IPC_CHANNELS.runtimeSendTurn, input) as Promise<unknown>,
+    answerPrompt: (input: RuntimeAnswerPromptInput) =>
+      ipcRenderer.invoke(IPC_CHANNELS.runtimeAnswerPrompt, input) as Promise<unknown>,
+    interruptTurn: (input: RuntimeInterruptTurnInput) =>
+      ipcRenderer.invoke(IPC_CHANNELS.runtimeInterruptTurn, input) as Promise<void>,
+    onEvent: (listener: (event: RuntimeTurnUpdateEvent) => void) =>
+      subscribe(EVENT_CHANNELS.runtimeEvent, listener),
   },
   shell: {
     openExternal: (url: string) =>
