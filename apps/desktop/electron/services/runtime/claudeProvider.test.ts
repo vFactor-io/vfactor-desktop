@@ -78,7 +78,9 @@ class FakeQuery implements AsyncGenerator<any, void> {
     return this
   }
 
-  async interrupt(): Promise<void> {}
+  async interrupt(): Promise<void> {
+    this.finish()
+  }
 
   async setModel(): Promise<void> {}
 
@@ -264,6 +266,33 @@ describe("ClaudeRuntimeProvider", () => {
         inputHint: "<screen>",
       },
     ])
+  })
+
+  test("loads Claude slash commands from the requested project path", async () => {
+    queryMock.mockImplementation(
+      (params: QueryParams) => {
+        const fakeQuery = new FakeQuery(params, () => {}) as any
+        fakeQuery.setInitializationResult({
+          commands: [
+            {
+              name: "review",
+              description: "Review this project",
+              argumentHint: "<target>",
+            },
+          ],
+        })
+        return fakeQuery
+      }
+    )
+
+    const { ClaudeRuntimeProvider } = await import("./claudeProvider")
+    const provider = new ClaudeRuntimeProvider(context)
+
+    await provider.listCommands("/tmp/project-a")
+    await provider.listCommands("/tmp/project-b")
+
+    expect(queryMock.mock.calls.at(0)?.[0]?.options?.cwd).toBe("/tmp/project-a")
+    expect(queryMock.mock.calls.at(1)?.[0]?.options?.cwd).toBe("/tmp/project-b")
   })
 
   test("streams assistant text and resolves the final turn", async () => {
@@ -460,6 +489,53 @@ describe("ClaudeRuntimeProvider", () => {
       expect.objectContaining({
         type: "text",
         text: "Done",
+      })
+    )
+  })
+
+  test("settles interrupted turns without leaving the session blocked", async () => {
+    queryMock.mockImplementation(
+      (params: QueryParams) =>
+        new FakeQuery(params, async (query) => {
+          query.emit({
+            type: "system",
+            subtype: "init",
+            session_id: "claude-session-interrupt",
+          })
+          query.emit({
+            type: "stream_event",
+            event: {
+              type: "content_block_delta",
+              delta: {
+                type: "text_delta",
+                text: "Partial",
+              },
+            },
+            session_id: "claude-session-interrupt",
+          })
+        }) as any
+    )
+
+    const { ClaudeRuntimeProvider } = await import("./claudeProvider")
+    const provider = new ClaudeRuntimeProvider(context)
+    const session = await provider.createSession("/tmp/project")
+
+    const sendPromise = provider.sendTurn({
+      session,
+      projectPath: "/tmp/project",
+      text: "Start and interrupt",
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    await provider.interruptTurn(session)
+
+    const result = await sendPromise
+
+    expect(provider.getActiveTurnCount()).toBe(0)
+    expect(result.messages?.[0]?.parts[0]).toEqual(
+      expect.objectContaining({
+        type: "text",
+        text: "Partial",
       })
     )
   })

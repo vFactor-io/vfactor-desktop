@@ -457,8 +457,8 @@ export class ClaudeRuntimeProvider implements RuntimeProviderAdapter {
   private sessions = new Map<string, ClaudeSessionState>()
   private modelCache: { models: RuntimeModel[]; fetchedAt: number } | null = null
   private modelRequest: Promise<RuntimeModel[]> | null = null
-  private commandCache: { commands: RuntimeCommand[]; fetchedAt: number } | null = null
-  private commandRequest: Promise<RuntimeCommand[]> | null = null
+  private commandCache = new Map<string, { commands: RuntimeCommand[]; fetchedAt: number }>()
+  private commandRequests = new Map<string, Promise<RuntimeCommand[]>>()
 
   constructor(private readonly context: RuntimeProviderContext) {}
 
@@ -497,26 +497,30 @@ export class ClaudeRuntimeProvider implements RuntimeProviderAdapter {
     return []
   }
 
-  async listCommands(): Promise<RuntimeCommand[]> {
-    if (this.commandCache && Date.now() - this.commandCache.fetchedAt < CLAUDE_COMMAND_CACHE_TTL_MS) {
-      return this.commandCache.commands
+  async listCommands(projectPath?: string): Promise<RuntimeCommand[]> {
+    const cacheKey = this.getCommandCacheKey(projectPath)
+    const cached = this.commandCache.get(cacheKey)
+    if (cached && Date.now() - cached.fetchedAt < CLAUDE_COMMAND_CACHE_TTL_MS) {
+      return cached.commands
     }
 
-    if (this.commandRequest) {
-      return this.commandRequest
+    const inFlight = this.commandRequests.get(cacheKey)
+    if (inFlight) {
+      return inFlight
     }
 
-    this.commandRequest = this.loadCommandsFromSdk()
+    const commandRequest = this.loadCommandsFromSdk(projectPath)
+    this.commandRequests.set(cacheKey, commandRequest)
 
     try {
-      const commands = await this.commandRequest
-      this.commandCache = {
+      const commands = await commandRequest
+      this.commandCache.set(cacheKey, {
         commands,
         fetchedAt: Date.now(),
-      }
+      })
       return commands
     } finally {
-      this.commandRequest = null
+      this.commandRequests.delete(cacheKey)
     }
   }
 
@@ -772,10 +776,14 @@ export class ClaudeRuntimeProvider implements RuntimeProviderAdapter {
 
   private async consumeQuery(state: ClaudeSessionState, activeQuery: Query): Promise<void> {
     const remoteId = state.session.remoteId ?? state.session.id
+    let completedByResult = false
 
     try {
       for await (const message of activeQuery) {
         await this.handleSdkMessage(state, message)
+        if (message.type === "result") {
+          completedByResult = true
+        }
       }
     } catch (error) {
       state.pendingTurn?.reject(
@@ -783,6 +791,24 @@ export class ClaudeRuntimeProvider implements RuntimeProviderAdapter {
       )
       state.pendingTurn = null
     } finally {
+      if (!completedByResult) {
+        const pendingTurn = state.pendingTurn
+        state.pendingTurn = null
+
+        if (pendingTurn) {
+          pendingTurn.resolve({
+            messages: pendingTurn.text
+              ? createAssistantMessage(
+                  remoteId,
+                  pendingTurn.assistantMessageId,
+                  pendingTurn.textPartId,
+                  pendingTurn.text
+                )
+              : [],
+          })
+        }
+      }
+
       state.query = null
       state.promptQueue?.close()
       state.promptQueue = null
@@ -945,11 +971,16 @@ export class ClaudeRuntimeProvider implements RuntimeProviderAdapter {
     }
   }
 
-  private async loadCommandsFromSdk(): Promise<RuntimeCommand[]> {
+  private getCommandCacheKey(projectPath?: string): string {
+    return projectPath?.trim() || process.cwd()
+  }
+
+  private async loadCommandsFromSdk(projectPath?: string): Promise<RuntimeCommand[]> {
+    const cwd = projectPath?.trim() || process.cwd()
     const probe = query({
       prompt: ".",
       options: {
-        cwd: process.cwd(),
+        cwd,
         persistSession: false,
         maxTurns: 0,
         settingSources: ["user", "project", "local"],

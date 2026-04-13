@@ -27,8 +27,11 @@ export class DesktopRuntimeHarnessAdapter implements HarnessAdapter {
     return (await desktop.runtime.listAgents({ harnessId: this.definition.id })).agents
   }
 
-  async listCommands() {
-    return (await desktop.runtime.listCommands({ harnessId: this.definition.id })).commands
+  async listCommands(projectPath?: string) {
+    return (await desktop.runtime.listCommands({
+      harnessId: this.definition.id,
+      projectPath,
+    })).commands
   }
 
   async listModels() {

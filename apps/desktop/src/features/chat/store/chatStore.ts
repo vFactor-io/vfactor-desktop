@@ -948,7 +948,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   listCommands: async (worktreeId: string) => {
     const projectChat = get().getProjectChat(worktreeId)
     const adapter = getHarnessAdapter(projectChat.selectedHarnessId)
-    return adapter.listCommands()
+    return adapter.listCommands(projectChat.worktreePath)
   },
 
   listModels: async (worktreeId: string) => {

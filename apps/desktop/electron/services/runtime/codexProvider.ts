@@ -105,7 +105,7 @@ export class CodexRuntimeProvider implements RuntimeProviderAdapter {
     return []
   }
 
-  async listCommands() {
+  async listCommands(_projectPath?: string) {
     return []
   }
 

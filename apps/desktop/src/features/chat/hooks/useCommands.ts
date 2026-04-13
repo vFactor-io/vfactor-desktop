@@ -82,7 +82,11 @@ function buildProviderCommandDescription(description: string, inputHint?: string
   return trimmedDescription || trimmedHint || ""
 }
 
-export function useCommands(harnessId: HarnessId | null, projectActions: ProjectAction[] = []) {
+export function useCommands(
+  harnessId: HarnessId | null,
+  projectActions: ProjectAction[] = [],
+  projectPath?: string | null
+) {
   const [commands, setCommands] = useState<NormalizedCommand[]>(ACTION_COMMANDS)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -93,7 +97,7 @@ export function useCommands(harnessId: HarnessId | null, projectActions: Project
 
     try {
       const [rawCommands, installedSkillsResponse] = await Promise.all([
-        getHarnessAdapter(harnessId ?? "codex").listCommands(),
+        getHarnessAdapter(harnessId ?? "codex").listCommands(projectPath ?? undefined),
         desktop.skills.list().catch(() => null as SkillsSyncResponse | null),
       ])
       const installedSkillCommands: NormalizedCommand[] =
@@ -177,7 +181,7 @@ export function useCommands(harnessId: HarnessId | null, projectActions: Project
     } finally {
       setIsLoading(false)
     }
-  }, [harnessId, projectActions])
+  }, [harnessId, projectActions, projectPath])
 
   useEffect(() => {
     fetchCommands()

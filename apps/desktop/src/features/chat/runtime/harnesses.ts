@@ -31,7 +31,7 @@ class PlaceholderHarnessAdapter implements HarnessAdapter {
     return []
   }
 
-  async listCommands() {
+  async listCommands(_projectPath?: string) {
     return []
   }
 

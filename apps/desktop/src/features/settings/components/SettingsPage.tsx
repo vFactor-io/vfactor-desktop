@@ -339,12 +339,12 @@ function HarnessSettingsSection({ harnessId }: { harnessId: HarnessId }) {
     effectiveDefaultModel?.defaultReasoningEffort?.trim() || reasoningOptions[0]?.value || "Select reasoning"
 
   useEffect(() => {
-    if (!hasLoaded || !defaultFastModeValue || supportsFastMode) {
+    if (!hasLoaded || isLoadingModels || !defaultFastModeValue || supportsFastMode) {
       return
     }
 
     setDefaultFastMode(false)
-  }, [defaultFastModeValue, hasLoaded, setDefaultFastMode, supportsFastMode])
+  }, [defaultFastModeValue, hasLoaded, isLoadingModels, setDefaultFastMode, supportsFastMode])
 
   const introCopy = isCodexHarness
     ? "Choose the model behavior new Codex chats should start from. Fast mode is available when the selected model supports it and trades higher usage for more speed."

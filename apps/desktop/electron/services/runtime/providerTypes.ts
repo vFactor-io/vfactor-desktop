@@ -32,7 +32,7 @@ export interface RuntimeProviderAdapter {
   harnessId: HarnessId
   createSession: (projectPath: string) => Promise<RuntimeSession>
   listAgents: () => Promise<RuntimeAgent[]>
-  listCommands: () => Promise<RuntimeCommand[]>
+  listCommands: (projectPath?: string) => Promise<RuntimeCommand[]>
   listModels: () => Promise<RuntimeModel[]>
   sendTurn: (input: HarnessTurnInput) => Promise<HarnessTurnResult>
   answerPrompt: (input: HarnessPromptInput) => Promise<HarnessTurnResult>

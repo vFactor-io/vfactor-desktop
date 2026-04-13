@@ -341,6 +341,7 @@ export interface RuntimeListAgentsInput {
 
 export interface RuntimeListCommandsInput {
   harnessId: HarnessId
+  projectPath?: string
 }
 
 export interface RuntimeSendTurnInput {

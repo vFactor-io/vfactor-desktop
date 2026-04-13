@@ -292,7 +292,8 @@ export function ChatInput({
 
   const { commands, isLoading: isLoadingCommands } = useCommands(
     selectedHarnessId,
-    selectedProject?.actions ?? []
+    selectedProject?.actions ?? [],
+    selectedWorktreePath
   )
   const { agents, isLoading: isLoadingAgents } = useAgents(selectedHarnessId)
   const { results: fileResults, isLoading: isLoadingFiles, search: searchFiles, clear: clearFiles } = useFileSearch()

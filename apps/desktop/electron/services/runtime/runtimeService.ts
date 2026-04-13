@@ -82,7 +82,7 @@ export class RuntimeService {
 
   async listCommands(input: RuntimeListCommandsInput): Promise<RuntimeCommandsResult> {
     return {
-      commands: await this.getProvider(input.harnessId).listCommands(),
+      commands: await this.getProvider(input.harnessId).listCommands(input.projectPath),
     }
   }
 
