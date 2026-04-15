@@ -54,11 +54,21 @@ export class JsonStoreService {
 
     try {
       const raw = await readFile(filePath, "utf8")
+      if (raw.trim().length === 0) {
+        const entry = { data: nextData }
+        this.cache.set(file, entry)
+        return entry
+      }
+
       const parsed = JSON.parse(raw) as unknown
       nextData = isStoreRecord(parsed) ? parsed : {}
     } catch (error) {
       const nodeError = error as NodeJS.ErrnoException
-      if (nodeError.code !== "ENOENT") {
+      if (nodeError.code === "ENOENT") {
+        // Missing store files are expected on first run.
+      } else if (error instanceof SyntaxError) {
+        console.warn(`[store] Ignoring invalid JSON in ${file}; using an empty store.`)
+      } else {
         throw error
       }
     }

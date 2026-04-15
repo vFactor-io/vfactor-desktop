@@ -10,6 +10,7 @@ import { DialogService } from "./services/dialog"
 import { GitService } from "./services/git"
 import { SkillsService } from "./services/skills"
 import { CodexServerService } from "./services/codexServer"
+import { RuntimeService } from "./services/runtime/runtimeService"
 import { TerminalService } from "./services/terminal"
 import { ProjectWatcherService } from "./services/projectWatcher"
 import { UpdaterService } from "./services/updater"
@@ -108,6 +109,7 @@ const skillsService = new SkillsService()
 const codexServerService = new CodexServerService(sendToRenderer)
 const terminalService = new TerminalService(sendToRenderer)
 const projectWatcherService = new ProjectWatcherService(sendToRenderer)
+let runtimeService: RuntimeService | null = null
 
 type QuitReason = "none" | "normal" | "update-install"
 
@@ -115,7 +117,7 @@ let quitReason: QuitReason = "none"
 let isFinalizingQuit = false
 
 function getActiveUpdateWork() {
-  const activeTurns = codexServerService.getActiveTurnCount()
+  const activeTurns = runtimeService?.getActiveTurnCount() ?? codexServerService.getActiveTurnCount()
   const activeTerminalSessions = terminalService.getActiveSessionCount()
 
   if (activeTurns === 0 && activeTerminalSessions === 0) {
@@ -146,6 +148,7 @@ async function cleanupForQuit(options: { includeAnalytics: boolean }): Promise<v
     console.warn("[watcher] Failed to stop project watcher:", error)
   })
   terminalService.dispose()
+  runtimeService?.dispose()
   codexServerService.dispose()
 
   if (!options.includeAnalytics) {
@@ -240,6 +243,8 @@ function createWindow(): BrowserWindow {
 }
 
 function registerIpcHandlers(storeService: JsonStoreService): void {
+  runtimeService = new RuntimeService(sendToRenderer, storeService, gitService, codexServerService)
+
   ipcMain.handle(IPC_CHANNELS.appGetVersion, () => app.getVersion())
   ipcMain.handle(IPC_CHANNELS.appGetUpdateState, () => updaterService.getState())
   ipcMain.handle(IPC_CHANNELS.appCheckForUpdates, () => updaterService.checkForUpdates())
@@ -308,9 +313,26 @@ function registerIpcHandlers(storeService: JsonStoreService): void {
   )
   ipcMain.handle(IPC_CHANNELS.watcherStop, () => projectWatcherService.stop())
 
-  ipcMain.handle(IPC_CHANNELS.codexEnsureServer, () => codexServerService.ensureServer())
-  ipcMain.handle(IPC_CHANNELS.codexSend, (_event, message: string) =>
-    codexServerService.send(message)
+  ipcMain.handle(IPC_CHANNELS.runtimeCreateSession, (_event, input: unknown) =>
+    runtimeService?.createSession(input as never)
+  )
+  ipcMain.handle(IPC_CHANNELS.runtimeListModels, (_event, input: unknown) =>
+    runtimeService?.listModels(input as never)
+  )
+  ipcMain.handle(IPC_CHANNELS.runtimeListAgents, (_event, input: unknown) =>
+    runtimeService?.listAgents(input as never)
+  )
+  ipcMain.handle(IPC_CHANNELS.runtimeListCommands, (_event, input: unknown) =>
+    runtimeService?.listCommands(input as never)
+  )
+  ipcMain.handle(IPC_CHANNELS.runtimeSendTurn, (_event, input: unknown) =>
+    runtimeService?.sendTurn(input as never)
+  )
+  ipcMain.handle(IPC_CHANNELS.runtimeAnswerPrompt, (_event, input: unknown) =>
+    runtimeService?.answerPrompt(input as never)
+  )
+  ipcMain.handle(IPC_CHANNELS.runtimeInterruptTurn, (_event, input: unknown) =>
+    runtimeService?.interruptTurn(input as never)
   )
   ipcMain.handle(IPC_CHANNELS.shellOpenExternal, (_event, url: string) =>
     shell.openExternal(url).then(() => undefined)

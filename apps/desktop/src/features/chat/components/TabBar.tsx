@@ -118,7 +118,7 @@ export function TabBar({ tabs, activeTabId, onTabChange, onTabClose }: TabBarPro
                 : null
             if (tab.type === "chat-session" && tab.sessionId && worktreeChat) {
               const session = worktreeChat.sessions.find((s) => s.id === tab.sessionId)
-              harnessId = session?.harnessId
+              harnessId = session?.remoteId ? session.harnessId : undefined
             }
 
             return (

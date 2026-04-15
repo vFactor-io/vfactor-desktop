@@ -144,6 +144,7 @@ export interface RuntimeCommand {
   kind: "builtin" | "custom";
   agent?: string;
   model?: string;
+  inputHint?: string;
 }
 
 export interface RuntimeFileSearchResult {
@@ -287,7 +288,7 @@ export interface HarnessAdapter {
   initialize: () => Promise<void>;
   createSession: (projectPath: string) => Promise<RuntimeSession>;
   listAgents: () => Promise<RuntimeAgent[]>;
-  listCommands: () => Promise<RuntimeCommand[]>;
+  listCommands: (projectPath?: string) => Promise<RuntimeCommand[]>;
   listModels: () => Promise<RuntimeModel[]>;
   searchFiles: (query: string, directory?: string) => Promise<RuntimeFileSearchResult[]>;
   sendMessage: (input: HarnessTurnInput) => Promise<HarnessTurnResult>;

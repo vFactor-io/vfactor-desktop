@@ -93,6 +93,7 @@ interface ChatState {
   deleteSession: (worktreeId: string, sessionId: string) => Promise<void>
   archiveSession: (worktreeId: string, sessionId: string) => Promise<void>
   selectHarness: (worktreeId: string, harnessId: HarnessId) => Promise<void>
+  setSessionHarness: (sessionId: string, harnessId: HarnessId) => Promise<void>
   setSessionModel: (sessionId: string, model: string | null) => Promise<void>
   listAgents: (worktreeId: string) => Promise<RuntimeAgent[]>
   listCommands: (worktreeId: string) => Promise<RuntimeCommand[]>
@@ -864,6 +865,44 @@ export const useChatStore = create<ChatState>((set, get) => ({
     await get()._persistState()
   },
 
+  setSessionHarness: async (sessionId, harnessId) => {
+    const sessionMatch = findProjectForSession(get().chatByWorktree, sessionId)
+    if (!sessionMatch) {
+      return
+    }
+
+    const { session } = sessionMatch
+    if (session.harnessId === harnessId || session.remoteId) {
+      return
+    }
+
+    set((state) => {
+      const liveSessionMatch = findProjectForSession(state.chatByWorktree, sessionId)
+      if (!liveSessionMatch) {
+        return {}
+      }
+
+      const nextSession: RuntimeSession = {
+        ...liveSessionMatch.session,
+        harnessId,
+        model: null,
+      }
+
+      return {
+        chatByWorktree: {
+          ...state.chatByWorktree,
+          [liveSessionMatch.worktreeId]: {
+            ...liveSessionMatch.projectChat,
+            sessions: replaceSession(liveSessionMatch.projectChat.sessions, nextSession),
+          },
+        },
+      }
+    })
+
+    await getHarnessAdapter(harnessId).initialize()
+    await get()._persistState()
+  },
+
   setSessionModel: async (sessionId, model) => {
     const sessionMatch = findProjectForSession(get().chatByWorktree, sessionId)
     if (!sessionMatch) {
@@ -909,7 +948,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   listCommands: async (worktreeId: string) => {
     const projectChat = get().getProjectChat(worktreeId)
     const adapter = getHarnessAdapter(projectChat.selectedHarnessId)
-    return adapter.listCommands()
+    return adapter.listCommands(projectChat.worktreePath)
   },
 
   listModels: async (worktreeId: string) => {

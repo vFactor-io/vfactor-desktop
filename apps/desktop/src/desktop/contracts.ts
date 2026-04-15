@@ -1,3 +1,16 @@
+import type {
+  CollaborationModeKind,
+  HarnessId,
+  HarnessTurnResult,
+  RuntimeAgent,
+  RuntimeCommand,
+  RuntimeModel,
+  RuntimePrompt,
+  RuntimePromptResponse,
+  RuntimeReasoningEffort,
+  RuntimeSession,
+} from "@/features/chat/types"
+
 export interface GitWorkingTreeSummary {
   changedFiles: number
   additions: number
@@ -311,4 +324,69 @@ export interface RemovePathOptions {
 
 export interface StoreValueMap {
   [key: string]: unknown
+}
+
+export interface RuntimeCreateSessionInput {
+  harnessId: HarnessId
+  projectPath: string
+}
+
+export interface RuntimeListModelsInput {
+  harnessId: HarnessId
+}
+
+export interface RuntimeListAgentsInput {
+  harnessId: HarnessId
+}
+
+export interface RuntimeListCommandsInput {
+  harnessId: HarnessId
+  projectPath?: string
+}
+
+export interface RuntimeSendTurnInput {
+  harnessId: HarnessId
+  session: RuntimeSession
+  projectPath?: string
+  text: string
+  agent?: string
+  collaborationMode?: CollaborationModeKind
+  model?: string
+  reasoningEffort?: RuntimeReasoningEffort | null
+  fastMode?: boolean
+}
+
+export interface RuntimeAnswerPromptInput {
+  harnessId: HarnessId
+  session: RuntimeSession
+  projectPath?: string
+  prompt: RuntimePrompt
+  response: RuntimePromptResponse
+}
+
+export interface RuntimeInterruptTurnInput {
+  harnessId: HarnessId
+  session: RuntimeSession
+}
+
+export interface RuntimeSessionResult {
+  session: RuntimeSession
+}
+
+export interface RuntimeModelsResult {
+  models: RuntimeModel[]
+}
+
+export interface RuntimeAgentsResult {
+  agents: RuntimeAgent[]
+}
+
+export interface RuntimeCommandsResult {
+  commands: RuntimeCommand[]
+}
+
+export interface RuntimeTurnUpdateEvent {
+  harnessId: HarnessId
+  remoteId: string
+  result: HarnessTurnResult
 }

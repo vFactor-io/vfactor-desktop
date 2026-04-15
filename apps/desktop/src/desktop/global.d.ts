@@ -23,6 +23,18 @@ import type {
   ProjectFileSystemEvent,
   ReadFileAsDataUrlOptions,
   RemovePathOptions,
+  RuntimeAgentsResult,
+  RuntimeAnswerPromptInput,
+  RuntimeCommandsResult,
+  RuntimeCreateSessionInput,
+  RuntimeInterruptTurnInput,
+  RuntimeListAgentsInput,
+  RuntimeListCommandsInput,
+  RuntimeListModelsInput,
+  RuntimeModelsResult,
+  RuntimeSendTurnInput,
+  RuntimeSessionResult,
+  RuntimeTurnUpdateEvent,
   SkillsSyncResponse,
   TerminalCreateSessionEnvironment,
   TerminalDataEvent,
@@ -80,11 +92,15 @@ declare global {
         stop: () => Promise<void>
         onEvent: (listener: (event: ProjectFileSystemEvent) => void) => () => void
       }
-      codex: {
-        ensureServer: () => Promise<string>
-        send: (message: string) => Promise<void>
-        onMessage: (listener: (message: string) => void) => () => void
-        onStatus: (listener: (status: string) => void) => () => void
+      runtime: {
+        createSession: (input: RuntimeCreateSessionInput) => Promise<RuntimeSessionResult>
+        listModels: (input: RuntimeListModelsInput) => Promise<RuntimeModelsResult>
+        listAgents: (input: RuntimeListAgentsInput) => Promise<RuntimeAgentsResult>
+        listCommands: (input: RuntimeListCommandsInput) => Promise<RuntimeCommandsResult>
+        sendTurn: (input: RuntimeSendTurnInput) => Promise<unknown>
+        answerPrompt: (input: RuntimeAnswerPromptInput) => Promise<unknown>
+        interruptTurn: (input: RuntimeInterruptTurnInput) => Promise<void>
+        onEvent: (listener: (event: RuntimeTurnUpdateEvent) => void) => () => void
       }
       shell: {
         openExternal: (url: string) => Promise<void>

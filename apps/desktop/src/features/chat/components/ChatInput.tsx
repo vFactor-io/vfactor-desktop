@@ -19,7 +19,7 @@ import { useCommands, type NormalizedCommand } from "../hooks/useCommands"
 import { useAgents, type NormalizedAgent } from "../hooks/useAgents"
 import { useFileSearch } from "../hooks/useFileSearch"
 import { useModels } from "../hooks/useModels"
-import type { RuntimePromptResponse, RuntimeReasoningEffort } from "../types"
+import type { HarnessId, RuntimePromptResponse, RuntimeReasoningEffort } from "../types"
 import type { ComposerPlan, ComposerPrompt } from "./composer/types"
 import { getRuntimeModelLabel } from "../domain/runtimeModels"
 import {
@@ -41,7 +41,9 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/features/shared/components/ui/dropdown-menu"
 import {
@@ -120,7 +122,9 @@ interface ChatInputProps {
   onDismissPrompt?: () => void
 }
 
-function getHarnessGroupMeta(selectedHarnessId: "codex" | "claude-code" | null): {
+const MODEL_HARNESS_IDS: HarnessId[] = ["codex", "claude-code"]
+
+function getHarnessGroupMeta(selectedHarnessId: HarnessId | null): {
   key: string
   label: string
   logoKind: ModelLogoKind
@@ -192,13 +196,18 @@ export function ChatInput({
     selectedWorktreeId ? state.getProjectChat(selectedWorktreeId) : null
   )
   const createOptimisticSession = useChatStore((state) => state.createOptimisticSession)
+  const setSessionHarness = useChatStore((state) => state.setSessionHarness)
   const setSessionModel = useChatStore((state) => state.setSessionModel)
+  const selectHarness = useChatStore((state) => state.selectHarness)
   const openChatSession = useTabStore((state) => state.openChatSession)
   const openTerminalTab = useTabStore((state) => state.openTerminalTab)
   const initializeSettings = useSettingsStore((state) => state.initialize)
   const codexDefaultModel = useSettingsStore((state) => state.codexDefaultModel)
   const codexDefaultReasoningEffort = useSettingsStore((state) => state.codexDefaultReasoningEffort)
   const codexDefaultFastMode = useSettingsStore((state) => state.codexDefaultFastMode)
+  const claudeDefaultModel = useSettingsStore((state) => state.claudeDefaultModel)
+  const claudeDefaultReasoningEffort = useSettingsStore((state) => state.claudeDefaultReasoningEffort)
+  const claudeDefaultFastMode = useSettingsStore((state) => state.claudeDefaultFastMode)
   const activeSession = useMemo(
     () =>
       sessionId
@@ -208,6 +217,8 @@ export function ChatInput({
   )
   const activeSessionModelId = activeSession?.model?.trim() || null
   const selectedHarnessId = activeSession?.harnessId ?? projectChat?.selectedHarnessId ?? null
+  const isDraftSession = !!activeSession && !activeSession.remoteId
+  const canSwitchHarnessForModelSelection = !activeSession?.id || isDraftSession
   const [isImeComposing, setIsImeComposing] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [dismissedMenuKey, setDismissedMenuKey] = useState<string | null>(null)
@@ -219,7 +230,14 @@ export function ChatInput({
   const [promptAnswers, setPromptAnswers] = useState<Record<string, string | string[]>>({})
   const [promptCustomAnswers, setPromptCustomAnswers] = useState<Record<string, string>>({})
   const [currentPromptQuestionIndex, setCurrentPromptQuestionIndex] = useState(0)
-  const { models: availableModels, isLoading: isLoadingModels } = useModels(selectedHarnessId)
+  const {
+    models: codexModels,
+    isLoading: isLoadingCodexModels,
+  } = useModels("codex")
+  const {
+    models: claudeModels,
+    isLoading: isLoadingClaudeModels,
+  } = useModels("claude-code")
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const focusChatInputShortcut = useMemo(() => getShortcutBinding("focus-chat-input"), [])
@@ -274,46 +292,58 @@ export function ChatInput({
 
   const { commands, isLoading: isLoadingCommands } = useCommands(
     selectedHarnessId,
-    selectedProject?.actions ?? []
+    selectedProject?.actions ?? [],
+    selectedWorktreePath
   )
   const { agents, isLoading: isLoadingAgents } = useAgents(selectedHarnessId)
   const { results: fileResults, isLoading: isLoadingFiles, search: searchFiles, clear: clearFiles } = useFileSearch()
   const isCodexHarness = selectedHarnessId === "codex"
+  const isClaudeHarness = selectedHarnessId === "claude-code"
+  const modelsByHarness = useMemo<Record<HarnessId, typeof codexModels>>(
+    () => ({
+      codex: codexModels,
+      "claude-code": claudeModels,
+    }),
+    [claudeModels, codexModels]
+  )
+  const modelLoadingByHarness = useMemo<Record<HarnessId, boolean>>(
+    () => ({
+      codex: isLoadingCodexModels,
+      "claude-code": isLoadingClaudeModels,
+    }),
+    [isLoadingClaudeModels, isLoadingCodexModels]
+  )
+  const availableModels = selectedHarnessId ? modelsByHarness[selectedHarnessId] : codexModels
+  const isLoadingModels = selectedHarnessId ? modelLoadingByHarness[selectedHarnessId] : isLoadingCodexModels
   const defaultModel = useMemo(
     () => availableModels.find((model) => model.isDefault) ?? availableModels[0] ?? null,
     [availableModels]
   )
+  const harnessDefaultModelId = isCodexHarness
+    ? codexDefaultModel
+    : isClaudeHarness
+      ? claudeDefaultModel
+      : ""
   const effectiveModelId = useMemo(
     () =>
       resolveEffectiveComposerModelId({
         activeSessionModelId,
         composerSelectedModelId: selectedModelId,
-        defaultModelId: isCodexHarness ? codexDefaultModel : null,
+        defaultModelId: harnessDefaultModelId || null,
         availableModelIds: availableModels.map((model) => model.id),
         runtimeDefaultModelId: defaultModel?.id ?? null,
       }),
     [
       activeSessionModelId,
       availableModels,
-      codexDefaultModel,
       defaultModel?.id,
-      isCodexHarness,
+      harnessDefaultModelId,
       selectedModelId,
     ]
   )
   const effectiveModel = useMemo(
     () => availableModels.find((model) => model.id === effectiveModelId) ?? null,
     [availableModels, effectiveModelId]
-  )
-  const composerBaselineModelId = useMemo(
-    () =>
-      resolveEffectiveComposerModelId({
-        activeSessionModelId: null,
-        defaultModelId: isCodexHarness ? codexDefaultModel : null,
-        availableModelIds: availableModels.map((model) => model.id),
-        runtimeDefaultModelId: defaultModel?.id ?? null,
-      }),
-    [availableModels, codexDefaultModel, defaultModel?.id, isCodexHarness]
   )
   const selectedModelLogoKind = useMemo(
     () =>
@@ -328,21 +358,33 @@ export function ChatInput({
     [effectiveModel, selectedHarnessId, selectedModelId]
   )
   const modelGroups = useMemo(() => {
-    const harnessGroup = getHarnessGroupMeta(selectedHarnessId)
+    const harnessIds = [
+      ...(selectedHarnessId ? [selectedHarnessId] : []),
+      ...MODEL_HARNESS_IDS.filter((harnessId) => harnessId !== selectedHarnessId),
+    ]
 
-    return [
-      {
+    return harnessIds.map((harnessId) => {
+      const harnessGroup = getHarnessGroupMeta(harnessId)
+      const harnessModels = modelsByHarness[harnessId] ?? []
+
+      return {
         ...harnessGroup,
-        models: availableModels.map((model) => ({
+        harnessId,
+        isLoading: modelLoadingByHarness[harnessId] ?? false,
+        models: harnessModels.map((model) => ({
           model,
           logoKind: getModelLogoKind(
             `${model.displayName ?? ""} ${model.id ?? ""}`,
-            selectedHarnessId
+            harnessId
           ),
         })),
-      },
-    ]
-  }, [availableModels, selectedHarnessId])
+      }
+    })
+  }, [modelLoadingByHarness, modelsByHarness, selectedHarnessId])
+  const currentModelGroup = useMemo(
+    () => modelGroups.find((group) => group.harnessId === selectedHarnessId) ?? modelGroups[0] ?? null,
+    [modelGroups, selectedHarnessId]
+  )
   const availableReasoningEfforts = useMemo(() => {
     const supported = effectiveModel?.supportedReasoningEfforts?.filter((effort) => effort.trim().length > 0) ?? []
     const defaultEffort = effectiveModel?.defaultReasoningEffort?.trim() ?? null
@@ -353,31 +395,40 @@ export function ChatInput({
 
     return defaultEffort ? [defaultEffort] : []
   }, [effectiveModel])
+  const harnessDefaultReasoningEffort = isCodexHarness
+    ? codexDefaultReasoningEffort
+    : isClaudeHarness
+      ? claudeDefaultReasoningEffort
+      : null
   const reasoningEffort = useMemo(
     () =>
       resolveDefaultReasoningEffort({
         overrideReasoningEffort: reasoningEffortOverride,
-        defaultReasoningEffort: isCodexHarness ? codexDefaultReasoningEffort : null,
+        defaultReasoningEffort: harnessDefaultReasoningEffort,
         modelDefaultReasoningEffort: effectiveModel?.defaultReasoningEffort ?? null,
         supportedReasoningEfforts: availableReasoningEfforts,
       }),
     [
       availableReasoningEfforts,
-      codexDefaultReasoningEffort,
       effectiveModel?.defaultReasoningEffort,
-      isCodexHarness,
+      harnessDefaultReasoningEffort,
       reasoningEffortOverride,
     ]
   )
-  const supportsFastMode = isCodexHarness && effectiveModel?.supportsFastMode === true
+  const supportsFastMode = effectiveModel?.supportsFastMode === true
+  const harnessDefaultFastMode = isCodexHarness
+    ? codexDefaultFastMode
+    : isClaudeHarness
+      ? claudeDefaultFastMode
+      : false
   const fastMode = useMemo(
     () =>
       resolveDefaultFastMode({
         overrideFastMode: fastModeOverride,
-        defaultFastMode: isCodexHarness ? codexDefaultFastMode : false,
+        defaultFastMode: harnessDefaultFastMode,
         supportsFastMode,
       }),
-    [codexDefaultFastMode, fastModeOverride, isCodexHarness, supportsFastMode]
+    [fastModeOverride, harnessDefaultFastMode, supportsFastMode]
   )
   const selectedModelLabel = effectiveModel
     ? getRuntimeModelLabel(effectiveModel)
@@ -389,13 +440,11 @@ export function ChatInput({
     : isLoadingModels
       ? "Loading effort..."
       : "Default"
-  const fastModeTooltipLabel = !isCodexHarness
-    ? ""
-    : !supportsFastMode
-      ? "Fast mode is only available on GPT-5.4."
-      : fastMode
-        ? "Fast mode is on. Codex will prefer faster responses with higher credit usage."
-        : "Fast mode is off. Enable it for faster Codex responses on GPT-5.4."
+  const fastModeTooltipLabel = !supportsFastMode
+    ? "Fast mode is not available for the selected model."
+    : selectedHarnessId === "claude-code"
+      ? "Up to 2.5x faster output at premium API pricing."
+      : "Faster responses at 2x usage."
   const isPlanModeAvailable = true
   const insertableCommands = useMemo(
     () => commands.filter((command) => command.execution === "insert" && !!command.referenceName),
@@ -469,13 +518,19 @@ export function ChatInput({
   }, [prompt?.id])
 
   useEffect(() => {
-    setSelectedModelId(
-      resolveSessionSelectedModelId(
-        activeSessionModelId,
-        availableModels.map((model) => model.id)
-      )
+    if (!activeSession?.id) {
+      return
+    }
+
+    const resolvedModelId = resolveSessionSelectedModelId(
+      activeSessionModelId,
+      availableModels.map((model) => model.id)
     )
-  }, [activeSession?.id, activeSessionModelId, availableModels, selectedWorktreeId])
+
+    setSelectedModelId(
+      resolvedModelId
+    )
+  }, [activeSession?.id, activeSessionModelId, availableModels, selectedHarnessId, selectedWorktreeId])
 
   useEffect(() => {
     setReasoningEffortOverride(null)
@@ -717,6 +772,17 @@ export function ChatInput({
         return
       }
 
+      if (command.insertText) {
+        setDismissedMenuKey(null)
+        setIsSlashMenuDismissed(false)
+        setInput(command.insertText)
+        suppressNextSubmitRef.current = true
+        requestAnimationFrame(() => {
+          focusComposer()
+        })
+        return
+      }
+
       const referenceName = command.referenceName
       const editor = editorRef.current
 
@@ -750,7 +816,7 @@ export function ChatInput({
       setIsSlashMenuDismissed(false)
       suppressNextSubmitRef.current = true
     },
-    [focusComposer, runSystemSlashCommand]
+    [focusComposer, runSystemSlashCommand, setInput]
   )
 
   const handleSelectAgent = useCallback(
@@ -1328,7 +1394,7 @@ export function ChatInput({
           return
         }
 
-        if (matchingCommand && onExecuteCommand) {
+        if (matchingCommand?.execution === "run" && onExecuteCommand) {
           onExecuteCommand(matchingCommand.name, "")
           setDismissedMenuKey(null)
           setInput("")
@@ -1664,19 +1730,44 @@ export function ChatInput({
   )
 
   const handleSelectModel = useCallback(
-    (modelId: string | null) => {
+    async (harnessId: HarnessId, modelId: string | null) => {
       const trimmedModelId = modelId?.trim() || null
-      const normalizedModelId =
-        trimmedModelId && composerBaselineModelId === trimmedModelId ? null : trimmedModelId
-      setSelectedModelId(normalizedModelId)
 
-      if (!activeSession?.id) {
+      if (activeSession?.id && !isDraftSession && activeSession.harnessId !== harnessId) {
         return
       }
 
-      void setSessionModel(activeSession.id, normalizedModelId)
+      setSelectedModelId(trimmedModelId)
+
+      if (selectedWorktreeId && projectChat?.selectedHarnessId !== harnessId) {
+        await selectHarness(selectedWorktreeId, harnessId)
+      }
+
+      if (activeSession?.id && isDraftSession && activeSession.harnessId !== harnessId) {
+        await setSessionHarness(activeSession.id, harnessId)
+      }
+
+      if (!activeSession?.id || isDraftSession) {
+        if (activeSession?.id) {
+          await setSessionModel(activeSession.id, trimmedModelId)
+        }
+        return
+      }
+
+      void setSessionModel(activeSession.id, trimmedModelId)
     },
-    [activeSession?.id, composerBaselineModelId, setSessionModel]
+    [
+      activeSession?.id,
+      activeSession?.harnessId,
+      canSwitchHarnessForModelSelection,
+      isDraftSession,
+      projectChat?.selectedHarnessId,
+      selectedHarnessId,
+      selectHarness,
+      selectedWorktreeId,
+      setSessionHarness,
+      setSessionModel,
+    ]
   )
 
   return (
@@ -1874,32 +1965,92 @@ export function ChatInput({
                 <span>{selectedModelLabel}</span>
                 <CaretDown className="size-3 text-muted-foreground" />
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-64">
-                {availableModels.length > 0 ? (
+              <DropdownMenuContent align="start" className={canSwitchHarnessForModelSelection ? "w-56" : "w-64"}>
+                {!canSwitchHarnessForModelSelection && currentModelGroup ? (
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel className="px-2 py-1.5 text-[11px] uppercase tracking-[0.12em] text-muted-foreground/78">
+                      <span>{currentModelGroup.label}</span>
+                    </DropdownMenuLabel>
+                    {currentModelGroup.models.length > 0 ? (
+                      currentModelGroup.models.map(({ model }) => (
+                        <DropdownMenuItem
+                          key={model.id}
+                          onClick={() => {
+                            void handleSelectModel(currentModelGroup.harnessId, model.id)
+                          }}
+                          className="flex items-center justify-between gap-3"
+                        >
+                          <span className="truncate">{getRuntimeModelLabel(model)}</span>
+                          {model.id === effectiveModelId ? (
+                            <CheckCircle className="size-3.5 text-muted-foreground" />
+                          ) : null}
+                        </DropdownMenuItem>
+                      ))
+                    ) : (
+                      <DropdownMenuItem disabled>
+                        <span>{currentModelGroup.isLoading ? `Loading ${currentModelGroup.label} models...` : `No ${currentModelGroup.label} models available`}</span>
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuGroup>
+                ) : modelGroups.length > 0 ? (
                   <>
-                    {modelGroups.map((group, groupIndex) => (
+                    {modelGroups.map((group) => (
                       <div key={group.key}>
-                        {groupIndex > 0 ? <DropdownMenuSeparator /> : null}
-                        <DropdownMenuGroup>
-                          <DropdownMenuLabel className="px-2 py-1.5 text-[11px] uppercase tracking-[0.12em] text-muted-foreground/78">
-                            <span>{group.label}</span>
-                          </DropdownMenuLabel>
-                          {group.models.map(({ model, logoKind }) => (
-                            <DropdownMenuItem
-                              key={model.id}
-                              onClick={() => handleSelectModel(model.id)}
-                              className="flex items-center justify-between gap-3"
-                            >
-                              <span className="flex min-w-0 items-center gap-2">
-                                <ModelLogo kind={logoKind} className="size-5 shrink-0 text-muted-foreground/82" />
-                                <span className="truncate">{getRuntimeModelLabel(model)}</span>
-                              </span>
-                              {model.id === effectiveModelId ? (
-                                <CheckCircle className="size-3.5 text-muted-foreground" />
+                        <DropdownMenuSub>
+                          <DropdownMenuSubTrigger
+                            openOnHover
+                            delay={75}
+                            closeDelay={100}
+                            className="flex items-center justify-between gap-3"
+                          >
+                            <span className="flex min-w-0 items-center gap-2">
+                              <ModelLogo kind={group.logoKind} className="size-5 shrink-0 text-muted-foreground/82" />
+                              <span className="truncate">{group.label}</span>
+                            </span>
+                            {selectedHarnessId === group.harnessId ? (
+                              <CheckCircle className="size-3.5 text-muted-foreground" />
+                            ) : null}
+                          </DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent className="w-64">
+                            <DropdownMenuGroup>
+                              <DropdownMenuLabel className="px-2 py-1.5 text-[11px] uppercase tracking-[0.12em] text-muted-foreground/78">
+                                <span>{group.label}</span>
+                              </DropdownMenuLabel>
+                              {group.models.length > 0 ? (
+                                group.models.map(({ model }) => {
+                                  const isCrossHarnessLiveSelection =
+                                    !canSwitchHarnessForModelSelection &&
+                                    selectedHarnessId !== group.harnessId
+
+                                  return (
+                                    <DropdownMenuItem
+                                      key={model.id}
+                                      disabled={isCrossHarnessLiveSelection}
+                                      onClick={() => {
+                                        void handleSelectModel(group.harnessId, model.id)
+                                      }}
+                                      className="flex items-center justify-between gap-3"
+                                    >
+                                      <span className="truncate">{getRuntimeModelLabel(model)}</span>
+                                      {model.id === effectiveModelId && selectedHarnessId === group.harnessId ? (
+                                        <CheckCircle className="size-3.5 text-muted-foreground" />
+                                      ) : null}
+                                    </DropdownMenuItem>
+                                  )
+                                })
+                              ) : (
+                                <DropdownMenuItem disabled>
+                                  <span>{group.isLoading ? `Loading ${group.label} models...` : `No ${group.label} models available`}</span>
+                                </DropdownMenuItem>
+                              )}
+                              {!canSwitchHarnessForModelSelection && selectedHarnessId !== group.harnessId ? (
+                                <DropdownMenuItem disabled>
+                                  <span>Start a new chat to use {group.label}.</span>
+                                </DropdownMenuItem>
                               ) : null}
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuGroup>
+                            </DropdownMenuGroup>
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
                       </div>
                     ))}
                   </>
@@ -1936,7 +2087,7 @@ export function ChatInput({
               </DropdownMenuContent>
               </DropdownMenu>}
 
-              {selectorsRow && isCodexHarness && supportsFastMode && (
+              {selectorsRow && supportsFastMode && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button

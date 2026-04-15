@@ -34,6 +34,33 @@ import {
   type CodexPendingUserInputRequest,
 } from "./codexPrompts"
 
+type AnimationFrameHandle = number
+
+function scheduleFrame(callback: () => void): AnimationFrameHandle {
+  const runtime = globalThis as typeof globalThis & {
+    requestAnimationFrame?: (callback: (timestamp: number) => void) => number
+  }
+
+  if (typeof runtime.requestAnimationFrame === "function") {
+    return runtime.requestAnimationFrame(() => callback())
+  }
+
+  return globalThis.setTimeout(callback, 16) as unknown as number
+}
+
+function cancelFrame(handle: AnimationFrameHandle): void {
+  const runtime = globalThis as typeof globalThis & {
+    cancelAnimationFrame?: (handle: number) => void
+  }
+
+  if (typeof runtime.cancelAnimationFrame === "function") {
+    runtime.cancelAnimationFrame(handle)
+    return
+  }
+
+  globalThis.clearTimeout(handle)
+}
+
 function shouldEmitStartedItem(item: CodexThreadItem): boolean {
   switch (item.type) {
     case "commandExecution":
@@ -81,7 +108,7 @@ export function waitForCodexTurnCompletion(
     const turnState = new CodexTurnState()
     let settled = false
     let emitQueued = false
-    let emitFrameId: number | null = null
+    let emitFrameId: AnimationFrameHandle | null = null
     let lastEmittedSnapshot = ""
     let activePromptId: string | null = null
     let lastActivityAt = Date.now()
@@ -216,7 +243,7 @@ export function waitForCodexTurnCompletion(
       }
 
       emitQueued = true
-      emitFrameId = requestAnimationFrame(() => {
+      emitFrameId = scheduleFrame(() => {
         flushEmitUpdate()
       })
     }
@@ -227,7 +254,7 @@ export function waitForCodexTurnCompletion(
       }
 
       if (emitFrameId != null) {
-        window.cancelAnimationFrame(emitFrameId)
+        cancelFrame(emitFrameId)
       }
 
       flushEmitUpdate()
@@ -273,8 +300,8 @@ export function waitForCodexTurnCompletion(
 
       flushPendingUpdate()
       settled = true
-      window.clearInterval(syncIntervalId)
-      window.clearInterval(stallIntervalId)
+      globalThis.clearInterval(syncIntervalId)
+      globalThis.clearInterval(stallIntervalId)
       unsubscribe()
       unsubscribeServerRequest()
       pendingUserInputRequests.delete(sessionId)
@@ -290,8 +317,8 @@ export function waitForCodexTurnCompletion(
 
       flushPendingUpdate()
       settled = true
-      window.clearInterval(syncIntervalId)
-      window.clearInterval(stallIntervalId)
+      globalThis.clearInterval(syncIntervalId)
+      globalThis.clearInterval(stallIntervalId)
       unsubscribe()
       unsubscribeServerRequest()
       pendingUserInputRequests.delete(sessionId)
@@ -300,11 +327,11 @@ export function waitForCodexTurnCompletion(
       reject(error instanceof Error ? error : new Error(String(error)))
     }
 
-    const syncIntervalId = window.setInterval(() => {
+    const syncIntervalId = globalThis.setInterval(() => {
       void syncTurnFromRead()
     }, TURN_SYNC_INTERVAL_MS)
 
-    const stallIntervalId = window.setInterval(() => {
+    const stallIntervalId = globalThis.setInterval(() => {
       if (settled || activePromptId || syncInFlight) {
         return
       }

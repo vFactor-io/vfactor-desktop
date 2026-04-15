@@ -1,5 +1,7 @@
 import { Circle } from "@/components/icons"
 import { cn } from "@/lib/utils"
+import claudeColorUrl from "@/assets/brands/claude-color.svg"
+import codexColorUrl from "@/assets/brands/codex.svg"
 import openAiSymbolLightUrl from "@/assets/brands/openai-symbol-light.svg"
 import openAiSymbolDarkUrl from "@/assets/brands/openai-symbol-dark.svg"
 
@@ -16,31 +18,17 @@ function OpenAILogo({ className }: { className?: string }) {
 
 function ClaudeLogo({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
-      <path
-        d="M12 3.5 13.9 8.1 18.5 10 13.9 11.9 12 16.5 10.1 11.9 5.5 10 10.1 8.1 12 3.5Z"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.8"
-      />
-      <circle cx="12" cy="10" r="1.35" fill="currentColor" />
-    </svg>
+    <span className={cn("relative inline-flex shrink-0", className)} aria-hidden="true">
+      <img src={claudeColorUrl} alt="" className="size-full scale-[0.84] object-contain" />
+    </span>
   )
 }
 
 function CodexLogo({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
-      <rect x="4.5" y="4.5" width="15" height="15" rx="4" stroke="currentColor" strokeWidth="1.8" />
-      <path
-        d="M10.2 9.1 7.7 12 10.2 14.9M13.8 9.1 16.3 12 13.8 14.9"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.8"
-      />
-    </svg>
+    <span className={cn("relative inline-flex shrink-0", className)} aria-hidden="true">
+      <img src={codexColorUrl} alt="" className="size-full scale-[0.84] object-contain brightness-0 invert" />
+    </span>
   )
 }
 
@@ -70,11 +58,14 @@ export function getModelLogoKind(value: string, selectedHarnessId: "codex" | "cl
   if (
     normalized.includes("gpt") ||
     normalized.includes("openai") ||
-    normalized.includes("codex") ||
     /^o\d/.test(normalized) ||
     /^o[1-9]-/.test(normalized)
   ) {
     return "openai"
+  }
+
+  if (normalized.includes("codex")) {
+    return "codex"
   }
 
   if (selectedHarnessId === "claude-code") {
@@ -89,5 +80,5 @@ export function getModelLogoKind(value: string, selectedHarnessId: "codex" | "cl
 }
 
 export function getHarnessLogoKind(harnessId: "codex" | "claude-code"): ModelLogoKind {
-  return harnessId === "claude-code" ? "claude" : "openai"
+  return harnessId === "claude-code" ? "claude" : "codex"
 }

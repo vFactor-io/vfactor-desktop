@@ -174,6 +174,22 @@ describe("chatStore worktree scoping", () => {
     expect(persisted.chatByWorktree["worktree-1"]?.sessions[0]?.model).toBe("gpt-5.4")
   })
 
+  test("allows switching the harness on a draft session before it has a remote id", async () => {
+    const session = useChatStore.getState().createOptimisticSession("worktree-1", "/tmp/worktree-1")
+
+    expect(session).not.toBeNull()
+
+    await useChatStore.getState().setSessionModel(session!.id, "gpt-5.4")
+    await useChatStore.getState().setSessionHarness(session!.id, "claude-code")
+
+    const updatedSession = useChatStore
+      .getState()
+      .chatByWorktree["worktree-1"]?.sessions.find((candidate) => candidate.id === session!.id)
+
+    expect(updatedSession?.harnessId).toBe("claude-code")
+    expect(updatedSession?.model).toBeNull()
+  })
+
   test("clears transient session state when deleting the active session", async () => {
     const firstSession = useChatStore.getState().createOptimisticSession("worktree-1", "/tmp/worktree-1")
     const secondSession = useChatStore.getState().createOptimisticSession("worktree-1", "/tmp/worktree-1")

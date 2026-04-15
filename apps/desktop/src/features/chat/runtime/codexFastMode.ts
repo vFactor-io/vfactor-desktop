@@ -1,4 +1,11 @@
-const CODEX_FAST_MODE_MODEL_ALLOWLIST = new Set(["gpt-5.4"])
+const CODEX_FAST_MODE_MODEL_ALLOWLIST = new Set([
+  "gpt-5.4",
+  "gpt-5.4-mini",
+  "gpt-5.3-codex",
+  "gpt-5.3-codex-spark",
+  "gpt-5.2-codex",
+  "gpt-5.2",
+])
 
 export function codexModelSupportsFastMode(modelId: string | null | undefined): boolean {
   const normalizedModelId = modelId?.trim() ?? ""
