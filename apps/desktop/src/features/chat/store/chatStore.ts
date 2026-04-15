@@ -178,6 +178,18 @@ function normalizeProjectChatState(
   )
 }
 
+function isLocalDraftSession(session: RuntimeSession): boolean {
+  return session.remoteId == null && session.id.startsWith("draft-")
+}
+
+async function abortPersistedSession(session: RuntimeSession): Promise<void> {
+  if (isLocalDraftSession(session)) {
+    return
+  }
+
+  await getHarnessAdapter(session.harnessId).abortSession(session)
+}
+
 function dedupeSessions(sessions: RuntimeSession[]): RuntimeSession[] {
   const seenSessionIds = new Set<string>()
   const dedupedSessions: RuntimeSession[] = []
@@ -215,16 +227,19 @@ async function migratePersistedChatState(
   if (persisted.chatByWorktree) {
     return normalizeProjectChatState(
       Object.fromEntries(
-        Object.entries(persisted.chatByWorktree).map(([worktreeId, projectChat]) => {
+        Object.entries(persisted.chatByWorktree).flatMap(([worktreeId, projectChat]) => {
           const worktree = worktreeById.get(worktreeId)
+          if (!worktree) {
+            return []
+          }
 
-          return [
+          return [[
             worktreeId,
             {
               ...projectChat,
               worktreePath: projectChat.worktreePath ?? worktree?.path,
             },
-          ]
+          ]]
         })
       )
     )
@@ -620,7 +635,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     await Promise.allSettled(
       matchingWorktreeEntries.flatMap(([, projectChat]) =>
-        projectChat.sessions.map((session) => getHarnessAdapter(session.harnessId).abortSession(session))
+        projectChat.sessions.map((session) => abortPersistedSession(session))
       )
     )
 
@@ -673,7 +688,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
 
     await Promise.allSettled(
-      projectChat.sessions.map((session) => getHarnessAdapter(session.harnessId).abortSession(session))
+      projectChat.sessions.map((session) => abortPersistedSession(session))
     )
 
     set((state) => {
@@ -1476,7 +1491,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return
     }
 
-    await getHarnessAdapter(sessionMatch.session.harnessId).abortSession(sessionMatch.session)
+    await abortPersistedSession(sessionMatch.session)
     set({
       sessionActivityById: replaceSessionActivity(get().sessionActivityById, sessionId, {
         status: "idle",

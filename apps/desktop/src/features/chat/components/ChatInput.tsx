@@ -1,4 +1,4 @@
-import { ArrowUp02, Brain, CaretDown, CheckCircle, Circle, DocumentValidation, Paperclip, Stop, X, Zap } from "@/components/icons"
+import { ArrowUp02, Brain, CaretDown, CheckCircle, Circle, DocumentValidation, Paperclip, Plus, Stop, X, Zap } from "@/components/icons"
 import { desktop } from "@/desktop/client"
 import {
   useState,
@@ -10,7 +10,6 @@ import {
   type ClipboardEvent as ReactClipboardEvent,
   type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
-  type MouseEvent as ReactMouseEvent,
   type FormEvent,
 } from "react"
 import { SlashCommandMenu } from "./SlashCommandMenu"
@@ -41,6 +40,8 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
@@ -255,7 +256,6 @@ export function ChatInput({
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const serializedComposerValueRef = useRef(input)
   const previousCommandSignatureRef = useRef("")
-  const skipNextPlanToggleClickRef = useRef(false)
   const suppressNextSubmitRef = useRef(false)
   const submittedAttachmentIdsRef = useRef<Set<string>>(new Set())
   const latestAttachmentsRef = useRef<DraftChatAttachment[]>(attachments)
@@ -430,6 +430,9 @@ export function ChatInput({
       }),
     [fastModeOverride, harnessDefaultFastMode, supportsFastMode]
   )
+  const toggleFastMode = useCallback(() => {
+    setFastModeOverride((current) => (current == null ? !fastMode : !current))
+  }, [fastMode])
   const selectedModelLabel = effectiveModel
     ? getRuntimeModelLabel(effectiveModel)
     : selectedModelId
@@ -1301,25 +1304,6 @@ export function ChatInput({
   const selectorsRow = !isPromptActive
   const promptCtaLabel = isLastPromptQuestion ? "Submit" : "Continue"
 
-  const handlePlanModeMouseDown = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
-    if (event.button !== 0) {
-      return
-    }
-
-    event.preventDefault()
-    skipNextPlanToggleClickRef.current = true
-    togglePlanMode()
-  }, [togglePlanMode])
-
-  const handlePlanModeClick = useCallback(() => {
-    if (skipNextPlanToggleClickRef.current) {
-      skipNextPlanToggleClickRef.current = false
-      return
-    }
-
-    togglePlanMode()
-  }, [togglePlanMode])
-
   const handleSubmit = useCallback(
     (e?: FormEvent) => {
       e?.preventDefault()
@@ -1774,7 +1758,7 @@ export function ChatInput({
     <form
       onSubmit={handleSubmit}
       className={cn(
-        placement === "intro" ? "w-full bg-transparent px-0 pb-0" : "bg-main-content px-10 pb-3"
+        placement === "intro" ? "w-full bg-transparent px-0 pb-0" : "bg-main-content px-6 pb-3"
       )}
       aria-busy={isComposerLocked}
     >
@@ -1955,13 +1939,81 @@ export function ChatInput({
 
           {!isPromptActive && !isComposerLocked && (
             <div className="mt-2 flex items-center gap-2">
+              {selectorsRow && (
+                <DropdownMenu>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <DropdownMenuTrigger
+                        aria-label="Open composer actions"
+                        className={cn(
+                          "inline-flex h-8 w-7 items-center justify-center text-muted-foreground transition-colors cursor-pointer",
+                          "hover:text-foreground",
+                          (fastMode || isPlanModeEnabled) && "text-foreground"
+                        )}
+                      >
+                        <Plus className="size-4" />
+                      </DropdownMenuTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Composer actions</TooltipContent>
+                  </Tooltip>
+                  <DropdownMenuContent align="start" side="top" sideOffset={8} className="w-56">
+                    <DropdownMenuGroup>
+                      <DropdownMenuLabel>Composer</DropdownMenuLabel>
+                      <DropdownMenuItem
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isWorking}
+                        className="flex items-center gap-2"
+                      >
+                        <Paperclip className="size-4" />
+                        <span className="flex-1">Attach files</span>
+                      </DropdownMenuItem>
+                      {supportsFastMode || isPlanModeAvailable ? <DropdownMenuSeparator /> : null}
+                      {supportsFastMode ? (
+                        <DropdownMenuItem
+                          onClick={toggleFastMode}
+                          className="flex items-center gap-2"
+                        >
+                          <Zap className="size-4 text-amber-500 dark:text-amber-300" />
+                          <span className="flex-1">Fast mode</span>
+                          {fastMode ? <CheckCircle className="size-3.5 text-muted-foreground" /> : null}
+                        </DropdownMenuItem>
+                      ) : null}
+                      {supportsFastMode && isPlanModeAvailable ? <DropdownMenuSeparator /> : null}
+                      {isPlanModeAvailable ? (
+                        <DropdownMenuItem
+                          onClick={togglePlanMode}
+                          className="flex items-center gap-2"
+                        >
+                          <DocumentValidation className="size-4 text-[var(--color-chat-plan-accent)]" />
+                          <span className="flex-1">Plan mode</span>
+                          <DropdownMenuShortcut>{planModeShortcutLabel}</DropdownMenuShortcut>
+                          {isPlanModeEnabled ? <CheckCircle className="size-3.5 text-muted-foreground" /> : null}
+                        </DropdownMenuItem>
+                      ) : null}
+                    </DropdownMenuGroup>
+                    {supportsFastMode ? (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem disabled className="whitespace-normal text-xs leading-5 text-muted-foreground">
+                          <span>{fastModeTooltipLabel}</span>
+                        </DropdownMenuItem>
+                      </>
+                    ) : null}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+
               {selectorsRow && <DropdownMenu>
               <DropdownMenuTrigger
                 className="inline-flex h-8 items-center gap-2 px-1 text-sm text-muted-foreground transition-colors hover:text-foreground cursor-pointer"
                 aria-label={selectedModelLabel}
                 title={selectedModelLabel}
               >
-                <ModelLogo kind={selectedModelLogoKind} className="size-[18px] shrink-0" />
+                {fastMode && supportsFastMode ? (
+                  <Zap className="size-[18px] shrink-0 text-amber-500 dark:text-amber-300" />
+                ) : (
+                  <ModelLogo kind={selectedModelLogoKind} className="size-[18px] shrink-0" />
+                )}
                 <span>{selectedModelLabel}</span>
                 <CaretDown className="size-3 text-muted-foreground" />
               </DropdownMenuTrigger>
@@ -2087,72 +2139,7 @@ export function ChatInput({
               </DropdownMenuContent>
               </DropdownMenu>}
 
-              {selectorsRow && supportsFastMode && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={() => setFastModeOverride((current) => (current == null ? !fastMode : !current))}
-                      aria-label={fastMode ? "Disable fast mode" : "Enable fast mode"}
-                      className={cn(
-                        "inline-flex h-7 items-center justify-center gap-1 rounded-lg border border-transparent text-muted-foreground transition-colors",
-                        "hover:text-foreground",
-                        fastMode && supportsFastMode ? "bg-amber-500/10 px-2" : "w-7",
-                        fastMode &&
-                          supportsFastMode &&
-                          "text-amber-500 hover:text-amber-600 dark:text-amber-300 dark:hover:text-amber-200"
-                      )}
-                    >
-                      <Zap className="size-4 shrink-0" />
-                      {fastMode && supportsFastMode ? (
-                        <span className="overflow-hidden text-[10px] font-semibold uppercase tracking-[0.08em]">
-                          Fast
-                        </span>
-                      ) : null}
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">{fastModeTooltipLabel}</TooltipContent>
-                </Tooltip>
-              )}
-
-              {selectorsRow && isPlanModeAvailable && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onMouseDown={handlePlanModeMouseDown}
-                      onClick={handlePlanModeClick}
-                      aria-label={isPlanModeEnabled ? "Disable plan mode" : "Toggle plan mode"}
-                      className={cn(
-                        "inline-flex h-7 items-center justify-center gap-1 rounded-lg border border-transparent text-muted-foreground transition-colors",
-                        "hover:text-foreground",
-                        isPlanModeEnabled ? "bg-[var(--color-chat-plan-surface)] px-2" : "w-7",
-                        isPlanModeEnabled &&
-                          "text-[var(--color-chat-plan-accent)] hover:text-[var(--color-chat-plan-accent)]"
-                      )}
-                    >
-                      <DocumentValidation className="size-4 shrink-0" />
-                      {isPlanModeEnabled ? (
-                        <span className="overflow-hidden text-[10px] font-semibold uppercase tracking-[0.08em]">
-                          Plan
-                        </span>
-                      ) : null}
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">{`Plan mode (${planModeShortcutLabel})`}</TooltipContent>
-                </Tooltip>
-              )}
-
               <div className="ml-auto flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isWorking}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-transparent text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                  aria-label="Add upload"
-                >
-                  <Paperclip className="size-4" />
-                </button>
                 {isStreaming ? (
                 <button
                   type="button"

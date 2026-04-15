@@ -3,6 +3,25 @@ import { beforeEach, describe, expect, mock, test } from "bun:test"
 const storeData = new Map<string, unknown>()
 let pendingHarnessTurn: Promise<{ messages?: Array<{ info: { id: string; sessionId: string; role: "assistant"; createdAt: number }; parts: Array<{ id: string; type: "text"; text: string }> }> }> | null = null
 let lastHarnessTurnInput: { text: string } | null = null
+const abortCalls: string[] = []
+let projectStoreState: {
+  projects: Array<{
+    id: string
+    path: string
+    repoRootPath: string
+    selectedWorktreeId: string | null
+    worktrees: Array<{
+      id: string
+      path: string
+    }>
+  }>
+  isLoading: boolean
+  loadProjects: () => Promise<void>
+} = {
+  projects: [],
+  isLoading: false,
+  loadProjects: async () => {},
+}
 
 const desktopStore = {
   get: async <T>(key: string): Promise<T | null> =>
@@ -36,11 +55,7 @@ mock.module("@/desktop/client", () => ({
 
 mock.module("@/features/workspace/store", () => ({
   useProjectStore: {
-    getState: () => ({
-      projects: [],
-      isLoading: false,
-      loadProjects: async () => {},
-    }),
+    getState: () => projectStoreState,
   },
 }))
 
@@ -95,7 +110,9 @@ mock.module("../runtime/harnesses", () => ({
     },
     answerPrompt: async () => ({ messages: [] }),
     executeCommand: async () => ({ messages: [] }),
-    abortSession: async () => {},
+    abortSession: async (session: { id: string }) => {
+      abortCalls.push(session.id)
+    },
   }),
 }))
 
@@ -122,6 +139,12 @@ describe("chatStore worktree scoping", () => {
     storeData.clear()
     pendingHarnessTurn = null
     lastHarnessTurnInput = null
+    abortCalls.length = 0
+    projectStoreState = {
+      projects: [],
+      isLoading: false,
+      loadProjects: async () => {},
+    }
     resetChatStore()
   })
 
@@ -153,6 +176,16 @@ describe("chatStore worktree scoping", () => {
     expect(useChatStore.getState().chatByWorktree["worktree-2"]?.sessions.map((session) => session.id)).toEqual([
       secondSession!.id,
     ])
+  })
+
+  test("does not interrupt local draft sessions when removing a worktree", async () => {
+    const session = useChatStore.getState().createOptimisticSession("worktree-1", "/tmp/worktree-1")
+
+    expect(session).not.toBeNull()
+
+    await useChatStore.getState().removeWorktreeData("worktree-1")
+
+    expect(abortCalls).toEqual([])
   })
 
   test("persists the selected model on a chat session", async () => {
@@ -245,6 +278,25 @@ describe("chatStore worktree scoping", () => {
   })
 
   test("loads persisted chat state before adding a worktree bucket", async () => {
+    projectStoreState = {
+      projects: [
+        {
+          id: "project-1",
+          path: "/tmp/worktree-1",
+          repoRootPath: "/tmp/worktree-1",
+          selectedWorktreeId: "worktree-1",
+          worktrees: [
+            {
+              id: "worktree-1",
+              path: "/tmp/worktree-1",
+            },
+          ],
+        },
+      ],
+      isLoading: false,
+      loadProjects: async () => {},
+    }
+
     storeData.set("chatState", {
       chatByWorktree: {
         "worktree-1": {
@@ -527,6 +579,25 @@ describe("chatStore worktree scoping", () => {
   })
 
   test("normalizes persisted running session badges back to idle on startup", async () => {
+    projectStoreState = {
+      projects: [
+        {
+          id: "project-1",
+          path: "/tmp/worktree-1",
+          repoRootPath: "/tmp/worktree-1",
+          selectedWorktreeId: "worktree-1",
+          worktrees: [
+            {
+              id: "worktree-1",
+              path: "/tmp/worktree-1",
+            },
+          ],
+        },
+      ],
+      isLoading: false,
+      loadProjects: async () => {},
+    }
+
     storeData.set("chatState", {
       chatByWorktree: {
         "worktree-1": {
@@ -576,5 +647,48 @@ describe("chatStore worktree scoping", () => {
       status: "idle",
       unread: true,
     })
+  })
+
+  test("drops persisted chats for worktrees that no longer exist", async () => {
+    storeData.set("chatState", {
+      chatByWorktree: {
+        "worktree-stale": {
+          sessions: [
+            {
+              id: "draft-session-1",
+              harnessId: "codex",
+              projectPath: "/tmp/worktree-stale",
+              createdAt: 100,
+              updatedAt: 200,
+            },
+          ],
+          activeSessionId: "draft-session-1",
+          worktreePath: "/tmp/worktree-stale",
+          archivedSessionIds: [],
+          selectedHarnessId: "codex",
+        },
+      },
+      messagesBySession: {},
+      activePromptBySession: {},
+    })
+
+    useChatStore.setState({
+      chatByWorktree: {},
+      messagesBySession: {},
+      activePromptBySession: {},
+      sessionActivityById: {},
+      currentSessionId: null,
+      childSessions: new Map(),
+      workspaceSetupByProject: {},
+      status: "idle",
+      error: null,
+      isLoading: false,
+      isInitialized: false,
+    })
+
+    await useChatStore.getState().initialize()
+
+    expect(useChatStore.getState().chatByWorktree).toEqual({})
+    expect(useChatStore.getState().messagesBySession).toEqual({})
   })
 })

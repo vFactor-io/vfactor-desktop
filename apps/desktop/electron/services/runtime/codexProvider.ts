@@ -48,6 +48,19 @@ type CodexSessionPermissionPreset = {
 
 const CODEX_REASONING_SUMMARY = "detailed" as const
 const CODEX_MODEL_CACHE_TTL_MS = 30 * 60 * 1000
+const CODEX_REASONING_SUMMARY_PARAM = "reasoning.summary"
+
+function isUnsupportedReasoningSummaryError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false
+  }
+
+  const message = error.message
+  return (
+    message.includes(CODEX_REASONING_SUMMARY_PARAM) &&
+    (message.includes("unsupported_parameter") || message.includes("Unsupported parameter"))
+  )
+}
 
 async function getDefaultCodexSessionPermissionPreset(
   gitService: GitService,
@@ -77,6 +90,8 @@ export class CodexRuntimeProvider implements RuntimeProviderAdapter {
   private pendingApprovalNotificationPrompts = new Map<string, RuntimePrompt>()
   private modelCache: { models: RuntimeModel[]; fetchedAt: number } | null = null
   private modelRequest: Promise<RuntimeModel[]> | null = null
+  private modelsWithoutReasoningSummary = new Set<string>()
+  private defaultModelSupportsReasoningSummary = true
 
   constructor(
     private readonly context: RuntimeProviderContext,
@@ -183,31 +198,28 @@ export class CodexRuntimeProvider implements RuntimeProviderAdapter {
 
   async sendTurn(input: HarnessTurnInput): Promise<HarnessTurnResult> {
     const threadId = getRemoteSessionId(input.session)
-    const response = await this.rpc.request<CodexTurnStartResponse>("turn/start", {
-      threadId,
-      cwd: input.projectPath ?? input.session.projectPath ?? null,
-      model: input.model ?? null,
-      effort: mapReasoningEffort(input.reasoningEffort),
-      serviceTier: mapCodexFastModeToServiceTier(input.fastMode),
-      summary: CODEX_REASONING_SUMMARY,
-      collaborationMode: input.collaborationMode
-        ? {
-            mode: input.collaborationMode,
-            settings: {
-              model: input.model ?? "gpt-5.4",
-              reasoning_effort: mapReasoningEffort(input.reasoningEffort),
-              developer_instructions: null,
-            },
-          }
-        : null,
-      input: [
-        {
-          type: "text",
-          text: input.text,
-          text_elements: [],
-        },
-      ],
-    })
+    const requestedModel = input.model?.trim() || null
+    const shouldIncludeReasoningSummary = requestedModel
+      ? !this.modelsWithoutReasoningSummary.has(requestedModel)
+      : this.defaultModelSupportsReasoningSummary
+
+    let response: CodexTurnStartResponse
+
+    try {
+      response = await this.startTurn(input, threadId, shouldIncludeReasoningSummary)
+    } catch (error) {
+      if (!shouldIncludeReasoningSummary || !isUnsupportedReasoningSummaryError(error)) {
+        throw error
+      }
+
+      if (requestedModel) {
+        this.modelsWithoutReasoningSummary.add(requestedModel)
+      } else {
+        this.defaultModelSupportsReasoningSummary = false
+      }
+
+      response = await this.startTurn(input, threadId, false)
+    }
 
     const turnId = response.turn.id
     this.activeTurns.set(threadId, turnId)
@@ -244,6 +256,38 @@ export class CodexRuntimeProvider implements RuntimeProviderAdapter {
     return {
       messages: mapTurnItemsToMessages(turn, threadId),
     }
+  }
+
+  private startTurn(
+    input: HarnessTurnInput,
+    threadId: string,
+    includeReasoningSummary: boolean
+  ): Promise<CodexTurnStartResponse> {
+    return this.rpc.request<CodexTurnStartResponse>("turn/start", {
+      threadId,
+      cwd: input.projectPath ?? input.session.projectPath ?? null,
+      model: input.model ?? null,
+      effort: mapReasoningEffort(input.reasoningEffort),
+      serviceTier: mapCodexFastModeToServiceTier(input.fastMode),
+      ...(includeReasoningSummary ? { summary: CODEX_REASONING_SUMMARY } : {}),
+      collaborationMode: input.collaborationMode
+        ? {
+            mode: input.collaborationMode,
+            settings: {
+              model: input.model ?? "gpt-5.4",
+              reasoning_effort: mapReasoningEffort(input.reasoningEffort),
+              developer_instructions: null,
+            },
+          }
+        : null,
+      input: [
+        {
+          type: "text",
+          text: input.text,
+          text_elements: [],
+        },
+      ],
+    })
   }
 
   async answerPrompt(input: HarnessPromptInput): Promise<HarnessTurnResult> {

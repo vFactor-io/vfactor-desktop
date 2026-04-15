@@ -147,11 +147,11 @@ export function ChatContainerContent({ sessionId = null }: ChatContainerContentP
     return (
       <div className="h-full flex flex-col items-center justify-center">
         <div
-          className={`w-full max-w-[803px] flex flex-col gap-4 ${transition === "rise" ? "animate-composer-rise" : ""}`}
+          className={`w-full max-w-[682px] flex flex-col gap-4 ${transition === "rise" ? "animate-composer-rise" : ""}`}
           onAnimationEnd={() => setTransition(null)}
         >
           {projectName ? (
-            <div className="flex items-center gap-3.5 px-10">
+            <div className="flex items-center gap-3.5 px-6">
               <ProjectIcon project={selectedProject} size={36} />
               <div className="flex flex-col gap-0.5">
                 <h3 className="text-sm font-medium text-foreground/90">
@@ -166,7 +166,7 @@ export function ChatContainerContent({ sessionId = null }: ChatContainerContentP
               </div>
             </div>
           ) : (
-            <h3 className="text-sm font-medium text-foreground/90 px-10">New chat</h3>
+            <h3 className="text-sm font-medium text-foreground/90 px-6">New chat</h3>
           )}
           <MemoizedChatComposerPane
             activeSessionId={resolvedSessionId}
@@ -194,7 +194,7 @@ export function ChatContainerContent({ sessionId = null }: ChatContainerContentP
         className={`flex-shrink-0 flex justify-center ${transition === "settle" ? "animate-composer-settle" : ""}`}
         onAnimationEnd={() => setTransition(null)}
       >
-        <div className="w-full max-w-[803px]">
+        <div className="w-full max-w-[682px]">
           <MemoizedChatComposerPane
             activeSessionId={resolvedSessionId}
             selectedProjectId={selectedProjectId}

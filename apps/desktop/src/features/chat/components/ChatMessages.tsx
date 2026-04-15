@@ -70,7 +70,7 @@ interface PreparedDisplayBlock {
 const ALWAYS_UNVIRTUALIZED_TAIL_BLOCKS = 8
 const SAME_ROLE_BLOCK_GAP_PX = 12
 const ROLE_CHANGE_BLOCK_GAP_PX = 28
-const DEFAULT_TIMELINE_WIDTH_PX = 723
+const DEFAULT_TIMELINE_WIDTH_PX = 615
 const ESTIMATED_TEXT_LINE_HEIGHT_PX = 24
 const USER_MESSAGE_WIDTH_RATIO = 0.78
 const AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 80
@@ -541,7 +541,7 @@ export function ChatMessages({
         status={status}
         onThreadPrepared={setPreparedThreadKey}
       />
-      <ConversationContent className="mx-auto flex w-full max-w-[803px] flex-col gap-0 px-10 pb-10">
+      <ConversationContent className="mx-auto flex w-full max-w-[682px] flex-col gap-0 px-6 pb-10">
         <>
           <HybridTimelineBlocks
             preparedDisplayBlocks={preparedDisplayBlocks}

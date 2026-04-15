@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useMemo, useRef, useState } from "react"
+import { type FormEvent, useEffect, useRef, useState } from "react"
 import { CaretLeft, CaretRight, Globe, Refresh } from "@/components/icons"
 import { RightSidebarEmptyState } from "@/features/shared/components/layout/RightSidebarEmptyState"
 import { Button } from "@/features/shared/components/ui/button"
@@ -11,7 +11,6 @@ import {
 } from "@/features/shared/components/ui/input-group"
 import { useCurrentProjectWorktree } from "@/features/shared/hooks"
 import {
-  DEFAULT_BROWSER_URL,
   getBrowserUrlForWorktree,
   useBrowserSidebarStore,
 } from "../store/browserSidebarStore"
@@ -81,31 +80,24 @@ export function BrowserSidebar() {
   )
   const setBrowserUrl = useBrowserSidebarStore((state) => state.setUrl)
   const webviewRef = useRef<HTMLElement | null>(null)
-  const [addressValue, setAddressValue] = useState(browserUrl)
+  const [addressValue, setAddressValue] = useState(browserUrl ?? "")
   const [canGoBack, setCanGoBack] = useState(false)
   const [canGoForward, setCanGoForward] = useState(false)
-  const [isLoading, setIsLoading] = useState(true)
-  const [pageTitle, setPageTitle] = useState("Browser")
+  const [isLoading, setIsLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [isWebviewReady, setIsWebviewReady] = useState(false)
 
   useEffect(() => {
-    setAddressValue(browserUrl)
-  }, [browserUrl])
-
-  const currentOriginLabel = useMemo(() => {
-    if (browserUrl === "about:blank") {
-      return "Blank page"
-    }
-
-    try {
-      return new URL(browserUrl).hostname.replace(/^www\./, "") || browserUrl
-    } catch {
-      return browserUrl
-    }
+    setAddressValue(browserUrl ?? "")
   }, [browserUrl])
 
   useEffect(() => {
+    if (!browserUrl) {
+      setIsWebviewReady(false)
+      setIsLoading(false)
+      return
+    }
+
     const element = webviewRef.current
     if (!element) {
       return
@@ -128,7 +120,6 @@ export function BrowserSidebar() {
         setCanGoBack(webview.canGoBack())
         setCanGoForward(webview.canGoForward())
         setIsLoading(webview.isLoading())
-        setPageTitle(webview.getTitle()?.trim() || "Browser")
         setAddressValue(nextUrl)
       } catch (error) {
         console.debug("[BrowserSidebar] webview state unavailable before dom-ready", error)
@@ -158,7 +149,7 @@ export function BrowserSidebar() {
     }
 
     const handlePageTitleUpdated = () => {
-      setPageTitle(webview.getTitle()?.trim() || "Browser")
+      syncNavigationState()
     }
 
     const handleLoadFailure = (event: Event & { errorCode?: number; errorDescription?: string }) => {
@@ -172,6 +163,7 @@ export function BrowserSidebar() {
     }
 
     setIsWebviewReady(false)
+    setIsLoading(true)
     webview.addEventListener("dom-ready", handleDomReady)
     webview.addEventListener("did-start-loading", handleStartLoading)
     webview.addEventListener("did-stop-loading", handleStopLoading)
@@ -284,14 +276,23 @@ export function BrowserSidebar() {
         </div>
       ) : null}
 
-      <div className="mt-1.5 min-h-0 flex-1 overflow-hidden border-t border-sidebar-border/70 bg-background shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-        <webview
-          ref={webviewRef}
-          src={browserUrl || DEFAULT_BROWSER_URL}
-          partition="persist:nucleus-browser"
-          className="h-full w-full bg-white"
-        />
-      </div>
+      {browserUrl ? (
+        <div className="mt-1.5 min-h-0 flex-1 overflow-hidden border-t border-sidebar-border/70 bg-background shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+          <webview
+            ref={webviewRef}
+            src={browserUrl}
+            partition="persist:nucleus-browser"
+            className="h-full w-full bg-white"
+          />
+        </div>
+      ) : (
+        <div className="mt-1.5 flex min-h-0 flex-1 border-t border-sidebar-border/70 bg-background">
+          <RightSidebarEmptyState
+            title="Open a page"
+            description="Enter a URL above to load a site in the browser panel."
+          />
+        </div>
+      )}
     </div>
   )
 }

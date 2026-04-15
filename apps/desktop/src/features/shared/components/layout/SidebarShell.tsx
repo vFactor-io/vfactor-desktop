@@ -1,3 +1,5 @@
+import { useLayoutEffect, useRef } from "react"
+import { useAnimate } from "framer-motion"
 import { cn } from "@/lib/utils"
 import { useResizablePanel } from "./useResizablePanel"
 
@@ -7,7 +9,7 @@ interface SidebarShellProps {
   isCollapsed: boolean
   side: "left" | "right"
   sizeConstraintClass: string
-  children: React.ReactNode
+  children: React.ReactNode | ((state: { isResizing: boolean }) => React.ReactNode)
   className?: string
 }
 
@@ -20,19 +22,50 @@ export function SidebarShell({
   children,
   className,
 }: SidebarShellProps) {
-  const { handleResizeStart } = useResizablePanel({ width, setWidth, isCollapsed, side })
+  const { handleResizeStart, isResizing } = useResizablePanel({ width, setWidth, isCollapsed, side })
+  const [scope, animate] = useAnimate()
+  const previousCollapsedRef = useRef(isCollapsed)
+  const content = typeof children === "function" ? children({ isResizing }) : children
+
+  useLayoutEffect(() => {
+    const wasCollapsed = previousCollapsedRef.current
+    previousCollapsedRef.current = isCollapsed
+
+    if (!scope.current) {
+      return
+    }
+
+    if (side !== "right" || isCollapsed || isResizing) {
+      void animate(scope.current, { x: 0, opacity: 1 }, { duration: 0 })
+      return
+    }
+
+    if (!wasCollapsed) {
+      void animate(scope.current, { x: 0, opacity: 1 }, { duration: 0 })
+      return
+    }
+
+    void animate(scope.current, { x: 18, opacity: 0 }, { duration: 0 })
+    void animate(
+      scope.current,
+      { x: 0, opacity: 1 },
+      { duration: 0.18, ease: [0.22, 1, 0.36, 1] }
+    )
+  }, [animate, isCollapsed, isResizing, scope, side])
 
   return (
     <aside
+      ref={scope}
+      data-resizing={isResizing ? "true" : "false"}
       style={{ width: isCollapsed ? 0 : width }}
       className={cn(
-        "relative flex shrink-0 flex-col overflow-hidden bg-sidebar text-sidebar-foreground",
+        "relative flex shrink-0 flex-col overflow-hidden bg-sidebar text-sidebar-foreground will-change-transform",
         side === "left" ? "border-r border-sidebar-border/70" : "border-l border-sidebar-border",
         !isCollapsed && sizeConstraintClass,
         className,
       )}
     >
-      {children}
+      {content}
       {!isCollapsed ? (
         <div
           role="separator"

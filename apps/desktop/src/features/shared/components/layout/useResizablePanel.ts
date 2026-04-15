@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 interface UseResizablePanelOptions {
   width: number
@@ -10,9 +10,11 @@ interface UseResizablePanelOptions {
 
 export function useResizablePanel({ width, setWidth, isCollapsed, side }: UseResizablePanelOptions) {
   const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null)
+  const [isResizing, setIsResizing] = useState(false)
 
   const stopResizing = useCallback(() => {
     resizeStateRef.current = null
+    setIsResizing(false)
     document.documentElement.style.removeProperty("cursor")
     document.documentElement.style.removeProperty("user-select")
     document.documentElement.style.removeProperty("-webkit-user-select")
@@ -66,6 +68,7 @@ export function useResizablePanel({ width, setWidth, isCollapsed, side }: UseRes
         startX: event.clientX,
         startWidth: width,
       }
+      setIsResizing(true)
 
       window.getSelection()?.removeAllRanges()
       document.documentElement.style.cursor = "col-resize"
@@ -79,5 +82,5 @@ export function useResizablePanel({ width, setWidth, isCollapsed, side }: UseRes
     [isCollapsed, width],
   )
 
-  return { handleResizeStart }
+  return { handleResizeStart, isResizing }
 }

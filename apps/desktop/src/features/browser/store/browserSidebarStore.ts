@@ -1,7 +1,5 @@
 import { create } from "zustand"
 
-export const DEFAULT_BROWSER_URL = "https://duckduckgo.com/"
-
 interface BrowserSidebarEntry {
   url: string
 }
@@ -27,8 +25,8 @@ export function getBrowserUrlForWorktree(
   worktreeId: string | null
 ) {
   if (!worktreeId) {
-    return DEFAULT_BROWSER_URL
+    return null
   }
 
-  return entriesByWorktreeId[worktreeId]?.url ?? DEFAULT_BROWSER_URL
+  return entriesByWorktreeId[worktreeId]?.url ?? null
 }
