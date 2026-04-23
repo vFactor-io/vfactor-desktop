@@ -22,7 +22,7 @@ function formatChangeCount(count: number): string {
 export function resolveSidebarBranchIndicator(
   branchData: GitBranchesResponse | null
 ): SidebarBranchIndicator | null {
-  if (!branchData) {
+  if (!branchData || !branchData.isGitAvailable || !branchData.isRepo) {
     return null
   }
 
@@ -89,6 +89,10 @@ export function resolveSidebarBranchIndicator(
 export function resolveSidebarPullRequestIndicator(
   branchData: GitBranchesResponse | null
 ): SidebarPullRequestIndicator | null {
+  if (!branchData?.isGitAvailable || !branchData.isRepo) {
+    return null
+  }
+
   const pullRequest = branchData?.openPullRequest
   if (!pullRequest) {
     return null

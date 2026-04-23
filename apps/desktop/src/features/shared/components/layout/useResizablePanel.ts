@@ -5,6 +5,8 @@ interface UseResizablePanelOptions {
   setWidth: (width: number) => void
   persistWidth?: () => void
   isCollapsed: boolean
+  widthCssVariable?: string
+  clampWidth?: (width: number) => number
   /** "left" = drag right increases width; "right" = drag left increases width */
   side: "left" | "right"
 }
@@ -14,25 +16,32 @@ export function useResizablePanel({
   setWidth,
   persistWidth,
   isCollapsed,
+  widthCssVariable,
+  clampWidth,
   side,
 }: UseResizablePanelOptions) {
   const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null)
+  const pendingWidthRef = useRef<number | null>(null)
   const [isResizing, setIsResizing] = useState(false)
 
   const stopResizing = useCallback(() => {
     const didResize = resizeStateRef.current !== null
+    const nextWidth = pendingWidthRef.current
     resizeStateRef.current = null
+    pendingWidthRef.current = null
     setIsResizing(false)
+    delete document.documentElement.dataset.sidebarResizing
     document.documentElement.style.removeProperty("cursor")
     document.documentElement.style.removeProperty("user-select")
     document.documentElement.style.removeProperty("-webkit-user-select")
     document.body.style.removeProperty("cursor")
     document.body.style.removeProperty("user-select")
     document.body.style.removeProperty("-webkit-user-select")
-    if (didResize) {
+    if (didResize && nextWidth != null) {
+      setWidth(clampWidth ? clampWidth(nextWidth) : nextWidth)
       persistWidth?.()
     }
-  }, [persistWidth])
+  }, [clampWidth, persistWidth, setWidth])
 
   useEffect(() => {
     return () => {
@@ -51,7 +60,12 @@ export function useResizablePanel({
       const nextWidth = side === "left"
         ? resizeState.startWidth + delta
         : resizeState.startWidth - delta
-      setWidth(nextWidth)
+      const clampedWidth = clampWidth ? clampWidth(nextWidth) : nextWidth
+      pendingWidthRef.current = clampedWidth
+
+      if (widthCssVariable) {
+        document.documentElement.style.setProperty(widthCssVariable, `${clampedWidth}px`)
+      }
     }
 
     const handlePointerUp = () => {
@@ -65,7 +79,7 @@ export function useResizablePanel({
       window.removeEventListener("pointermove", handlePointerMove)
       window.removeEventListener("pointerup", handlePointerUp)
     }
-  }, [setWidth, stopResizing, side])
+  }, [clampWidth, stopResizing, side, widthCssVariable])
 
   const handleResizeStart = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
@@ -79,9 +93,14 @@ export function useResizablePanel({
         startX: event.clientX,
         startWidth: width,
       }
+      pendingWidthRef.current = width
       setIsResizing(true)
 
       window.getSelection()?.removeAllRanges()
+      document.documentElement.dataset.sidebarResizing = "true"
+      if (widthCssVariable) {
+        document.documentElement.style.setProperty(widthCssVariable, `${width}px`)
+      }
       document.documentElement.style.cursor = "col-resize"
       document.documentElement.style.userSelect = "none"
       document.documentElement.style.setProperty("-webkit-user-select", "none")
@@ -90,7 +109,7 @@ export function useResizablePanel({
       document.body.style.setProperty("-webkit-user-select", "none")
       event.currentTarget.setPointerCapture(event.pointerId)
     },
-    [isCollapsed, width],
+    [isCollapsed, width, widthCssVariable],
   )
 
   return { handleResizeStart, isResizing }

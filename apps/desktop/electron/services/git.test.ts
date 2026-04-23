@@ -64,6 +64,54 @@ async function createRepositoryWithOrigin(): Promise<{ repoDir: string; remoteDi
   }
 }
 
+describe("GitService repository setup", () => {
+  test("reports explicit non-repo status for plain folders", async () => {
+    const projectDir = await mkdtemp(path.join(tmpdir(), "nucleus-git-plain-folder-"))
+
+    try {
+      const service = new GitService()
+      const result = await service.getBranches(projectDir)
+
+      expect(result.isGitAvailable).toBe(true)
+      expect(result.isRepo).toBe(false)
+      expect(result.currentBranch).toBe("")
+      expect(result.branches).toEqual([])
+      expect(result.remoteNames).toEqual([])
+      expect(result.openPullRequest).toBeNull()
+    } finally {
+      await rm(projectDir, { recursive: true, force: true })
+    }
+  })
+
+  test("returns no worktrees for plain folders", async () => {
+    const projectDir = await mkdtemp(path.join(tmpdir(), "nucleus-git-worktree-folder-"))
+
+    try {
+      const service = new GitService()
+      const result = await service.listWorktrees(projectDir)
+
+      expect(result).toEqual([])
+    } finally {
+      await rm(projectDir, { recursive: true, force: true })
+    }
+  })
+
+  test("initializes git for a plain folder", async () => {
+    const projectDir = await mkdtemp(path.join(tmpdir(), "nucleus-git-init-folder-"))
+
+    try {
+      const service = new GitService()
+      const result = await service.initRepo(projectDir)
+
+      expect(result.isGitAvailable).toBe(true)
+      expect(result.isRepo).toBe(true)
+      expect(result.currentBranch.length).toBeGreaterThan(0)
+    } finally {
+      await rm(projectDir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe("GitService.runStackedAction", () => {
   test("commits selected files with a custom message without clearing unrelated staged work", async () => {
     const repoDir = await createRepository()

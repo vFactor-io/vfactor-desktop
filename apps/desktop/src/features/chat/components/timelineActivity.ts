@@ -12,6 +12,12 @@ export interface TimelineMessageBlock {
 
 export type TimelineBlock = TimelineMessageBlock
 
+export interface TimelineFileChangeEntry {
+  path: string
+  kind: string
+  diff?: string
+}
+
 export function getToolPart(parts: RuntimeMessagePart[]): RuntimeToolPart | null {
   return parts.find((part): part is RuntimeToolPart => part.type === "tool") ?? null
 }
@@ -22,7 +28,7 @@ export function getToolPartFromMessage(message: MessageWithParts): RuntimeToolPa
 
 export function getFileChangeEntries(
   value: unknown
-): Array<{ path: string; kind: string; diff?: string }> {
+): TimelineFileChangeEntry[] {
   if (!Array.isArray(value)) {
     return []
   }

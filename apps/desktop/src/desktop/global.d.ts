@@ -137,6 +137,7 @@ declare global {
         getChanges: (projectPath: string) => Promise<GitFileChange[]>
         getPullRequestChecks: (projectPath: string) => Promise<GitPullRequestChecksResponse>
         listWorktrees: (projectPath: string) => Promise<GitWorktreeSummary[]>
+        initRepo: (projectPath: string) => Promise<GitBranchesResponse>
         createWorktree: (
           projectPath: string,
           input: GitCreateWorktreeInput

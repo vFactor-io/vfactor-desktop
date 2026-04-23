@@ -41,9 +41,12 @@ export interface GitFileDiff {
   status: GitFileStatus
   original: string
   modified: string
+  patch?: string | null
 }
 
 export interface GitBranchesResponse {
+  isGitAvailable: boolean
+  isRepo: boolean
   currentBranch: string
   upstreamBranch: string | null
   branches: string[]

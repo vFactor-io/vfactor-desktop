@@ -68,6 +68,14 @@ function createRescanEvent(rootPath: string): ProjectFileSystemEvent {
   }
 }
 
+function isExpectedGitMetadataLookupError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : ""
+  return (
+    message.includes("not a git repository") ||
+    message.includes("git is not installed on this machine")
+  )
+}
+
 export class ProjectWatcherService {
   private watcher: FSWatcher | null = null
   private gitWatcher: FSWatcher | null = null
@@ -233,7 +241,9 @@ export class ProjectWatcherService {
           emit(createRescanEvent(projectPath))
         })
     } catch (error) {
-      console.warn("[watcher] Failed to resolve git metadata path:", error)
+      if (!isExpectedGitMetadataLookupError(error)) {
+        console.warn("[watcher] Failed to resolve git metadata path:", error)
+      }
     }
 
     this.activePath = projectPath

@@ -10,6 +10,7 @@ import {
   buildTimelineBlocks,
   getFileChangeEntries,
   getToolPartFromMessage,
+  type TimelineFileChangeEntry,
   type TimelineBlock,
 } from "./timelineActivity"
 
@@ -23,6 +24,7 @@ export interface TimelineFileChangeSummary {
     label: string
     added: number
     removed: number
+    changes: TimelineFileChangeEntry[]
   }>
 }
 
@@ -73,7 +75,7 @@ function getFileLabel(path: string): string {
 }
 
 function buildFileChangeSummary(
-  changeTotals: Map<string, { added: number; removed: number }>
+  changeTotals: Map<string, { added: number; removed: number; changes: TimelineFileChangeEntry[] }>
 ): TimelineFileChangeSummary | null {
   if (changeTotals.size === 0) {
     return null
@@ -84,6 +86,7 @@ function buildFileChangeSummary(
     label: getFileLabel(path),
     added: totals.added,
     removed: totals.removed,
+    changes: totals.changes,
   }))
   const totalAdded = entries.reduce((sum, entry) => sum + entry.added, 0)
   const totalRemoved = entries.reduce((sum, entry) => sum + entry.removed, 0)
@@ -94,6 +97,22 @@ function buildFileChangeSummary(
     added: totalAdded,
     removed: totalRemoved,
     entries,
+  }
+}
+
+function accumulateFileChanges(
+  changeTotals: Map<string, { added: number; removed: number; changes: TimelineFileChangeEntry[] }>,
+  changes: TimelineFileChangeEntry[]
+) {
+  for (const change of changes) {
+    const current = changeTotals.get(change.path) ?? { added: 0, removed: 0, changes: [] }
+    const diffTotals = countDiffLines(change.diff)
+
+    changeTotals.set(change.path, {
+      added: current.added + diffTotals.added,
+      removed: current.removed + diffTotals.removed,
+      changes: [...current.changes, change],
+    })
   }
 }
 
@@ -268,7 +287,7 @@ export function buildChatTimelineViewModel({
           message.info.role === "assistant" &&
           message.parts.some((part) => part.type === "text" && part.text.trim())
       )?.info.id ?? null
-  const changeTotals = new Map<string, { added: number; removed: number }>()
+  const changeTotals = new Map<string, { added: number; removed: number; changes: TimelineFileChangeEntry[] }>()
   for (const candidate of latestTurnMessages) {
     if (candidate.info.itemType !== "fileChange") {
       continue
@@ -280,15 +299,7 @@ export function buildChatTimelineViewModel({
         ? (output as { changes?: unknown[] }).changes
         : undefined
 
-    for (const change of getFileChangeEntries(source)) {
-      const current = changeTotals.get(change.path) ?? { added: 0, removed: 0 }
-      const diffTotals = countDiffLines(change.diff)
-
-      changeTotals.set(change.path, {
-        added: current.added + diffTotals.added,
-        removed: current.removed + diffTotals.removed,
-      })
-    }
+    accumulateFileChanges(changeTotals, getFileChangeEntries(source))
   }
 
   const latestTurnChangedFilesSummary =
@@ -299,7 +310,10 @@ export function buildChatTimelineViewModel({
   const earliestTimestampByTurnId = new Map<string, number>()
   const completedWorkDurationByMessageId = new Map<string, number>()
   const lastAssistantMessageByTurnId = new Map<string, MessageWithParts>()
-  const fileChangeTotalsByTurnId = new Map<string, Map<string, { added: number; removed: number }>>()
+  const fileChangeTotalsByTurnId = new Map<
+    string,
+    Map<string, { added: number; removed: number; changes: TimelineFileChangeEntry[] }>
+  >()
   let latestUserTimestamp: number | null = null
 
   for (const message of renderedMessages) {
@@ -326,17 +340,11 @@ export function buildChatTimelineViewModel({
         output && typeof output === "object" && "changes" in output
           ? (output as { changes?: unknown[] }).changes
           : undefined
-      const turnChangeTotals = fileChangeTotalsByTurnId.get(turnId) ?? new Map<string, { added: number; removed: number }>()
+      const turnChangeTotals =
+        fileChangeTotalsByTurnId.get(turnId) ??
+        new Map<string, { added: number; removed: number; changes: TimelineFileChangeEntry[] }>()
 
-      for (const change of getFileChangeEntries(source)) {
-        const current = turnChangeTotals.get(change.path) ?? { added: 0, removed: 0 }
-        const diffTotals = countDiffLines(change.diff)
-
-        turnChangeTotals.set(change.path, {
-          added: current.added + diffTotals.added,
-          removed: current.removed + diffTotals.removed,
-        })
-      }
+      accumulateFileChanges(turnChangeTotals, getFileChangeEntries(source))
 
       fileChangeTotalsByTurnId.set(turnId, turnChangeTotals)
     }

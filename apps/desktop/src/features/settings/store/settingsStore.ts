@@ -18,6 +18,7 @@ import {
 const STORE_FILE = "settings.json"
 const APPEARANCE_THEME_ID_KEY = "appearanceThemeId"
 const APPEARANCE_TEXT_SIZE_KEY = "appearanceTextSizePx"
+const TERMINAL_LINK_TARGET_KEY = "terminalLinkTarget"
 const GIT_GENERATION_MODEL_KEY = "gitGenerationModel"
 const GIT_RESOLVE_PROMPTS_KEY = "gitResolvePrompts"
 const WORKSPACE_SETUP_MODEL_KEY = "workspaceSetupModel"
@@ -29,9 +30,12 @@ const CLAUDE_DEFAULT_REASONING_EFFORT_KEY = "claudeDefaultReasoningEffort"
 const CLAUDE_DEFAULT_FAST_MODE_KEY = "claudeDefaultFastMode"
 const PERSIST_DEBOUNCE_MS = 250
 
+export type TerminalLinkTarget = "in-app" | "system-browser"
+
 interface PersistedSettings {
   appearanceThemeId: ThemeId
   appearanceTextSizePx: number
+  terminalLinkTarget: TerminalLinkTarget
   gitGenerationModel: string
   gitResolvePrompts: GitResolvePrompts
   workspaceSetupModel: string
@@ -50,6 +54,8 @@ interface SettingsState extends PersistedSettings {
   resetAppearanceThemeId: () => void
   setAppearanceTextSizePx: (sizePx: number) => void
   resetAppearanceTextSizePx: () => void
+  setTerminalLinkTarget: (target: TerminalLinkTarget) => void
+  resetTerminalLinkTarget: () => void
   setGitGenerationModel: (model: string) => void
   setGitResolvePrompt: (reason: GitPullRequestResolveReason, prompt: string) => void
   resetGitResolvePrompts: () => void
@@ -77,6 +83,7 @@ let persistTimeoutId: ReturnType<typeof setTimeout> | null = null
 const DEFAULT_PERSISTED_SETTINGS: PersistedSettings = {
   appearanceThemeId: DEFAULT_THEME_ID,
   appearanceTextSizePx: DEFAULT_TEXT_SIZE_PX,
+  terminalLinkTarget: "in-app",
   gitGenerationModel: "",
   gitResolvePrompts: createDefaultGitResolvePrompts(),
   workspaceSetupModel: "",
@@ -102,6 +109,12 @@ export function normalizeAppearanceThemeId(themeId: string | null | undefined): 
 
 export function normalizeAppearanceTextSizePx(value: number | null | undefined): number {
   return clampTextSizePx(value)
+}
+
+export function normalizeTerminalLinkTarget(
+  value: string | null | undefined
+): TerminalLinkTarget {
+  return value === "system-browser" ? value : "in-app"
 }
 
 export function normalizeGitGenerationModel(model: string | null | undefined): string {
@@ -140,6 +153,7 @@ function buildPersistedSettings(source: Partial<PersistedSettings>): PersistedSe
   return {
     appearanceThemeId: normalizeAppearanceThemeId(source.appearanceThemeId),
     appearanceTextSizePx: normalizeAppearanceTextSizePx(source.appearanceTextSizePx),
+    terminalLinkTarget: normalizeTerminalLinkTarget(source.terminalLinkTarget),
     gitGenerationModel: normalizeGitGenerationModel(source.gitGenerationModel),
     gitResolvePrompts: normalizeGitResolvePrompts(source.gitResolvePrompts),
     workspaceSetupModel: normalizeWorkspaceSetupModel(source.workspaceSetupModel),
@@ -162,6 +176,7 @@ function selectPersistedSettings(
   return buildPersistedSettings({
     appearanceThemeId: state.appearanceThemeId,
     appearanceTextSizePx: state.appearanceTextSizePx,
+    terminalLinkTarget: state.terminalLinkTarget,
     gitGenerationModel: state.gitGenerationModel,
     gitResolvePrompts: state.gitResolvePrompts,
     workspaceSetupModel: state.workspaceSetupModel,
@@ -187,6 +202,7 @@ function schedulePersist(settings: PersistedSettings): void {
         const store = await getStore()
         await store.set(APPEARANCE_THEME_ID_KEY, settings.appearanceThemeId)
         await store.set(APPEARANCE_TEXT_SIZE_KEY, settings.appearanceTextSizePx)
+        await store.set(TERMINAL_LINK_TARGET_KEY, settings.terminalLinkTarget)
         await store.set(GIT_GENERATION_MODEL_KEY, settings.gitGenerationModel)
         await store.set(GIT_RESOLVE_PROMPTS_KEY, settings.gitResolvePrompts)
         await store.set(WORKSPACE_SETUP_MODEL_KEY, settings.workspaceSetupModel)
@@ -266,6 +282,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
           const store = await getStore()
           const savedAppearanceThemeId = await store.get<string>(APPEARANCE_THEME_ID_KEY)
           const savedAppearanceTextSizePx = await store.get<number>(APPEARANCE_TEXT_SIZE_KEY)
+          const savedTerminalLinkTarget = await store.get<string>(TERMINAL_LINK_TARGET_KEY)
           const savedModel = await store.get<string>(GIT_GENERATION_MODEL_KEY)
           const savedResolvePrompts =
             await store.get<Partial<Record<GitPullRequestResolveReason, string>>>(
@@ -286,6 +303,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
           const persistedSettings = buildPersistedSettings({
             appearanceThemeId: savedAppearanceThemeId,
             appearanceTextSizePx: savedAppearanceTextSizePx,
+            terminalLinkTarget: savedTerminalLinkTarget,
             gitGenerationModel: savedModel,
             gitResolvePrompts: savedResolvePrompts,
             workspaceSetupModel: savedWorkspaceSetupModel,
@@ -354,6 +372,17 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
       set({ appearanceTextSizePx: DEFAULT_TEXT_SIZE_PX })
       setAppearanceState({ textSizePx: DEFAULT_TEXT_SIZE_PX })
       persistWith({ appearanceTextSizePx: DEFAULT_TEXT_SIZE_PX })
+    },
+
+    setTerminalLinkTarget: (target) => {
+      const normalizedTarget = normalizeTerminalLinkTarget(target)
+      set({ terminalLinkTarget: normalizedTarget })
+      persistWith({ terminalLinkTarget: normalizedTarget })
+    },
+
+    resetTerminalLinkTarget: () => {
+      set({ terminalLinkTarget: DEFAULT_PERSISTED_SETTINGS.terminalLinkTarget })
+      persistWith({ terminalLinkTarget: DEFAULT_PERSISTED_SETTINGS.terminalLinkTarget })
     },
 
     setGitGenerationModel: (model) => {

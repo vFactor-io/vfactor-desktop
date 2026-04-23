@@ -188,6 +188,8 @@ contextBridge.exposeInMainWorld("nucleus", {
       ) as Promise<GitPullRequestChecksResponse>,
     listWorktrees: (projectPath: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.gitListWorktrees, projectPath) as Promise<GitWorktreeSummary[]>,
+    initRepo: (projectPath: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.gitInitRepo, projectPath) as Promise<GitBranchesResponse>,
     createWorktree: (projectPath: string, input: GitCreateWorktreeInput) =>
       ipcRenderer.invoke(
         IPC_CHANNELS.gitCreateWorktree,

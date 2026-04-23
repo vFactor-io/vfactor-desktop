@@ -70,6 +70,8 @@ const STEP_LABELS: Record<GitActionStep, string> = {
   creating_pr: "Creating PR",
 }
 
+const GIT_DOWNLOADS_URL = "https://git-scm.com/downloads"
+
 function summarizeBranchStatusForLog(branchData: GitBranchesResponse | null) {
   if (!branchData) {
     return null
@@ -193,6 +195,14 @@ export function SourceControlActionGroup({
   const hasChanges = changes.length > 0
   const isBusy = isSubmitting || isBranchLoading || isChangesLoading
   const branchStatus = branchData
+  const gitSetupState = !branchStatus
+    ? null
+    : !branchStatus.isGitAvailable
+      ? "missing_git"
+      : !branchStatus.isRepo
+        ? "not_repo"
+        : "ready"
+  const gitReadyBranchStatus = gitSetupState === "ready" ? branchStatus : null
   const preferredRemoteName = selectedProject?.remoteName ?? null
   const canArchiveWorktree = selectedWorktree?.source === "managed"
   const effectiveRemoteName = useMemo(() => {
@@ -200,30 +210,36 @@ export function SourceControlActionGroup({
       return preferredRemoteName.trim()
     }
 
-    if (branchStatus?.hasOriginRemote) {
+    if (gitReadyBranchStatus?.hasOriginRemote) {
       return "origin"
     }
 
-    return branchStatus?.remoteNames[0] ?? null
-  }, [branchStatus, preferredRemoteName])
+    return gitReadyBranchStatus?.remoteNames[0] ?? null
+  }, [gitReadyBranchStatus, preferredRemoteName])
   const quickAction = useMemo(
     () =>
-      resolveQuickAction(branchStatus, hasChanges, isBusy, {
+      resolveQuickAction(gitReadyBranchStatus, hasChanges, isBusy, {
         preferredRemoteName: effectiveRemoteName,
         canArchiveWorktree,
       }),
-    [branchStatus, canArchiveWorktree, effectiveRemoteName, hasChanges, isBusy]
+    [canArchiveWorktree, effectiveRemoteName, gitReadyBranchStatus, hasChanges, isBusy]
   )
   const menuItems = useMemo(
     () =>
-      buildMenuItems(branchStatus, hasChanges, isBusy, {
+      buildMenuItems(gitReadyBranchStatus, hasChanges, isBusy, {
         preferredRemoteName: effectiveRemoteName,
         canArchiveWorktree,
       }),
-    [branchStatus, canArchiveWorktree, effectiveRemoteName, hasChanges, isBusy]
+    [canArchiveWorktree, effectiveRemoteName, gitReadyBranchStatus, hasChanges, isBusy]
   )
   const actionError = branchLoadError ?? changesLoadError
-  const actionHint = actionError || quickAction.hint || null
+  const actionHint =
+    actionError ||
+    (gitSetupState === "missing_git"
+      ? "Git isn’t installed on this machine yet."
+      : gitSetupState === "not_repo"
+        ? "Initialize Git to enable branches, diffs, pull requests, and managed workspaces."
+        : quickAction.hint || null)
 
   useEffect(() => {
     console.debug("[AppHeader] resolved state", {
@@ -342,6 +358,38 @@ export function SourceControlActionGroup({
     setFeedbackTone("neutral")
     setFeedbackMessage(null)
     setIsArchiveModalOpen(true)
+  }
+
+  const handleInstallGit = async () => {
+    try {
+      await desktop.shell.openExternal(GIT_DOWNLOADS_URL)
+      setFeedbackTone("neutral")
+      setFeedbackMessage(null)
+    } catch (error) {
+      setFeedbackTone("error")
+      setFeedbackMessage(formatGitActionError(error, "Unable to open Git installation instructions."))
+    }
+  }
+
+  const handleInitRepo = async () => {
+    setIsSubmitting(true)
+    setBusyLabel("Initializing")
+    setFeedbackMessage(null)
+
+    try {
+      const nextBranchData = await desktop.git.initRepo(resolvedProjectPath)
+      setBranchData(nextBranchData)
+      await refreshGitState()
+      setFeedbackTone("neutral")
+      setFeedbackMessage("Git initialized for this project.")
+    } catch (error) {
+      setFeedbackTone("error")
+      setFeedbackMessage(formatGitActionError(error, "Unable to initialize Git for this project."))
+    } finally {
+      setIsSubmitting(false)
+      setActiveStep(null)
+      setBusyLabel(null)
+    }
   }
 
   const runGitAction = async (
@@ -642,6 +690,10 @@ export function SourceControlActionGroup({
   }
 
   const quickActionIcon = <GitActionIcon icon={quickAction.icon} />
+  const setupActionLabel =
+    gitSetupState === "missing_git"
+      ? busyLabel ?? (isSubmitting ? "Opening download page" : "Install Git")
+      : busyLabel ?? (isSubmitting ? "Initializing" : "Initialize Git")
 
   const displayLabel = busyLabel ?? (isSubmitting && activeStep ? STEP_LABELS[activeStep] : quickAction.label)
   const iconKey = isSubmitting ? "spinner" : quickAction.label
@@ -699,54 +751,81 @@ export function SourceControlActionGroup({
   return (
     <>
       <div className="flex items-center">
-        <div className="inline-flex items-center gap-0">
-          {actionHint ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex">{renderQuickButton}</span>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" align="end" className="max-w-72 text-sm leading-5">
-                {actionHint}
-              </TooltipContent>
-            </Tooltip>
-          ) : (
-            renderQuickButton
-          )}
+        {gitSetupState === "missing_git" || gitSetupState === "not_repo" ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  void (gitSetupState === "missing_git" ? handleInstallGit() : handleInitRepo())
+                }
+                disabled={isBusy}
+                className={cn(
+                  "h-7 border-sidebar-border/90 bg-[color:color-mix(in_oklab,var(--sidebar)_74%,var(--card))] shadow-none hover:bg-[var(--sidebar-item-hover)]",
+                  feedbackTone === "error" && feedbackMessage ? "border-destructive/50" : undefined,
+                  className
+                )}
+              >
+                <InformationCircle size={16} />
+                <span>{setupActionLabel}</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" align="end" className="max-w-72 text-sm leading-5">
+              {actionHint}
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          <div className="inline-flex items-center gap-0">
+            {actionHint ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex">{renderQuickButton}</span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" align="end" className="max-w-72 text-sm leading-5">
+                  {actionHint}
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              renderQuickButton
+            )}
 
-          <DropdownMenu open={isMenuOpen} onOpenChange={setIsMenuOpen}>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon-sm"
-                  className="h-7 w-8 rounded-l-none border-sidebar-border/90 bg-[color:color-mix(in_oklab,var(--sidebar)_74%,var(--card))] shadow-none hover:bg-[var(--sidebar-item-hover)]"
-                  aria-label="Open git actions menu"
-                  disabled={isBusy}
-                />
-              }
-            >
-              <CaretDown size={14} />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              sideOffset={8}
-              className="w-44 border border-border/70 bg-card p-0.5 shadow-lg"
-            >
-              {menuItems.map((item) => (
-                <DropdownMenuItem
-                  key={item.id}
-                  disabled={item.disabled}
-                  onClick={() => void handleMenuItem(item)}
-                  className="min-h-7 gap-1.5 px-1.5 py-0.5"
-                >
-                  <GitActionIcon icon={item.icon} />
-                  <span>{item.label}</span>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+            <DropdownMenu open={isMenuOpen} onOpenChange={setIsMenuOpen}>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon-sm"
+                    className="h-7 w-8 rounded-l-none border-sidebar-border/90 bg-[color:color-mix(in_oklab,var(--sidebar)_74%,var(--card))] shadow-none hover:bg-[var(--sidebar-item-hover)]"
+                    aria-label="Open git actions menu"
+                    disabled={isBusy}
+                  />
+                }
+              >
+                <CaretDown size={14} />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                sideOffset={8}
+                className="w-44 border border-border/70 bg-card p-0.5 shadow-lg"
+              >
+                {menuItems.map((item) => (
+                  <DropdownMenuItem
+                    key={item.id}
+                    disabled={item.disabled}
+                    onClick={() => void handleMenuItem(item)}
+                    className="min-h-7 gap-1.5 px-1.5 py-0.5"
+                  >
+                    <GitActionIcon icon={item.icon} />
+                    <span>{item.label}</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        )}
       </div>
 
       <CommitChangesDialog

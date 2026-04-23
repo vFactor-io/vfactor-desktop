@@ -1,5 +1,6 @@
-import { useState, useCallback, type ReactNode } from "react"
+import { useState, useCallback, useEffect, type ReactNode } from "react"
 import { SidebarContext } from "./sidebar-context"
+import { LEFT_SIDEBAR_WIDTH_CSS_VAR } from "./layoutSizing"
 
 const SIDEBAR_STORAGE_KEY = "nucleus:left-sidebar-width"
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "nucleus:left-sidebar-collapsed"
@@ -31,6 +32,14 @@ export function SidebarProvider({ children }: { children: ReactNode }) {
       ? clampSidebarWidth(parsedWidth)
       : DEFAULT_SIDEBAR_WIDTH
   })
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return
+    }
+
+    document.documentElement.style.setProperty(LEFT_SIDEBAR_WIDTH_CSS_VAR, `${width}px`)
+  }, [width])
 
   const setIsCollapsed = useCallback((nextCollapsed: boolean) => {
     setIsCollapsedState(nextCollapsed)

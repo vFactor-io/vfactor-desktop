@@ -286,12 +286,15 @@ function GitSettingsSection() {
 function AppearanceSettingsSection() {
   const appearanceThemeId = useSettingsStore((state) => state.appearanceThemeId)
   const appearanceTextSizePx = useSettingsStore((state) => state.appearanceTextSizePx)
+  const terminalLinkTarget = useSettingsStore((state) => state.terminalLinkTarget)
   const hasLoaded = useSettingsStore((state) => state.hasLoaded)
   const initialize = useSettingsStore((state) => state.initialize)
   const setAppearanceThemeId = useSettingsStore((state) => state.setAppearanceThemeId)
   const resetAppearanceThemeId = useSettingsStore((state) => state.resetAppearanceThemeId)
   const setAppearanceTextSizePx = useSettingsStore((state) => state.setAppearanceTextSizePx)
   const resetAppearanceTextSizePx = useSettingsStore((state) => state.resetAppearanceTextSizePx)
+  const setTerminalLinkTarget = useSettingsStore((state) => state.setTerminalLinkTarget)
+  const resetTerminalLinkTarget = useSettingsStore((state) => state.resetTerminalLinkTarget)
   const { resolvedAppearance, resolvedThemeId, monacoThemeId, pierreDiffTheme } = useAppearance()
 
   useEffect(() => {
@@ -390,9 +393,34 @@ function AppearanceSettingsSection() {
               </div>
             </div>
           </Field>
+
+          <Field>
+            <FieldTitle>Dev terminal links</FieldTitle>
+            <FieldDescription>
+              Choose where clickable local dev server links from the project terminal should open.
+            </FieldDescription>
+            <Select
+              value={terminalLinkTarget}
+              onValueChange={(value) => setTerminalLinkTarget(value as typeof terminalLinkTarget)}
+            >
+              <SelectTrigger className="mt-2 w-full" disabled={isSettingsLoading}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="start">
+                <SelectItem value="in-app">Open in app browser</SelectItem>
+                <SelectItem value="system-browser">Open in system browser</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+              The default is the in-app browser so local dev links open immediately inside Nucleus.
+            </p>
+          </Field>
         </FieldGroup>
 
         <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={resetTerminalLinkTarget} disabled={isSettingsLoading || terminalLinkTarget === "in-app"}>
+            Reset link target
+          </Button>
           <Button type="button" variant="outline" size="sm" onClick={resetAppearanceTextSizePx} disabled={isSettingsLoading || appearanceTextSizePx === DEFAULT_TEXT_SIZE_PX}>
             Reset text size
           </Button>

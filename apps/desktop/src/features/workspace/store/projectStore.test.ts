@@ -18,8 +18,10 @@ const desktopStore = {
   delete: async (key: string) => {
     storeData.delete(key)
   },
-  save: async () => {},
+  save: async () => saveStoreImpl(),
 }
+
+let saveStoreImpl = async () => {}
 
 let discoveredWorktrees: Array<{ path: string; branchName: string; isMain: boolean }> = []
 let gitBranchesResponse: { currentBranch?: string; defaultBranch?: string } | null = null
@@ -193,6 +195,7 @@ describe("projectStore", () => {
     storeData.clear()
     directoryEntries.clear()
     readDirCalls.length = 0
+    saveStoreImpl = async () => {}
     discoveredWorktrees = []
     gitBranchesResponse = null
     getBranchesImpl = async (_projectPath) => gitBranchesResponse
@@ -612,6 +615,41 @@ describe("projectStore", () => {
     expect(state.activeWorktreeId).toBeNull()
   })
 
+  test("selectWorktree updates selection before persistence finishes", async () => {
+    let releaseSave: (() => void) | null = null
+    const saveGate = new Promise<void>((resolve) => {
+      releaseSave = resolve
+    })
+    saveStoreImpl = async () => {
+      await saveGate
+    }
+
+    useProjectStore.setState({
+      projects: [
+        createProject({
+          selectedWorktreeId: "root-worktree",
+          worktrees: [createRootWorktree(), createManagedWorktree()],
+        }),
+      ],
+      focusedProjectId: "project-1",
+      activeWorktreeId: "root-worktree",
+      isLoading: false,
+    })
+
+    const selectPromise = useProjectStore.getState().selectWorktree("project-1", "managed-worktree")
+
+    const interimState = useProjectStore.getState()
+    expect(interimState.focusedProjectId).toBe("project-1")
+    expect(interimState.activeWorktreeId).toBe("managed-worktree")
+    expect(interimState.projects[0]?.selectedWorktreeId).toBe("managed-worktree")
+
+    releaseSave?.()
+    await selectPromise
+
+    const persistedProjects = storeData.get("projects") as Project[]
+    expect(persistedProjects[0]?.selectedWorktreeId).toBe("managed-worktree")
+  })
+
   test("creating a worktree from a zero-worktree project reactivates it", async () => {
     useProjectStore.setState({
       projects: [
@@ -792,6 +830,8 @@ describe("projectStore", () => {
       }
     }
     getBranchesImpl = async () => ({
+      isGitAvailable: true,
+      isRepo: true,
       currentBranch: "tests/app",
       defaultBranch: "main",
     })

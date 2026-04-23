@@ -38,6 +38,7 @@ export const IPC_CHANNELS = {
   gitGetChanges: "git:getChanges",
   gitGetPullRequestChecks: "git:getPullRequestChecks",
   gitListWorktrees: "git:listWorktrees",
+  gitInitRepo: "git:initRepo",
   gitCreateWorktree: "git:createWorktree",
   gitRemoveWorktree: "git:removeWorktree",
   gitRenameWorktree: "git:renameWorktree",

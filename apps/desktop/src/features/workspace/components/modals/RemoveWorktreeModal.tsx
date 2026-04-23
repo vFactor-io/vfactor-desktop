@@ -17,9 +17,11 @@ import { useChatStore } from "@/features/chat/store"
 import { useTabStore } from "@/features/editor/store"
 import { Switch } from "@/features/shared/components/ui/switch"
 import { useProjectGitChanges } from "@/features/shared/hooks/useProjectGitChanges"
+import { disposeCachedTerminalSession } from "@/features/terminal/components/terminalSessionCache"
 import { getTerminalSessionId, isTerminalTab } from "@/features/terminal/utils/terminalTabs"
 import { useProjectStore } from "@/features/workspace/store"
 import type { Project, ProjectWorktree } from "@/features/workspace/types"
+import { cn } from "@/lib/utils/cn"
 import { resolveDeleteFromSystemDefault } from "./removeWorktreeModalLogic"
 
 interface RemoveWorktreeModalProps {
@@ -93,7 +95,11 @@ export function RemoveWorktreeModal({
 
       const terminalTabs = (tabsByWorktree[worktree.id]?.tabs ?? []).filter(isTerminalTab)
       await Promise.allSettled(
-        terminalTabs.map((tab) => desktop.terminal.closeSession(getTerminalSessionId(tab.id)))
+        terminalTabs.map((tab) => {
+          const terminalSessionId = getTerminalSessionId(tab.id)
+          disposeCachedTerminalSession(terminalSessionId)
+          return desktop.terminal.closeSession(terminalSessionId)
+        })
       )
       removeWorktreeTabs(worktree.id)
 

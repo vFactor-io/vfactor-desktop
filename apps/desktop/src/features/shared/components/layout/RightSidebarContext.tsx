@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef, type ReactNode } from "react"
 import { RightSidebarContext, type RightSidebarTab } from "./right-sidebar-context"
 import { useCurrentProjectWorktree } from "@/features/shared/hooks"
 import { useSidebar } from "./useSidebar"
-import { MIN_MAIN_CONTENT_WIDTH } from "./layoutSizing"
+import { MIN_MAIN_CONTENT_WIDTH, RIGHT_SIDEBAR_WIDTH_CSS_VAR } from "./layoutSizing"
 
 const RIGHT_SIDEBAR_STORAGE_KEY = "nucleus:right-sidebar-width"
 const RIGHT_SIDEBAR_PREFERRED_WIDTH_STORAGE_KEY = "nucleus:right-sidebar-preferred-width"
@@ -100,6 +100,14 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
   }, [width])
 
   useEffect(() => {
+    if (typeof document === "undefined") {
+      return
+    }
+
+    document.documentElement.style.setProperty(RIGHT_SIDEBAR_WIDTH_CSS_VAR, `${width}px`)
+  }, [width])
+
+  useEffect(() => {
     if (!isAvailable) {
       setIsCollapsedState(true)
 
@@ -160,6 +168,14 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
   }, [isAvailable])
   const expand = useCallback(() => setIsCollapsed(false), [setIsCollapsed])
   const collapse = useCallback(() => setIsCollapsed(true), [setIsCollapsed])
+  const clampWidth = useCallback((nextWidth: number) => {
+    if (typeof window === "undefined") {
+      return Math.max(getMinRightSidebarWidth(activeTab), nextWidth)
+    }
+
+    const maxWidth = getMaxRightSidebarWidth(window.innerWidth, effectiveLeftSidebarWidth, activeTab)
+    return clampRightSidebarWidth(nextWidth, maxWidth, activeTab)
+  }, [activeTab, effectiveLeftSidebarWidth])
   const setWidth = useCallback((nextWidth: number) => {
     const minWidth = getMinRightSidebarWidth(activeTab)
     const maxWidth =
@@ -204,6 +220,7 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
         toggle,
         expand,
         collapse,
+        clampWidth,
         setWidth,
         persistWidth,
         setActiveTab,

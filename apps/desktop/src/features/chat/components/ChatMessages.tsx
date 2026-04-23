@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react"
+import { motion, useReducedMotion } from "framer-motion"
 import { vcsTextClassNames } from "@/features/shared/appearance"
 import type { Project, ProjectWorktree } from "@/features/workspace/types"
 import type {
@@ -26,12 +27,18 @@ import {
 } from "./ai-elements/message"
 import { Check, Copy, File } from "@/components/icons"
 import { LoadingDots } from "@/features/shared/components/ui/loading-dots"
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/features/shared/components/ui/hover-card"
 import { ChatImagePreviewModal } from "./ChatImagePreviewModal"
 import {
   ChatTimelineItem,
   InlineSubagentActivity,
   type ChatImagePreviewRequest,
 } from "./ChatTimelineItem"
+import { FileChangeDiffCard } from "./FileChangeDiffCard"
 import { formatElapsedDuration, useElapsedDuration } from "./workDuration"
 import { TurnStepsDropdown } from "./TurnStepsDropdown"
 import {
@@ -669,6 +676,7 @@ function AssistantTurnFooter({
   changedFilesSummary?: TimelineFileChangeSummary | null
 }) {
   const [isCopied, setIsCopied] = useState(false)
+  const shouldReduceMotion = useReducedMotion()
   const isConnecting = activityState === "connecting"
   const isStreaming = activityState === "streaming"
   const isWorking = isConnecting || isStreaming
@@ -765,28 +773,82 @@ function AssistantTurnFooter({
                 </span>
               ) : null}
               <div className="flex flex-wrap items-center gap-1.5">
-                {visibleChangedFiles.map((entry) => (
-                  <span
-                    key={entry.path}
-                    className="inline-flex max-w-[180px] items-center gap-1.5 rounded-[0.35rem] border border-border/70 bg-background/65 px-2 py-1.5 text-[11px] leading-none text-foreground/88 shadow-[0_0_0_1px_rgba(255,255,255,0.015)_inset]"
-                    title={entry.path}
-                  >
-                    <File size={11} className="shrink-0 text-[var(--color-chat-file-accent)]" />
-                    <span className="truncate font-medium text-muted-foreground/92">
-                      {entry.label}
+                {visibleChangedFiles.map((entry) => {
+                  const trigger = (
+                    <span
+                      className={cn(
+                        "inline-flex max-w-[180px] items-center gap-1.5 rounded-[0.35rem] border border-border/70 bg-background/65 px-2 py-1.5 text-[11px] leading-none text-foreground/88 shadow-[0_0_0_1px_rgba(255,255,255,0.015)_inset]",
+                        "transition-[background-color,border-color,color] duration-150 ease-out hover:border-border hover:bg-background/82"
+                      )}
+                      title={entry.path}
+                    >
+                      <File size={11} className="shrink-0 text-[var(--color-chat-file-accent)]" />
+                      <span className="truncate font-medium text-muted-foreground/92">
+                        {entry.label}
+                      </span>
+                      {entry.added > 0 ? (
+                        <span className={cn("shrink-0 font-medium", vcsTextClassNames.added)}>
+                          +{entry.added}
+                        </span>
+                      ) : null}
+                      {entry.removed > 0 ? (
+                        <span className={cn("shrink-0 font-medium", vcsTextClassNames.deleted)}>
+                          -{entry.removed}
+                        </span>
+                      ) : null}
                     </span>
-                    {entry.added > 0 ? (
-                      <span className={cn("shrink-0 font-medium", vcsTextClassNames.added)}>
-                        +{entry.added}
-                      </span>
-                    ) : null}
-                    {entry.removed > 0 ? (
-                      <span className={cn("shrink-0 font-medium", vcsTextClassNames.deleted)}>
-                        -{entry.removed}
-                      </span>
-                    ) : null}
-                  </span>
-                ))}
+                  )
+
+                  if (entry.changes.length === 0) {
+                    return <span key={entry.path}>{trigger}</span>
+                  }
+
+                  return (
+                    <HoverCard key={entry.path}>
+                      <HoverCardTrigger
+                        delay={0}
+                        closeDelay={80}
+                        render={<span className="inline-flex" />}
+                      >
+                        {trigger}
+                      </HoverCardTrigger>
+                      <HoverCardContent
+                        side="top"
+                        align="start"
+                        sideOffset={8}
+                        alignOffset={0}
+                        className="w-[min(44rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] p-0 shadow-xl shadow-black/12 ring-foreground/12 data-open:animate-none data-closed:animate-none duration-0"
+                      >
+                        <motion.div
+                          initial={
+                            shouldReduceMotion
+                              ? undefined
+                              : { scale: 0.992 }
+                          }
+                          animate={
+                            shouldReduceMotion
+                              ? undefined
+                              : { scale: 1 }
+                          }
+                          transition={{
+                            duration: shouldReduceMotion ? 0 : 0.14,
+                            ease: [0.23, 1, 0.32, 1],
+                          }}
+                          style={{ transformOrigin: "var(--transform-origin)" }}
+                          className="max-h-[28rem] space-y-2 overflow-y-auto will-change-transform"
+                        >
+                          {entry.changes.map((change, index) => (
+                            <FileChangeDiffCard
+                              key={`${change.path}:${change.kind}:${index}`}
+                              change={change}
+                              maxHeightClassName="max-h-[24rem]"
+                            />
+                          ))}
+                        </motion.div>
+                      </HoverCardContent>
+                    </HoverCard>
+                  )
+                })}
                 {hiddenChangedFileCount > 0 ? (
                   <span className="inline-flex items-center rounded-[0.35rem] border border-border/60 bg-muted/25 px-2 py-1.5 text-[11px] leading-none text-muted-foreground/88">
                     +{hiddenChangedFileCount} more

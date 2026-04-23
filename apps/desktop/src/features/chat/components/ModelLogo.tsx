@@ -1,7 +1,6 @@
 import { Circle } from "@/components/icons"
 import { cn } from "@/lib/utils"
 import claudeColorUrl from "@/assets/brands/claude-color.svg"
-import codexColorUrl from "@/assets/brands/codex.svg"
 import openAiSymbolLightUrl from "@/assets/brands/openai-symbol-light.svg"
 import openAiSymbolDarkUrl from "@/assets/brands/openai-symbol-dark.svg"
 
@@ -10,8 +9,8 @@ export type ModelLogoKind = "openai" | "claude" | "codex" | "default"
 function OpenAILogo({ className }: { className?: string }) {
   return (
     <span className={cn("relative inline-flex shrink-0", className)} aria-hidden="true">
-      <img src={openAiSymbolLightUrl} alt="" className="size-full object-contain dark:hidden" />
-      <img src={openAiSymbolDarkUrl} alt="" className="hidden size-full object-contain dark:block" />
+      <img src={openAiSymbolLightUrl} alt="" className="size-full scale-[0.82] object-contain dark:hidden" />
+      <img src={openAiSymbolDarkUrl} alt="" className="hidden size-full scale-[0.82] object-contain dark:block" />
     </span>
   )
 }
@@ -19,17 +18,13 @@ function OpenAILogo({ className }: { className?: string }) {
 function ClaudeLogo({ className }: { className?: string }) {
   return (
     <span className={cn("relative inline-flex shrink-0", className)} aria-hidden="true">
-      <img src={claudeColorUrl} alt="" className="size-full scale-[0.84] object-contain" />
+      <img src={claudeColorUrl} alt="" className="size-full scale-[0.8] object-contain" />
     </span>
   )
 }
 
 function CodexLogo({ className }: { className?: string }) {
-  return (
-    <span className={cn("relative inline-flex shrink-0", className)} aria-hidden="true">
-      <img src={codexColorUrl} alt="" className="size-full scale-[0.84] object-contain brightness-0 invert" />
-    </span>
-  )
+  return <OpenAILogo className={className} />
 }
 
 export function ModelLogo({ kind, className }: { kind: ModelLogoKind; className?: string }) {

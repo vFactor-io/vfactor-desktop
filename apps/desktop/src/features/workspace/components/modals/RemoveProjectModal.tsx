@@ -16,6 +16,7 @@ import type { Project } from "@/features/workspace/types"
 import { useProjectStore } from "@/features/workspace/store"
 import { useChatStore } from "@/features/chat/store/chatStore"
 import { useTabStore } from "@/features/editor/store"
+import { disposeCachedTerminalSession } from "@/features/terminal/components/terminalSessionCache"
 import { getTerminalSessionId, isTerminalTab } from "@/features/terminal/utils/terminalTabs"
 
 interface RemoveProjectModalProps {
@@ -54,7 +55,11 @@ export function RemoveProjectModal({
       for (const worktree of project.worktrees) {
         const terminalTabs = (tabsByWorktree[worktree.id]?.tabs ?? []).filter(isTerminalTab)
         await Promise.allSettled(
-          terminalTabs.map((tab) => desktop.terminal.closeSession(getTerminalSessionId(tab.id)))
+          terminalTabs.map((tab) => {
+            const terminalSessionId = getTerminalSessionId(tab.id)
+            disposeCachedTerminalSession(terminalSessionId)
+            return desktop.terminal.closeSession(terminalSessionId)
+          })
         )
       }
       await removeProjectData(project.id)

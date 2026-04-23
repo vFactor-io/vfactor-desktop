@@ -36,6 +36,12 @@ import { UploadChip } from "./UploadChip"
 import {
   useViewportAnchorToggle,
 } from "./useViewportAnchorToggle"
+import {
+  FileChangeDiffCard,
+  buildFileChangePatch,
+  countDiffLinesFromPatch,
+  renderDiffStats,
+} from "./FileChangeDiffCard"
 
 export interface ChatImagePreviewRequest {
   absolutePath: string
@@ -76,7 +82,7 @@ function TimelineTextBlock({
         ? "text-muted-foreground"
         : tone === "accent"
           ? "text-secondary-foreground/80"
-          : "text-secondary-foreground/72"
+          : "text-foreground"
 
     return (
       <div className={cn("w-full py-1", toneClass)}>
@@ -232,42 +238,19 @@ function renderInlinePath(value: string) {
   return <span className="font-mono text-[var(--color-chat-file-accent)]">{value}</span>
 }
 
-function countDiffLinesFromPatch(diff: string | undefined): { added: number; removed: number } {
-  if (!diff) {
-    return { added: 0, removed: 0 }
-  }
+function getToolFileChanges(toolPart: RuntimeToolPart) {
+  const { input, output } = toolPart.state
+  const outputSource =
+    output && typeof output === "object" && "changes" in output
+      ? (output as { changes?: unknown[] }).changes
+      : undefined
+  const inputSource =
+    input && typeof input === "object" && "changes" in input
+      ? (input as { changes?: unknown[] }).changes
+      : undefined
 
-  return diff.split("\n").reduce(
-    (totals, line) => {
-      if (line.startsWith("+++ ") || line.startsWith("--- ")) {
-        return totals
-      }
-      if (line.startsWith("+")) {
-        return { ...totals, added: totals.added + 1 }
-      }
-      if (line.startsWith("-")) {
-        return { ...totals, removed: totals.removed + 1 }
-      }
-      return totals
-    },
-    { added: 0, removed: 0 },
-  )
+  return getFileChangeEntries(outputSource ?? inputSource)
 }
-
-function renderDiffStats({ added, removed }: { added: number; removed: number }) {
-  if (added === 0 && removed === 0) {
-    return null
-  }
-
-  return (
-    <span className="ml-1.5 text-[0.9em]">
-      {added > 0 ? <span className={cn("font-medium", vcsTextClassNames.added)}>+{added}</span> : null}
-      {added > 0 && removed > 0 ? " " : null}
-      {removed > 0 ? <span className={cn("font-medium", vcsTextClassNames.deleted)}>-{removed}</span> : null}
-    </span>
-  )
-}
-
 
 function prettyValue(value: unknown): string {
   if (typeof value === "string") {
@@ -380,13 +363,12 @@ function SentAttachmentChip({
   )
 }
 
-function renderFileChangeSummary(toolPart: RuntimeToolPart) {
-  const output = toolPart.state.output
-  const source =
-    output && typeof output === "object" && "changes" in output
-      ? (output as { changes?: unknown[] }).changes
-      : undefined
-  const fileChanges = getFileChangeEntries(source)
+function renderFileChangeSummary(
+  toolPart: RuntimeToolPart,
+  options?: { hideFileNames?: boolean }
+) {
+  const fileChanges = getToolFileChanges(toolPart)
+  const hideFileNames = options?.hideFileNames ?? false
 
   if (toolPart.state.status === "pending") {
     if (fileChanges.length === 0) {
@@ -396,6 +378,10 @@ function renderFileChangeSummary(toolPart: RuntimeToolPart) {
 
   if (fileChanges.length === 0) {
     return <span>Prepared workspace edits</span>
+  }
+
+  if (hideFileNames) {
+    return <span>Edited</span>
   }
 
   if (fileChanges.length === 1) {
@@ -408,7 +394,7 @@ function renderFileChangeSummary(toolPart: RuntimeToolPart) {
   return <span>Edited {fileChanges.map((change, i) => {
     const fileName = change.path.split(/[\\/]/).filter(Boolean).at(-1) ?? change.path
     const diff = countDiffLinesFromPatch(change.diff)
-    return <span key={change.path}>{i > 0 ? ", " : ""}{renderInlinePath(fileName)}{renderDiffStats(diff)}</span>
+    return <span key={`${change.path}:${i}`}>{i > 0 ? ", " : ""}{renderInlinePath(fileName)}{renderDiffStats(diff)}</span>
   })}</span>
 }
 
@@ -489,6 +475,14 @@ function DetailBlock({
   )
 }
 
+function FileChangeDetail({
+  change,
+}: {
+  change: { path: string; kind: string; diff?: string }
+}) {
+  return <FileChangeDiffCard change={change} />
+}
+
 function renderToolDetails(
   message: MessageWithParts,
   toolPart: RuntimeToolPart,
@@ -517,11 +511,8 @@ function renderToolDetails(
   }
 
   if (itemType === "fileChange") {
-    const source =
-      output && typeof output === "object" && "changes" in output
-        ? (output as { changes?: unknown[] }).changes
-        : undefined
-    const fileChanges = getFileChangeEntries(source)
+    const fileChanges = getToolFileChanges(toolPart)
+    const hasRenderableDiff = fileChanges.some((change) => Boolean(buildFileChangePatch(change)))
     const outputText =
       output && typeof output === "object" && "outputText" in output
         ? (output as { outputText?: unknown }).outputText
@@ -532,28 +523,15 @@ function renderToolDetails(
     }
 
     return (
-      <div className="space-y-3">
+      <div className="space-y-2.5">
         {fileChanges.length > 0 ? (
-          <div className="space-y-2">
-            <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-              Files
-            </div>
+          <div className="space-y-1.5">
             {fileChanges.map((change) => (
-              <div key={`${change.kind}:${change.path}`} className="rounded-2xl bg-muted/35 px-3 py-3">
-                <div className="flex flex-wrap items-center gap-2 text-[13px] leading-5 text-foreground/88">
-                  <span className="text-muted-foreground">{change.kind}</span>
-                  {renderInlinePath(change.path)}
-                </div>
-                {change.diff ? (
-                  <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-foreground/78">
-                    {change.diff}
-                  </pre>
-                ) : null}
-              </div>
+              <FileChangeDetail key={`${change.kind}:${change.path}`} change={change} />
             ))}
           </div>
         ) : null}
-        <DetailBlock label="Tool Output" value={outputText} />
+        {!hasRenderableDiff ? <DetailBlock label="Tool Output" value={outputText} /> : null}
       </div>
     )
   }
@@ -609,6 +587,7 @@ function renderToolDetails(
 function InlineActivityRow({
   icon: IconComponent,
   summary,
+  openSummary,
   details,
   withinGroup = false,
   approvalState = null,
@@ -616,6 +595,7 @@ function InlineActivityRow({
 }: {
   icon?: Icon
   summary: ReactNode
+  openSummary?: ReactNode
   details?: ReactNode
   withinGroup?: boolean
   approvalState?: RuntimeApprovalDisplayState | null
@@ -677,7 +657,7 @@ function InlineActivityRow({
               )}
             />
           ) : null}
-          <span className="min-w-0 flex-1">{summary}</span>
+          <span className="min-w-0 flex-1">{isOpen && openSummary ? openSummary : summary}</span>
           {canExpand ? (
             <span
               className={cn(
@@ -704,7 +684,7 @@ function InlineActivityRow({
         </span>
       )}
       {canExpand && isOpen ? (
-        <div className="mt-2 w-full border-l border-border/60 pl-4">
+        <div className="mt-2 w-full">
           {details}
         </div>
       ) : null}
@@ -761,6 +741,8 @@ export function ToolTimelineRow({
       <InlineActivityRow
         icon={PencilSimple}
         summary={renderFileChangeSummary(toolPart)}
+        openSummary={renderFileChangeSummary(toolPart, { hideFileNames: true })}
+        details={details}
         withinGroup={withinGroup}
         approvalState={approvalState}
       />

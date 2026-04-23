@@ -7,6 +7,9 @@ interface ProjectDiffViewerProps {
   projectPath?: string | null
   filePath?: string
   previousFilePath?: string | null
+  renderSideBySide?: boolean
+  fontSize?: number
+  paddingTop?: number
 }
 
 export function ProjectDiffViewer({
@@ -14,6 +17,9 @@ export function ProjectDiffViewer({
   projectPath,
   filePath,
   previousFilePath,
+  renderSideBySide,
+  fontSize,
+  paddingTop,
 }: ProjectDiffViewerProps) {
   const [diff, setDiff] = useState<GitFileDiff | null>(null)
   const [showLoading, setShowLoading] = useState(false)
@@ -100,6 +106,9 @@ export function ProjectDiffViewer({
       original={diff.original}
       modified={diff.modified}
       modelKey={`${projectPath ?? "project"}:${previousFilePath ?? filePath ?? filename}:${filePath ?? filename}`}
+      renderSideBySide={renderSideBySide}
+      fontSize={fontSize}
+      paddingTop={paddingTop}
     />
   )
 }

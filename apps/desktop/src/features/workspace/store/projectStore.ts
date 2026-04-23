@@ -88,8 +88,9 @@ let storeInstance: DesktopStoreHandle | null = null
 let loadProjectsPromise: Promise<void> | null = null
 let projectMutationVersion = 0
 
-function bumpProjectMutationVersion(): void {
+function bumpProjectMutationVersion(): number {
   projectMutationVersion += 1
+  return projectMutationVersion
 }
 
 async function getStore(): Promise<DesktopStoreHandle> {
@@ -380,10 +381,19 @@ type ProjectBaseBranchResolution = {
   rootWorktreeId: string | null
 }
 
+function normalizeTargetBranchValue(value: string | null | undefined): string | null {
+  const trimmed = value?.trim()
+  if (!trimmed || trimmed === "No branch") {
+    return null
+  }
+
+  return trimmed
+}
+
 async function resolveProjectBaseBranch(
   project: Pick<Project, "targetBranch" | "repoRootPath" | "rootWorktreeId" | "worktrees">
 ): Promise<ProjectBaseBranchResolution> {
-  const configuredTargetBranch = project.targetBranch?.trim()
+  const configuredTargetBranch = normalizeTargetBranchValue(project.targetBranch)
   if (configuredTargetBranch) {
     return {
       baseBranch: configuredTargetBranch,
@@ -399,7 +409,15 @@ async function resolveProjectBaseBranch(
 
   try {
     const branchData = await desktop.git.getBranches(project.repoRootPath)
-    gitDefaultBranch = branchData?.defaultBranch?.trim() || null
+    if (!branchData.isGitAvailable) {
+      throw new Error("Git is not installed on this machine. Install Git before creating managed workspaces.")
+    }
+
+    if (!branchData.isRepo) {
+      throw new Error("Initialize Git for this project before creating managed workspaces.")
+    }
+
+    gitDefaultBranch = normalizeTargetBranchValue(branchData.defaultBranch)
     if (gitDefaultBranch) {
       return {
         baseBranch: gitDefaultBranch,
@@ -418,7 +436,7 @@ async function resolveProjectBaseBranch(
     project.worktrees.find((worktree) => worktree.id === project.rootWorktreeId) ??
     project.worktrees.find((worktree) => worktree.source === "root") ??
     null
-  const rootWorktreeBranch = rootWorktree?.branchName?.trim() || null
+  const rootWorktreeBranch = normalizeTargetBranchValue(rootWorktree?.branchName)
 
   return {
     baseBranch: rootWorktreeBranch,
@@ -609,9 +627,9 @@ async function hydrateProject(project: LegacyProject): Promise<Project> {
     rootWorktreeId: fallbackRootWorktree?.id ?? null,
     selectedWorktreeId,
     targetBranch:
-      project.targetBranch?.trim() ||
-      branchData?.defaultBranch?.trim() ||
-      rootWorktree.branchName ||
+      normalizeTargetBranchValue(project.targetBranch) ||
+      normalizeTargetBranchValue(branchData?.defaultBranch) ||
+      (branchData?.isRepo ? normalizeTargetBranchValue(rootWorktree.branchName) : null) ||
       null,
     remoteName,
     setupScript,
@@ -876,14 +894,26 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       selectedWorktreeId: worktreeId,
     }
     const nextProjects = replaceProject(get().projects, nextProject)
-
-    bumpProjectMutationVersion()
-    await persistProjects(nextProjects, projectId, worktreeId)
+    const previousState = get()
+    const mutationVersion = bumpProjectMutationVersion()
     set({
       projects: nextProjects,
       focusedProjectId: projectId,
       activeWorktreeId: worktreeId,
     })
+
+    try {
+      await persistProjects(nextProjects, projectId, worktreeId)
+    } catch (error) {
+      if (projectMutationVersion === mutationVersion) {
+        set({
+          projects: previousState.projects,
+          focusedProjectId: previousState.focusedProjectId,
+          activeWorktreeId: previousState.activeWorktreeId,
+        })
+      }
+      throw error
+    }
   },
 
   startNewWorkspaceSetup: (projectId) => {

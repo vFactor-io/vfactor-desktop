@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { hotkeysCoreFeature, syncDataLoaderFeature } from "@headless-tree/core"
-import { useTree } from "@headless-tree/react"
-import { DefaultFolderOpenedIcon, FolderIcon, FileIcon } from "@react-symbols/icons/utils"
-import { desktop } from "@/desktop/client"
-import { Tree, TreeItem, TreeItemLabel } from "@/features/shared/components/ui/tree"
+import { FileTree as PierreTreeModel } from "@pierre/trees"
+import { FileTree as PierreFileTree } from "@pierre/trees/react"
+import { useAppearance } from "@/features/shared/appearance"
 import { cn } from "@/lib/utils"
 import type { FileTreeItem } from "../types"
 
@@ -24,17 +22,53 @@ interface ElectronFile extends File {
   path?: string
 }
 
-interface DropTargetDebugInfo {
-  targetDirectory: string
-  pointedTagName: string | null
-  pointedClasses: string | null
-  pointedText: string | null
-  matchedDropTarget: string | null
+interface CanonicalTreeEntry {
+  absolutePath: string
+  canonicalPath: string
+  isDirectory: boolean
+  name: string
 }
+
+interface DropTargetResolution {
+  canonicalDirectoryPath: string | null
+  hoveredPath: string | null
+}
+
+interface ResolvedTreeEntry {
+  absolutePath: string
+  canonicalPath: string
+  isDirectory: boolean
+  name: string
+}
+
+const TREE_UNSAFE_CSS = `
+  [data-file-tree-virtualized-scroll='true'] {
+    padding-bottom: 10px;
+  }
+
+  [data-type='item'] {
+    border-radius: calc(var(--radius-sm, 0.5rem) + 1px);
+  }
+
+  [data-item-context-menu-trigger-mode] {
+    cursor: default;
+  }
+
+  [data-nucleus-external-drop-target='true'] {
+    background-color: var(--trees-selected-bg);
+    color: var(--trees-selected-fg);
+    --truncate-marker-background-overlay-color: var(--trees-selected-bg);
+  }
+
+  [data-nucleus-external-drop-target='true'] > [data-item-section='icon'],
+  [data-nucleus-external-drop-target='true'] > [data-item-section='content'] {
+    color: inherit;
+  }
+`
 
 function extractDroppedPaths(files: FileList): string[] {
   const sourcePaths = Array.from(files)
-    .map((file) => desktop.fs.getPathForFile(file) ?? (file as ElectronFile).path?.trim())
+    .map((file) => window.nucleus.fs.getPathForFile(file) ?? (file as ElectronFile).path?.trim())
     .filter((path): path is string => Boolean(path))
 
   return Array.from(new Set(sourcePaths))
@@ -48,150 +82,357 @@ function containsExternalFiles(dataTransfer: DataTransfer | null): boolean {
   return dataTransfer.files.length > 0 || Array.from(dataTransfer.types).includes("Files")
 }
 
-function getDropTargetDirectory(
-  itemId: string,
-  item: FileTreeItem | undefined,
-  projectPath: string
-): string {
-  if (itemId === "root" || item?.isDirectory) {
-    return itemId === "root" ? projectPath : itemId
-  }
-
-  const lastSlashIndex = itemId.lastIndexOf("/")
-  return lastSlashIndex >= 0 ? itemId.slice(0, lastSlashIndex) : projectPath
+function getEventPathElements(event: Event): HTMLElement[] {
+  return event.composedPath().filter((entry): entry is HTMLElement => entry instanceof HTMLElement)
 }
 
-function getDropTargetDirectoryFromPoint(
-  container: HTMLElement,
-  clientX: number,
-  clientY: number,
-  projectPath: string
-): DropTargetDebugInfo {
-  const pointedElement = document.elementFromPoint(clientX, clientY)
+function getRowElementFromEvent(event: Event): HTMLElement | null {
+  return getEventPathElements(event).find((element) => element.dataset.itemPath != null) ?? null
+}
 
-  if (!(pointedElement instanceof Element) || !container.contains(pointedElement)) {
+function getFlattenedSegmentPathFromEvent(event: Event): string | null {
+  return (
+    getEventPathElements(event).find((element) => element.dataset.itemFlattenedSubitem != null)
+      ?.dataset.itemFlattenedSubitem ?? null
+  )
+}
+
+function resolveDropTargetFromEvent(event: DragEvent): DropTargetResolution {
+  const rowElement = getRowElementFromEvent(event)
+
+  if (!rowElement) {
     return {
-      targetDirectory: projectPath,
-      pointedTagName: null,
-      pointedClasses: null,
-      pointedText: null,
-      matchedDropTarget: null,
+      canonicalDirectoryPath: null,
+      hoveredPath: null,
     }
   }
 
-  const dropTargetElement = pointedElement.closest<HTMLElement>("[data-drop-target-directory]")
-  const targetDirectory = dropTargetElement?.dataset.dropTargetDirectory
+  const hoveredPath = rowElement.dataset.itemPath?.trim() || null
+  const flattenedSegmentPath = getFlattenedSegmentPathFromEvent(event)
+
+  if (flattenedSegmentPath?.endsWith("/")) {
+    return {
+      canonicalDirectoryPath: flattenedSegmentPath,
+      hoveredPath,
+    }
+  }
+
+  if (rowElement.dataset.itemType === "folder") {
+    return {
+      canonicalDirectoryPath: hoveredPath,
+      hoveredPath,
+    }
+  }
 
   return {
-    targetDirectory: targetDirectory?.trim() || projectPath,
-    pointedTagName: pointedElement.tagName,
-    pointedClasses: pointedElement.className || null,
-    pointedText: pointedElement.textContent?.trim().slice(0, 80) || null,
-    matchedDropTarget: targetDirectory?.trim() || null,
+    canonicalDirectoryPath: rowElement.dataset.itemParentPath?.trim() || null,
+    hoveredPath,
   }
 }
 
-function formatDropDebugMessage(label: string, details: Record<string, unknown>): string {
-  return `[file-tree-drop] ${label} ${JSON.stringify(details)}`
+function normalizePathSeparators(path: string): string {
+  return path.replace(/\\/g, "/")
+}
+
+function getCanonicalPathFromItemId(
+  itemId: string,
+  item: FileTreeItem,
+  projectPath?: string | null
+): string | null {
+  if (!projectPath) {
+    return null
+  }
+
+  const normalizedProjectPath = normalizePathSeparators(projectPath).replace(/\/+$/, "")
+  const normalizedItemId = normalizePathSeparators(itemId).replace(/\/+$/, "")
+
+  if (!normalizedItemId.startsWith(`${normalizedProjectPath}/`)) {
+    return null
+  }
+
+  const relativePath = normalizedItemId.slice(normalizedProjectPath.length + 1)
+  if (!relativePath) {
+    return null
+  }
+
+  return item.isDirectory ? `${relativePath}/` : relativePath
+}
+
+function buildCanonicalTreeEntries(
+  data: Record<string, FileTreeItem>,
+  rootId: string,
+  projectPath?: string | null
+): CanonicalTreeEntry[] {
+  const root = data[rootId]
+
+  if (!root?.children?.length) {
+    return []
+  }
+
+  const entries: CanonicalTreeEntry[] = []
+
+  const visit = (itemId: string, parentCanonicalPath = "") => {
+    const item = data[itemId]
+    if (!item) {
+      return
+    }
+
+    const canonicalPath =
+      getCanonicalPathFromItemId(itemId, item, projectPath) ??
+      `${parentCanonicalPath}${item.name}${item.isDirectory ? "/" : ""}`
+    entries.push({
+      absolutePath: itemId,
+      canonicalPath,
+      isDirectory: Boolean(item.isDirectory),
+      name: item.name,
+    })
+
+    if (!item.isDirectory || !item.children?.length) {
+      return
+    }
+
+    for (const childId of item.children) {
+      visit(childId, canonicalPath)
+    }
+  }
+
+  for (const childId of root.children) {
+    visit(childId)
+  }
+
+  return entries
+}
+
+function cssEscape(value: string): string {
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+    return CSS.escape(value)
+  }
+
+  return value.replace(/["\\]/g, "\\$&")
+}
+
+function getFileTreeHost(wrapper: HTMLDivElement | null): HTMLElement | null {
+  return wrapper?.querySelector("file-tree-container") ?? null
+}
+
+function syncExternalDropHighlight(host: HTMLElement | null, hoveredPath: string | null): void {
+  const shadowRoot = host?.shadowRoot
+  if (!shadowRoot) {
+    return
+  }
+
+  shadowRoot
+    .querySelector<HTMLElement>("[data-nucleus-external-drop-target='true']")
+    ?.removeAttribute("data-nucleus-external-drop-target")
+
+  if (!hoveredPath) {
+    return
+  }
+
+  shadowRoot
+    .querySelector<HTMLElement>(`[data-item-path="${cssEscape(hoveredPath)}"]`)
+    ?.setAttribute("data-nucleus-external-drop-target", "true")
+}
+
+function resolveTreeEntryFromCanonicalPath(
+  canonicalPath: string,
+  canonicalEntryMap: Map<string, CanonicalTreeEntry>,
+  data: Record<string, FileTreeItem>,
+  rootId: string
+): ResolvedTreeEntry | null {
+  const directEntry = canonicalEntryMap.get(canonicalPath)
+  if (directEntry) {
+    return directEntry
+  }
+
+  const normalizedSelection = normalizePathSeparators(canonicalPath).replace(/\/+$/, "")
+
+  for (const [itemId, item] of Object.entries(data)) {
+    if (itemId === rootId) {
+      continue
+    }
+
+    const normalizedItemId = normalizePathSeparators(itemId).replace(/\/+$/, "")
+    if (
+      normalizedItemId === normalizedSelection ||
+      normalizedItemId.endsWith(`/${normalizedSelection}`)
+    ) {
+      return {
+        absolutePath: itemId,
+        canonicalPath,
+        isDirectory: Boolean(item.isDirectory),
+        name: item.name,
+      }
+    }
+  }
+
+  return null
 }
 
 export function FileTreeViewer({
   data,
   rootId = "root",
   initialExpanded = [],
-  indent = 16,
+  indent,
   className,
   projectPath,
   onFileClick,
   onExternalDrop,
 }: FileTreeViewerProps) {
-  // Keep a ref to the latest data for the dataLoader callbacks
-  const dataRef = useRef(data)
-  dataRef.current = data
-  const treeContainerRef = useRef<HTMLDivElement | null>(null)
-  const lastLoggedTargetRef = useRef<string | null>(null)
-  const [expandedItems, setExpandedItems] = useState<string[]>(initialExpanded)
-  const [focusedItem, setFocusedItem] = useState<string | null>(null)
-  const [dropTargetDirectory, setDropTargetDirectory] = useState<string | null>(null)
+  const wrapperRef = useRef<HTMLDivElement | null>(null)
+  const previousCanonicalEntriesRef = useRef<CanonicalTreeEntry[]>([])
+  const previousPathsSignatureRef = useRef("")
+  const canonicalEntryMapRef = useRef<Map<string, CanonicalTreeEntry>>(new Map())
+  const dataRef = useRef<Record<string, FileTreeItem>>(data)
+  const onFileClickRef = useRef<FileTreeViewerProps["onFileClick"]>(onFileClick)
   const [isDropActive, setIsDropActive] = useState(false)
+  const [isRootDropTarget, setIsRootDropTarget] = useState(false)
+  const { resolvedAppearance } = useAppearance()
 
-  const sanitizedExpandedItems = useMemo(
+  const canonicalEntries = useMemo(
+    () => buildCanonicalTreeEntries(data, rootId, projectPath),
+    [data, projectPath, rootId]
+  )
+  const canonicalPaths = useMemo(
+    () => canonicalEntries.map((entry) => entry.canonicalPath),
+    [canonicalEntries]
+  )
+  const canonicalEntryMap = useMemo(
+    () => new Map(canonicalEntries.map((entry) => [entry.canonicalPath, entry])),
+    [canonicalEntries]
+  )
+  const canonicalDirectoryMap = useMemo(
     () =>
-      expandedItems.filter((itemId) => {
-        if (itemId === rootId) {
-          return true
-        }
+      new Map(
+        canonicalEntries
+          .filter((entry) => entry.isDirectory)
+          .map((entry) => [entry.canonicalPath, entry.absolutePath] as const)
+      ),
+    [canonicalEntries]
+  )
+  const pathsSignature = useMemo(() => canonicalPaths.join("\n"), [canonicalPaths])
 
-        const item = data[itemId]
-        if (!item) {
+  useEffect(() => {
+    canonicalEntryMapRef.current = canonicalEntryMap
+  }, [canonicalEntryMap])
+
+  useEffect(() => {
+    dataRef.current = data
+  }, [data])
+
+  useEffect(() => {
+    onFileClickRef.current = onFileClick
+  }, [onFileClick])
+
+  const treeModel = useMemo(
+    () =>
+      new PierreTreeModel({
+        flattenEmptyDirectories: false,
+        icons: {
+          colored: true,
+        },
+        paths: canonicalPaths,
+        initialExpansion: "closed",
+        initialExpandedPaths: [],
+        unsafeCSS: TREE_UNSAFE_CSS,
+      }),
+    [canonicalPaths, projectPath]
+  )
+
+  useEffect(() => {
+    return () => {
+      treeModel.cleanUp()
+    }
+  }, [treeModel])
+
+  useEffect(() => {
+    if (previousPathsSignatureRef.current === pathsSignature) {
+      return
+    }
+
+    const nextPathSet = new Set(canonicalPaths)
+    const preservedExpandedPaths = previousCanonicalEntriesRef.current
+      .filter((entry) => {
+        if (!entry.isDirectory || !nextPathSet.has(entry.canonicalPath)) {
           return false
         }
 
-        return item.isDirectory ?? (item.children?.length ?? 0) > 0
-      }),
-    [data, expandedItems, rootId]
-  )
+        const item = treeModel.getItem(entry.canonicalPath)
+        return item?.isDirectory() === true && item.isExpanded()
+      })
+      .map((entry) => entry.canonicalPath)
 
-  const sanitizedFocusedItem = useMemo(() => {
-    if (!focusedItem) {
-      return null
-    }
+    treeModel.resetPaths(canonicalPaths, {
+      initialExpandedPaths:
+        preservedExpandedPaths.length > 0
+          ? preservedExpandedPaths
+          : initialExpanded.filter((itemId) => itemId !== rootId),
+    })
 
-    return data[focusedItem] ? focusedItem : null
-  }, [data, focusedItem])
-
-  useEffect(() => {
-    if (sanitizedExpandedItems.length !== expandedItems.length) {
-      setExpandedItems(sanitizedExpandedItems)
-    }
-  }, [expandedItems.length, sanitizedExpandedItems])
+    previousCanonicalEntriesRef.current = canonicalEntries
+    previousPathsSignatureRef.current = pathsSignature
+  }, [canonicalEntries, canonicalPaths, initialExpanded, pathsSignature, rootId, treeModel])
 
   useEffect(() => {
-    if (focusedItem !== sanitizedFocusedItem) {
-      setFocusedItem(sanitizedFocusedItem)
-    }
-  }, [focusedItem, sanitizedFocusedItem])
+    const wrapper = wrapperRef.current
+    const host = getFileTreeHost(wrapper)
+    const onFileClick = onFileClickRef.current
 
-  const tree = useTree<FileTreeItem>({
-    state: {
-      expandedItems: sanitizedExpandedItems,
-      focusedItem: sanitizedFocusedItem,
-    },
-    setExpandedItems,
-    setFocusedItem,
-    indent,
-    rootItemId: rootId,
-    getItemName: (item) => item.getItemData().name,
-    isItemFolder: (item) =>
-      item.getItemData()?.isDirectory ?? (item.getItemData()?.children?.length ?? 0) > 0,
-    dataLoader: {
-      getItem: (itemId) => dataRef.current[itemId],
-      getChildren: (itemId) => dataRef.current[itemId]?.children ?? [],
-    },
-    features: [syncDataLoaderFeature, hotkeysCoreFeature],
-  })
-
-  // Rebuild tree when data changes
-  useEffect(() => {
-    tree.rebuildTree()
-  }, [data, tree])
-
-  useEffect(() => {
-    setDropTargetDirectory(null)
-    setIsDropActive(false)
-    lastLoggedTargetRef.current = null
-  }, [projectPath])
-
-  const canHandleExternalDrop = Boolean(projectPath && onExternalDrop)
-
-  useEffect(() => {
-    if (!canHandleExternalDrop || !projectPath || !onExternalDrop) {
+    if (!host || !onFileClick) {
       return
     }
 
-    const container = treeContainerRef.current
-    if (!container) {
+    const handleClick = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) {
+        return
+      }
+
+      const rowElement = getRowElementFromEvent(event)
+      const flattenedSegmentPath = getFlattenedSegmentPathFromEvent(event)
+      const canonicalPath =
+        (flattenedSegmentPath?.trim() || rowElement?.dataset.itemPath?.trim() || null)
+
+      if (!canonicalPath) {
+        return
+      }
+
+      const entry = resolveTreeEntryFromCanonicalPath(
+        canonicalPath,
+        canonicalEntryMapRef.current,
+        dataRef.current,
+        rootId
+      )
+
+      if (!entry) {
+        return
+      }
+
+      if (entry.isDirectory) {
+        return
+      }
+
+      onFileClick(entry.absolutePath, entry.name)
+    }
+
+    host.addEventListener("click", handleClick)
+
+    return () => {
+      host.removeEventListener("click", handleClick)
+    }
+  }, [projectPath, rootId, treeModel])
+
+  useEffect(() => {
+    const wrapper = wrapperRef.current
+    const host = getFileTreeHost(wrapper)
+
+    if (!host || !projectPath || !onExternalDrop) {
       return
+    }
+
+    const resetDropState = () => {
+      syncExternalDropHighlight(host, null)
+      setIsDropActive(false)
+      setIsRootDropTarget(false)
     }
 
     const handleDragEnter = (event: DragEvent) => {
@@ -200,33 +441,12 @@ export function FileTreeViewer({
       }
 
       event.preventDefault()
-      if (event.dataTransfer) {
-        event.dataTransfer.dropEffect = "copy"
-      }
+      event.dataTransfer!.dropEffect = "copy"
 
-      const debugInfo = getDropTargetDirectoryFromPoint(
-        container,
-        event.clientX,
-        event.clientY,
-        projectPath
-      )
-
+      const { hoveredPath, canonicalDirectoryPath } = resolveDropTargetFromEvent(event)
+      syncExternalDropHighlight(host, hoveredPath)
       setIsDropActive(true)
-      setDropTargetDirectory(debugInfo.targetDirectory)
-      lastLoggedTargetRef.current = debugInfo.targetDirectory
-
-      console.debug(
-        formatDropDebugMessage("dragenter", {
-          x: event.clientX,
-          y: event.clientY,
-          files: event.dataTransfer?.files.length ?? 0,
-          targetDirectory: debugInfo.targetDirectory,
-          pointedTagName: debugInfo.pointedTagName,
-          pointedClasses: debugInfo.pointedClasses,
-          pointedText: debugInfo.pointedText,
-          matchedDropTarget: debugInfo.matchedDropTarget,
-        })
-      )
+      setIsRootDropTarget(canonicalDirectoryPath == null)
     }
 
     const handleDragOver = (event: DragEvent) => {
@@ -235,38 +455,12 @@ export function FileTreeViewer({
       }
 
       event.preventDefault()
-      if (event.dataTransfer) {
-        event.dataTransfer.dropEffect = "copy"
-      }
+      event.dataTransfer!.dropEffect = "copy"
 
-      const debugInfo = getDropTargetDirectoryFromPoint(
-        container,
-        event.clientX,
-        event.clientY,
-        projectPath
-      )
-
+      const { hoveredPath, canonicalDirectoryPath } = resolveDropTargetFromEvent(event)
+      syncExternalDropHighlight(host, hoveredPath)
       setIsDropActive(true)
-      setDropTargetDirectory(debugInfo.targetDirectory)
-
-      if (lastLoggedTargetRef.current === debugInfo.targetDirectory) {
-        return
-      }
-
-      lastLoggedTargetRef.current = debugInfo.targetDirectory
-
-      console.debug(
-        formatDropDebugMessage("dragover", {
-          x: event.clientX,
-          y: event.clientY,
-          files: event.dataTransfer?.files.length ?? 0,
-          targetDirectory: debugInfo.targetDirectory,
-          pointedTagName: debugInfo.pointedTagName,
-          pointedClasses: debugInfo.pointedClasses,
-          pointedText: debugInfo.pointedText,
-          matchedDropTarget: debugInfo.matchedDropTarget,
-        })
-      )
+      setIsRootDropTarget(canonicalDirectoryPath == null)
     }
 
     const handleDragLeave = (event: DragEvent) => {
@@ -274,22 +468,12 @@ export function FileTreeViewer({
         return
       }
 
-      const pointedElement = document.elementFromPoint(event.clientX, event.clientY)
-      if (pointedElement instanceof Element && container.contains(pointedElement)) {
+      const relatedTarget = document.elementFromPoint(event.clientX, event.clientY)
+      if (relatedTarget instanceof Element && host.contains(relatedTarget)) {
         return
       }
 
-      lastLoggedTargetRef.current = null
-      setIsDropActive(false)
-      setDropTargetDirectory(null)
-
-      console.debug(
-        formatDropDebugMessage("dragleave", {
-          x: event.clientX,
-          y: event.clientY,
-          pointedInsideTree: pointedElement instanceof Element && container.contains(pointedElement),
-        })
-      )
+      resetDropState()
     }
 
     const handleDrop = (event: DragEvent) => {
@@ -300,120 +484,81 @@ export function FileTreeViewer({
       event.preventDefault()
 
       const sourcePaths = extractDroppedPaths(event.dataTransfer?.files ?? new DataTransfer().files)
-      const debugInfo = getDropTargetDirectoryFromPoint(
-        container,
-        event.clientX,
-        event.clientY,
+      const { canonicalDirectoryPath } = resolveDropTargetFromEvent(event)
+      const targetDirectory =
+        (canonicalDirectoryPath ? canonicalDirectoryMap.get(canonicalDirectoryPath) : null) ??
         projectPath
-      )
 
-      lastLoggedTargetRef.current = null
-      setIsDropActive(false)
-      setDropTargetDirectory(null)
-
-      console.debug(
-        formatDropDebugMessage("drop", {
-          x: event.clientX,
-          y: event.clientY,
-          sourcePaths,
-          files: event.dataTransfer?.files.length ?? 0,
-          targetDirectory: debugInfo.targetDirectory,
-          pointedTagName: debugInfo.pointedTagName,
-          pointedClasses: debugInfo.pointedClasses,
-          pointedText: debugInfo.pointedText,
-          matchedDropTarget: debugInfo.matchedDropTarget,
-        })
-      )
+      resetDropState()
 
       if (sourcePaths.length === 0) {
-        console.warn(formatDropDebugMessage("drop-empty", {}))
         return
       }
 
-      void onExternalDrop(sourcePaths, debugInfo.targetDirectory)
+      void onExternalDrop(sourcePaths, targetDirectory)
     }
 
-    container.addEventListener("dragenter", handleDragEnter)
-    container.addEventListener("dragover", handleDragOver)
-    container.addEventListener("dragleave", handleDragLeave)
-    container.addEventListener("drop", handleDrop)
+    host.addEventListener("dragenter", handleDragEnter)
+    host.addEventListener("dragover", handleDragOver)
+    host.addEventListener("dragleave", handleDragLeave)
+    host.addEventListener("drop", handleDrop)
 
     return () => {
-      container.removeEventListener("dragenter", handleDragEnter)
-      container.removeEventListener("dragover", handleDragOver)
-      container.removeEventListener("dragleave", handleDragLeave)
-      container.removeEventListener("drop", handleDrop)
+      host.removeEventListener("dragenter", handleDragEnter)
+      host.removeEventListener("dragover", handleDragOver)
+      host.removeEventListener("dragleave", handleDragLeave)
+      host.removeEventListener("drop", handleDrop)
+      syncExternalDropHighlight(host, null)
     }
-  }, [canHandleExternalDrop, onExternalDrop, projectPath])
+  }, [canonicalDirectoryMap, onExternalDrop, projectPath, treeModel])
+
+  const treeHostStyle = useMemo(
+    () =>
+      ({
+        height: "100%",
+        colorScheme: resolvedAppearance,
+        "--trees-accent-override": "var(--accent)",
+        "--trees-bg-muted-override": "var(--sidebar-item-hover)",
+        "--trees-bg-override": "var(--sidebar)",
+        "--trees-border-color-override": "transparent",
+        "--trees-border-radius-override": "var(--radius-sm)",
+        "--trees-density-override": "0.84",
+        "--trees-fg-muted-override":
+          "color-mix(in srgb, var(--sidebar-foreground) 56%, transparent)",
+        "--trees-fg-override": "var(--sidebar-foreground)",
+        "--trees-focus-ring-color-override": "color-mix(in srgb, var(--ring) 60%, transparent)",
+        "--trees-font-family-override": "inherit",
+        "--trees-font-size-override": "calc(var(--app-text-size, 13px) - 0px)",
+        "--trees-item-margin-x-override": "1px",
+        "--trees-item-padding-x-override": "8px",
+        "--trees-item-row-gap-override": "7px",
+        "--trees-level-gap-override": indent != null ? `${indent}px` : "10px",
+        "--trees-padding-inline-override": "4px",
+        "--trees-scrollbar-thumb-override":
+          "color-mix(in srgb, var(--sidebar-foreground) 18%, transparent)",
+        "--trees-search-bg-override": "var(--card)",
+        "--trees-search-fg-override": "var(--foreground)",
+        "--trees-selected-bg-override": "var(--sidebar-item-active)",
+        "--trees-selected-fg-override": "var(--sidebar-accent-foreground)",
+        width: "100%",
+      }) as React.CSSProperties,
+    [indent, resolvedAppearance]
+  )
 
   return (
     <div
-      ref={treeContainerRef}
+      ref={wrapperRef}
       className={cn(
-        "rounded-xl transition-colors",
-        isDropActive && dropTargetDirectory === projectPath && "bg-sidebar-accent/30",
+        "flex h-full min-h-0 flex-1 flex-col transition-colors",
+        isDropActive && isRootDropTarget && "bg-sidebar-accent/20",
         className
       )}
     >
-      <Tree indent={indent} tree={tree} className="font-pixel">
-        {tree.getItems().map((item) => {
-          const isFolder = item.isFolder()
-          const itemData = item.getItemData()
-          const itemTargetDirectory =
-            projectPath != null
-              ? getDropTargetDirectory(item.getId(), itemData, projectPath)
-              : null
-
-          const handleClick = () => {
-            if (!isFolder && onFileClick) {
-              onFileClick(item.getId(), item.getItemName())
-            }
-          }
-
-          return (
-            <TreeItem
-              key={item.getId()}
-              item={item}
-            >
-              <TreeItemLabel
-                data-drop-target-directory={itemTargetDirectory ?? undefined}
-                className={cn(
-                  "before:bg-sidebar relative px-1.5 py-1 before:absolute before:inset-x-0 before:-inset-y-0.5 before:-z-10",
-                  dropTargetDirectory === itemTargetDirectory && "bg-sidebar-accent text-sidebar-accent-foreground"
-                )}
-                onClick={handleClick}
-              >
-                <span className="flex w-full min-w-0 items-center gap-1.5 overflow-hidden">
-                  {isFolder ? (
-                    item.isExpanded() ? (
-                      <DefaultFolderOpenedIcon
-                        aria-hidden="true"
-                        className="pointer-events-none size-3.5 shrink-0"
-                      />
-                    ) : (
-                      <FolderIcon
-                        aria-hidden="true"
-                        className="pointer-events-none size-3.5 shrink-0"
-                        folderName={item.getItemName()}
-                      />
-                    )
-                  ) : (
-                    <FileIcon
-                      aria-hidden="true"
-                      autoAssign
-                      className="pointer-events-none size-3.5 shrink-0"
-                      fileName={item.getItemName()}
-                    />
-                  )}
-                  <span className="min-w-0 flex-1 truncate" title={item.getItemName()}>
-                    {item.getItemName()}
-                  </span>
-                </span>
-              </TreeItemLabel>
-            </TreeItem>
-          )
-        })}
-      </Tree>
+      <PierreFileTree
+        key={projectPath ?? "file-tree"}
+        model={treeModel}
+        style={treeHostStyle}
+      />
     </div>
   )
 }

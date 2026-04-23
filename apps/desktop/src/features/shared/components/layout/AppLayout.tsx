@@ -1,5 +1,4 @@
 import { useState } from "react"
-import { motion } from "framer-motion"
 import { LeftSidebar } from "./LeftSidebar"
 import { MainContent } from "./MainContent"
 import { RightSidebar } from "./RightSidebar"
@@ -12,6 +11,7 @@ import { UpdateBlockedDialog } from "@/features/updates/components/UpdateBlocked
 import { UpdateReadyToast } from "@/features/updates/components/UpdateReadyToast"
 import { HarnessBootstrap } from "@/features/chat/components/HarnessBootstrap"
 import {
+  LEFT_SIDEBAR_WIDTH_CSS_VAR,
   MIN_MAIN_CONTENT_WIDTH,
   SIDEBAR_CLOSE_DURATION_S,
   SIDEBAR_OPEN_DURATION_S,
@@ -34,10 +34,11 @@ function AppLayoutFrame({
   onSelectSettingsSection: (section: SettingsSectionId) => void
 }) {
   const { isCollapsed, width } = useSidebar()
-  const leftSidebarWidth = isCollapsed ? 0 : width
-  const mainContentShiftTransition = isCollapsed
-    ? { duration: SIDEBAR_CLOSE_DURATION_S, ease: [0.23, 1, 0.32, 1] as const }
-    : { duration: SIDEBAR_OPEN_DURATION_S, ease: [0.22, 1, 0.36, 1] as const }
+  const leftSidebarWidth = isCollapsed ? "0px" : `var(${LEFT_SIDEBAR_WIDTH_CSS_VAR}, ${width}px)`
+  const transitionDuration = isCollapsed ? `${SIDEBAR_CLOSE_DURATION_S}s` : `${SIDEBAR_OPEN_DURATION_S}s`
+  const transitionTiming = isCollapsed
+    ? "cubic-bezier(0.23, 1, 0.32, 1)"
+    : "cubic-bezier(0.22, 1, 0.36, 1)"
 
   return (
     <div
@@ -49,11 +50,13 @@ function AppLayoutFrame({
       </div>
 
       <div className="relative min-h-0 min-w-0 overflow-hidden" style={{ gridRow: 2 }}>
-        <motion.div
-          initial={false}
-          animate={{ width: leftSidebarWidth }}
-          transition={mainContentShiftTransition}
-          className="absolute inset-y-0 left-0 z-10 min-h-0 min-w-0 overflow-hidden"
+        <div
+          className="sidebar-resize-transition absolute inset-y-0 left-0 z-20 min-h-0 min-w-0 overflow-hidden"
+          style={{
+            width: leftSidebarWidth,
+            "--sidebar-resize-duration": transitionDuration,
+            "--sidebar-resize-easing": transitionTiming,
+          }}
         >
           <LeftSidebar
             activeView={activeView}
@@ -63,13 +66,15 @@ function AppLayoutFrame({
             onOpenSettings={onOpenSettings}
             onSelectSettingsSection={onSelectSettingsSection}
           />
-        </motion.div>
+        </div>
 
-        <motion.div
-          initial={false}
-          animate={{ left: leftSidebarWidth }}
-          transition={mainContentShiftTransition}
-          className="absolute inset-y-0 right-0 flex min-h-0 min-w-0 overflow-hidden"
+        <div
+          className="sidebar-resize-transition absolute inset-y-0 right-0 z-0 flex min-h-0 min-w-0 overflow-hidden"
+          style={{
+            left: leftSidebarWidth,
+            "--sidebar-resize-duration": transitionDuration,
+            "--sidebar-resize-easing": transitionTiming,
+          }}
         >
           <div className="flex flex-1 flex-col" style={{ minWidth: `${MIN_MAIN_CONTENT_WIDTH}px` }}>
             <MainContent
@@ -79,7 +84,7 @@ function AppLayoutFrame({
             />
           </div>
           <RightSidebar activeView={activeView} />
-        </motion.div>
+        </div>
       </div>
     </div>
   )

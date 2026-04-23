@@ -135,7 +135,10 @@ async function runGitCommandRaw(
     })
     return stdout
   } catch (error) {
-    const execError = error as Error & { stderr?: string }
+    const execError = error as Error & { stderr?: string; code?: string }
+    if (execError.code === "ENOENT" || /spawn git\b.*enoent/i.test(execError.message)) {
+      throw new Error("Git is not installed on this machine.")
+    }
     const stderr = execError.stderr?.trim()
     throw new Error(stderr || `git ${args.join(" ")} failed`)
   }
@@ -165,6 +168,43 @@ async function runGhCommand(projectPath: string, args: string[]): Promise<string
     }
     wrappedError.code = execError.code
     throw wrappedError
+  }
+}
+
+function isMissingGitError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : ""
+  return message.includes("git is not installed on this machine") || message.includes("spawn git")
+}
+
+function isNotGitRepositoryError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : ""
+  return message.includes("not a git repository")
+}
+
+function createGitStatusResponse(options: {
+  isGitAvailable: boolean
+  isRepo: boolean
+}): GitBranchesResponse {
+  return {
+    isGitAvailable: options.isGitAvailable,
+    isRepo: options.isRepo,
+    currentBranch: "",
+    upstreamBranch: null,
+    branches: [],
+    remoteNames: [],
+    workingTreeSummary: {
+      changedFiles: 0,
+      additions: 0,
+      deletions: 0,
+    },
+    aheadCount: 0,
+    behindCount: 0,
+    hasOriginRemote: false,
+    hasUpstream: false,
+    defaultBranch: null,
+    isDefaultBranch: false,
+    isDetached: false,
+    openPullRequest: null,
   }
 }
 
@@ -325,7 +365,15 @@ function parseGitWorktreeEntries(
 
 async function listGitWorktrees(projectPath: string): Promise<GitWorktreeSummary[]> {
   const trimmedPath = ensureGitProjectPath(projectPath)
-  await runGitCommand(trimmedPath, ["rev-parse", "--show-toplevel"])
+  try {
+    await runGitCommand(trimmedPath, ["rev-parse", "--show-toplevel"])
+  } catch (error) {
+    if (isMissingGitError(error) || isNotGitRepositoryError(error)) {
+      return []
+    }
+
+    throw error
+  }
   const output = await runGitCommandRaw(trimmedPath, ["worktree", "list", "--porcelain"])
   return parseGitWorktreeEntries(output, trimmedPath)
 }
@@ -598,6 +646,33 @@ async function readHeadFile(repoRoot: string, repoRelativePath: string): Promise
   }
 }
 
+async function readGitDiffPatch(
+  projectPath: string,
+  repoRelativePaths: string[],
+  hasHead: boolean
+): Promise<string | null> {
+  if (repoRelativePaths.length === 0) {
+    return null
+  }
+
+  const args = hasHead
+    ? withSpecificPathspecs(
+        ["diff", "--no-ext-diff", "--find-renames", "--unified=3", "HEAD"],
+        repoRelativePaths
+      )
+    : withSpecificPathspecs(
+        ["diff", "--no-ext-diff", "--find-renames", "--unified=3", "--cached"],
+        repoRelativePaths
+      )
+
+  try {
+    const patch = await runGitCommand(projectPath, args)
+    return patch.trim() ? patch : null
+  } catch {
+    return null
+  }
+}
+
 async function getChangedFiles(projectPath: string): Promise<GitFileChange[]> {
   const { repoRoot, scopePath } = await getRepoContext(projectPath)
   const statusOutput = await runGitCommand(
@@ -659,6 +734,13 @@ async function getFileDiff(
 
   const modified = await readWorkingTreeFile(repoRoot, repoRelativePath)
   const original = hasHead ? await readHeadFile(repoRoot, previousRepoRelativePath) : ""
+  const patch = await readGitDiffPatch(
+    projectPath,
+    previousPath && previousRepoRelativePath !== repoRelativePath
+      ? [previousRepoRelativePath, repoRelativePath]
+      : [repoRelativePath],
+    hasHead
+  )
 
   let status: GitFileStatus = "modified"
 
@@ -678,6 +760,7 @@ async function getFileDiff(
     status,
     original,
     modified,
+    patch,
   }
 }
 
@@ -1942,7 +2025,25 @@ async function getPullRequestForBranch(
 
 async function getGitBranchesResponse(projectPath: string): Promise<GitBranchesResponse> {
   const trimmedPath = ensureGitProjectPath(projectPath)
-  await runGitCommand(trimmedPath, ["rev-parse", "--show-toplevel"])
+  try {
+    await runGitCommand(trimmedPath, ["rev-parse", "--show-toplevel"])
+  } catch (error) {
+    if (isMissingGitError(error)) {
+      return createGitStatusResponse({
+        isGitAvailable: false,
+        isRepo: false,
+      })
+    }
+
+    if (isNotGitRepositoryError(error)) {
+      return createGitStatusResponse({
+        isGitAvailable: true,
+        isRepo: false,
+      })
+    }
+
+    throw error
+  }
 
   let currentBranch = await runGitCommand(trimmedPath, ["branch", "--show-current"])
   let isDetached = false
@@ -1962,6 +2063,8 @@ async function getGitBranchesResponse(projectPath: string): Promise<GitBranchesR
   const openPullRequest = isDetached ? null : await getPullRequestForBranch(trimmedPath, currentBranch)
 
   return {
+    isGitAvailable: true,
+    isRepo: true,
     currentBranch,
     upstreamBranch,
     branches,
@@ -2610,7 +2713,10 @@ export class GitService {
 
   async getChanges(projectPath: string): Promise<GitFileChange[]> {
     const trimmedPath = ensureGitProjectPath(projectPath)
-    await runGitCommand(trimmedPath, ["rev-parse", "--show-toplevel"])
+    const branchData = await getGitBranchesResponse(trimmedPath)
+    if (!branchData.isGitAvailable || !branchData.isRepo) {
+      return []
+    }
     return getChangedFiles(trimmedPath)
   }
 
@@ -2654,6 +2760,12 @@ export class GitService {
 
   async listWorktrees(projectPath: string): Promise<GitWorktreeSummary[]> {
     return listGitWorktrees(projectPath)
+  }
+
+  async initRepo(projectPath: string): Promise<GitBranchesResponse> {
+    const trimmedPath = ensureGitProjectPath(projectPath)
+    await runGitCommand(trimmedPath, ["init"])
+    return getGitBranchesResponse(trimmedPath)
   }
 
   async createWorktree(

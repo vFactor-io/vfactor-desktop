@@ -10,6 +10,7 @@ export interface RightSidebarContextValue {
   toggle: () => void
   expand: () => void
   collapse: () => void
+  clampWidth: (width: number) => number
   setWidth: (width: number) => void
   persistWidth: () => void
   setActiveTab: (tab: RightSidebarTab) => void

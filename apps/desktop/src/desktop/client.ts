@@ -244,6 +244,7 @@ export const desktop = {
       )
     },
     listWorktrees: (projectPath: string) => window.nucleus.git.listWorktrees(projectPath),
+    initRepo: (projectPath: string) => window.nucleus.git.initRepo(projectPath),
     createWorktree: (projectPath: string, input: GitCreateWorktreeInput) =>
       window.nucleus.git.createWorktree(projectPath, input),
     removeWorktree: (projectPath: string, input: GitRemoveWorktreeInput) =>

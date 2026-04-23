@@ -16,6 +16,9 @@ const desktopStore = {
 
 mock.module("@/desktop/client", () => ({
   desktop: {
+    app: {
+      syncWindowTheme: async () => {},
+    },
     fs: {
       exists: async () => true,
       homeDir: async () => "/Users/tester",
@@ -38,6 +41,7 @@ function resetSettingsStore() {
   useSettingsStore.setState({
     appearanceThemeId: "system",
     appearanceTextSizePx: 13,
+    terminalLinkTarget: "in-app",
     gitGenerationModel: "",
     gitResolvePrompts: {
       conflicts: "conflicts",
@@ -102,11 +106,13 @@ describe("settingsStore resolve prompts", () => {
   test("initializes appearance settings from persisted values", async () => {
     storeData.set("appearanceThemeId", "dracula")
     storeData.set("appearanceTextSizePx", 16)
+    storeData.set("terminalLinkTarget", "system-browser")
 
     await useSettingsStore.getState().initialize()
 
     expect(useSettingsStore.getState().appearanceThemeId).toBe("dracula")
     expect(useSettingsStore.getState().appearanceTextSizePx).toBe(16)
+    expect(useSettingsStore.getState().terminalLinkTarget).toBe("system-browser")
   })
 
   test("persists appearance settings after edits", async () => {
@@ -114,11 +120,13 @@ describe("settingsStore resolve prompts", () => {
 
     useSettingsStore.getState().setAppearanceThemeId("nord")
     useSettingsStore.getState().setAppearanceTextSizePx(12)
+    useSettingsStore.getState().setTerminalLinkTarget("system-browser")
 
     await Bun.sleep(350)
 
     expect(storeData.get("appearanceThemeId")).toBe("nord")
     expect(storeData.get("appearanceTextSizePx")).toBe(12)
+    expect(storeData.get("terminalLinkTarget")).toBe("system-browser")
   })
 
   test("reset methods restore default appearance settings", async () => {
@@ -130,12 +138,15 @@ describe("settingsStore resolve prompts", () => {
 
     useSettingsStore.getState().resetAppearanceThemeId()
     useSettingsStore.getState().resetAppearanceTextSizePx()
+    useSettingsStore.getState().resetTerminalLinkTarget()
     await Bun.sleep(350)
 
     expect(storeData.get("appearanceThemeId")).toBe("system")
     expect(storeData.get("appearanceTextSizePx")).toBe(13)
+    expect(storeData.get("terminalLinkTarget")).toBe("in-app")
     expect(useSettingsStore.getState().appearanceThemeId).toBe("system")
     expect(useSettingsStore.getState().appearanceTextSizePx).toBe(13)
+    expect(useSettingsStore.getState().terminalLinkTarget).toBe("in-app")
   })
 
   test("persists Codex defaults after edits", async () => {

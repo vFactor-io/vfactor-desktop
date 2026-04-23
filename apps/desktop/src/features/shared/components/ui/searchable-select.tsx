@@ -1,4 +1,5 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
+import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import { CaretDown, CheckCircle, MagnifyingGlass } from "@/components/icons"
 import { cn } from "@/lib/utils"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "./input-group"
@@ -95,8 +96,11 @@ export function SearchableSelect<T extends SearchableSelectOption = SearchableSe
   const isOpen = isControlled ? (openProp ?? false) : internalOpen
 
   const [searchQuery, setSearchQuery] = useState("")
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
   const dropdownRef = useRef<HTMLDivElement | null>(null)
   const searchInputRef = useRef<HTMLInputElement | null>(null)
+  const [dropdownStyle, setDropdownStyle] = useState<CSSProperties | null>(null)
+  const [dropdownSide, setDropdownSide] = useState<"top" | "bottom">("bottom")
 
   const updateOpen = (next: boolean) => {
     if (!isControlled) setInternalOpen(next)
@@ -114,7 +118,11 @@ export function SearchableSelect<T extends SearchableSelectOption = SearchableSe
 
     const handlePointerDown = (event: PointerEvent) => {
       if (busy) return
-      if (!dropdownRef.current?.contains(event.target as Node)) {
+      const target = event.target as Node
+      if (
+        !dropdownRef.current?.contains(target) &&
+        !triggerRef.current?.contains(target)
+      ) {
         updateOpen(false)
       }
     }
@@ -139,6 +147,55 @@ export function SearchableSelect<T extends SearchableSelectOption = SearchableSe
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, busy])
+
+  useEffect(() => {
+    if (!isOpen) return
+
+    const updatePosition = () => {
+      const trigger = triggerRef.current
+      if (!trigger) return
+
+      const rect = trigger.getBoundingClientRect()
+      const viewportHeight = window.innerHeight
+      const viewportWidth = window.innerWidth
+      const margin = 8
+      const sideOffset = 6
+      const estimatedHeight = 320
+      const spaceBelow = viewportHeight - rect.bottom - margin
+      const spaceAbove = rect.top - margin
+      const openAbove = spaceBelow < estimatedHeight && spaceAbove > spaceBelow
+
+      const nextWidth =
+        triggerVariant === "input" ? rect.width : Math.max(rect.width, 200)
+      const nextMaxWidth = Math.max(0, viewportWidth - margin * 2)
+      const clampedWidth = Math.min(nextWidth, nextMaxWidth)
+      const left = Math.min(
+        Math.max(margin, rect.left),
+        Math.max(margin, viewportWidth - clampedWidth - margin),
+      )
+      const availableHeight = openAbove ? spaceAbove : spaceBelow
+
+      setDropdownSide(openAbove ? "top" : "bottom")
+      setDropdownStyle({
+        position: "fixed",
+        top: openAbove ? rect.top - sideOffset : rect.bottom + sideOffset,
+        left,
+        transform: openAbove ? "translateY(-100%)" : undefined,
+        width: clampedWidth,
+        maxHeight: Math.max(160, availableHeight),
+      })
+    }
+
+    updatePosition()
+
+    window.addEventListener("resize", updatePosition)
+    window.addEventListener("scroll", updatePosition, true)
+
+    return () => {
+      window.removeEventListener("resize", updatePosition)
+      window.removeEventListener("scroll", updatePosition, true)
+    }
+  }, [isOpen, triggerVariant])
 
   const filteredOptions = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
@@ -183,8 +240,9 @@ export function SearchableSelect<T extends SearchableSelectOption = SearchableSe
   }
 
   return (
-    <div ref={dropdownRef} className={cn("relative", className)}>
+    <div className={cn("relative", className)}>
       <button
+        ref={triggerRef}
         type="button"
         onClick={handleToggle}
         disabled={disabled}
@@ -209,94 +267,101 @@ export function SearchableSelect<T extends SearchableSelectOption = SearchableSe
         <CaretDown size={14} className="shrink-0 text-muted-foreground" />
       </button>
 
-      {isOpen ? (
-        <div
-          className={cn(
-            "absolute top-[calc(100%+6px)] left-0 z-50 flex min-w-[200px] flex-col overflow-hidden rounded-xl border border-sidebar-border bg-popover shadow-md ring-1 ring-foreground/10",
-            triggerVariant === "input" && "w-full",
-            dropdownClassName,
-          )}
-        >
-          <div className="border-b border-sidebar-border p-2">
-            <InputGroup className="h-8 rounded-lg border-input/80 bg-input/30">
-              <InputGroupAddon className="pl-2 text-muted-foreground">
-                <MagnifyingGlass size={16} />
-              </InputGroupAddon>
-              <InputGroupInput
-                ref={searchInputRef}
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder={searchPlaceholder}
-                className="h-full px-0 text-sm"
-                disabled={busy}
-              />
-            </InputGroup>
-          </div>
+      {isOpen && dropdownStyle
+        ? createPortal(
+            <div
+              ref={dropdownRef}
+              data-side={dropdownSide}
+              style={dropdownStyle}
+              className={cn(
+                "isolate z-50 flex min-w-[200px] flex-col overflow-hidden rounded-xl border border-sidebar-border bg-popover shadow-md ring-1 ring-foreground/10",
+                "data-[side=bottom]:animate-in data-[side=bottom]:fade-in-0 data-[side=bottom]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2",
+                "data-[side=top]:animate-in data-[side=top]:fade-in-0 data-[side=top]:zoom-in-95 data-[side=top]:slide-in-from-bottom-2",
+                dropdownClassName,
+              )}
+            >
+              <div className="border-b border-sidebar-border p-2">
+                <InputGroup className="h-8 rounded-lg border-input/80 bg-input/30">
+                  <InputGroupAddon className="pl-2 text-muted-foreground">
+                    <MagnifyingGlass size={16} />
+                  </InputGroupAddon>
+                  <InputGroupInput
+                    ref={searchInputRef}
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.target.value)}
+                    placeholder={searchPlaceholder}
+                    className="h-full px-0 text-sm"
+                    disabled={busy}
+                  />
+                </InputGroup>
+              </div>
 
-          {sectionLabel ? (
-            <div className="px-3 pt-3 pb-1 text-sm font-medium text-muted-foreground">
-              {sectionLabel}
-            </div>
-          ) : null}
+              {sectionLabel ? (
+                <div className="px-3 pt-3 pb-1 text-sm font-medium text-muted-foreground">
+                  {sectionLabel}
+                </div>
+              ) : null}
 
-          <div className="max-h-72 overflow-y-auto p-1">
-            {filteredOptions.length > 0 ? (
-              <div className="space-y-0.5">
-                {filteredOptions.map((option) => {
-                  const isSelected = option.value === value
+              <div className="max-h-72 overflow-y-auto p-1">
+                {filteredOptions.length > 0 ? (
+                  <div className="space-y-0.5">
+                    {filteredOptions.map((option) => {
+                      const isSelected = option.value === value
 
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => handleSelect(option.value)}
-                      disabled={busy}
-                      className={cn(
-                        "group flex w-full items-start justify-between gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-accent hover:text-accent-foreground",
-                        isSelected ? "text-foreground" : "text-foreground/92",
-                        busy && "opacity-80",
-                      )}
-                    >
-                      <span className="min-w-0 flex-1">
-                        {renderOption ? (
-                          renderOption(option, { isSelected })
-                        ) : (
-                          <span className="block truncate text-sm font-medium">
-                            {option.label}
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => handleSelect(option.value)}
+                          disabled={busy}
+                          className={cn(
+                            "group flex w-full items-start justify-between gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-accent hover:text-accent-foreground",
+                            isSelected ? "text-foreground" : "text-foreground/92",
+                            busy && "opacity-80",
+                          )}
+                        >
+                          <span className="min-w-0 flex-1">
+                            {renderOption ? (
+                              renderOption(option, { isSelected })
+                            ) : (
+                              <span className="block truncate text-sm font-medium">
+                                {option.label}
+                              </span>
+                            )}
                           </span>
-                        )}
-                      </span>
-                      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center text-foreground">
-                        {(renderIndicator ?? defaultIndicator)(option, { isSelected })}
-                      </span>
-                    </button>
-                  )
-                })}
+                          <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center text-foreground">
+                            {(renderIndicator ?? defaultIndicator)(option, { isSelected })}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <div className="px-3 py-4 text-center text-sm text-muted-foreground">
+                    {emptyMessage}
+                  </div>
+                )}
               </div>
-            ) : (
-              <div className="px-3 py-4 text-center text-sm text-muted-foreground">
-                {emptyMessage}
-              </div>
-            )}
-          </div>
 
-          {errorMessage ? (
-            <div className="border-t border-sidebar-border px-3 py-2 text-sm text-[color:var(--color-destructive)]">
-              {errorMessage}
-            </div>
-          ) : statusMessage ? (
-            <div className="border-t border-sidebar-border px-3 py-2 text-sm text-muted-foreground">
-              {statusMessage}
-            </div>
-          ) : null}
+              {errorMessage ? (
+                <div className="border-t border-sidebar-border px-3 py-2 text-sm text-[color:var(--color-destructive)]">
+                  {errorMessage}
+                </div>
+              ) : statusMessage ? (
+                <div className="border-t border-sidebar-border px-3 py-2 text-sm text-muted-foreground">
+                  {statusMessage}
+                </div>
+              ) : null}
 
-          {footer ? (
-            <div className="sticky bottom-0 border-t border-sidebar-border bg-popover p-1">
-              {footer}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+              {footer ? (
+                <div className="sticky bottom-0 border-t border-sidebar-border bg-popover p-1">
+                  {footer}
+                </div>
+              ) : null}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   )
 }

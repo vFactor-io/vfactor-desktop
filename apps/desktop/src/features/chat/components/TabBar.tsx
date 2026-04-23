@@ -272,19 +272,19 @@ export function TabBar({ tabs, activeTabId, onTabChange, onTabClose }: TabBarPro
           <DropdownMenuContent
             align="end"
             sideOffset={8}
-            className="w-[180px] border border-border/70 bg-card p-1 shadow-lg"
+            className="w-40 border border-border/70 bg-card p-0.5 shadow-lg"
           >
             <DropdownMenuItem
               onClick={handleCreateChatTab}
               disabled={!selectedWorktreePath}
-              className="min-h-8 gap-2 px-2 py-1"
+              className="min-h-7 gap-1.5 px-1.5 py-0.5"
             >
               <ChatCircle size={14} />
               <span>New chat</span>
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={handleCreateTerminalTab}
-              className="min-h-8 gap-2 px-2 py-1"
+              className="min-h-7 gap-1.5 px-1.5 py-0.5"
             >
               <Terminal size={14} />
               <span>New terminal</span>

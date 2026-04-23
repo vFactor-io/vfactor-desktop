@@ -8,7 +8,7 @@ interface Props {
 
 const {
   title = "Nucleus",
-  description = "Your open-source desktop AI co-worker.",
+  description = "The open-source desktop environment for agentic software development. Multi-agent, project-scoped, and fully local.",
 } = Astro.props
 ---
 
@@ -20,6 +20,9 @@ const {
     <title>{title}</title>
     <meta name="description" content={description} />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
   </head>
   <body>
     <slot />

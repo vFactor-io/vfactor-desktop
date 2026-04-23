@@ -9,9 +9,20 @@ interface DiffViewerProps {
   original: string
   modified: string
   modelKey?: string
+  renderSideBySide?: boolean
+  fontSize?: number
+  paddingTop?: number
 }
 
-export function DiffViewer({ filename, original, modified, modelKey }: DiffViewerProps) {
+export function DiffViewer({
+  filename,
+  original,
+  modified,
+  modelKey,
+  renderSideBySide = true,
+  fontSize = 13,
+  paddingTop = 16,
+}: DiffViewerProps) {
   const language = getLanguageFromFilename(filename)
   const { monacoThemeId } = useAppearance()
   const editorRef = useRef<editor.IStandaloneDiffEditor | null>(null)
@@ -52,12 +63,12 @@ export function DiffViewer({ filename, original, modified, modelKey }: DiffViewe
       options={{
         readOnly: true,
         minimap: { enabled: false },
-        fontSize: 13,
+        fontSize,
         lineNumbers: "on",
         scrollBeyondLastLine: false,
         wordWrap: "on",
-        padding: { top: 16 },
-        renderSideBySide: true,
+        padding: { top: paddingTop },
+        renderSideBySide,
       }}
     />
   )

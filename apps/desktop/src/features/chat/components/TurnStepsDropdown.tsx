@@ -116,7 +116,7 @@ export function TurnStepsDropdown({
   return (
     <div className={cn("w-full", className)}>
       <MessageComponent from="assistant">
-        <MessageContent>
+        <MessageContent className="gap-0">
           <button
             ref={buttonRef}
             type="button"
@@ -127,13 +127,10 @@ export function TurnStepsDropdown({
             className="inline-flex items-center gap-2 text-left text-sm leading-5 text-muted-foreground hover:text-foreground/80"
             aria-expanded={isOpen}
           >
-            <span className="shrink-0 text-muted-foreground/70">
-              {isOpen ? <CaretDown size={14} /> : <CaretRight size={14} />}
-            </span>
             <span>{summary}</span>
             {!isOpen && summaryToolIcons.length > 0 ? (
               <span
-                className="inline-flex items-center gap-1.5 text-muted-foreground/72"
+                className="inline-flex items-center gap-1.5 text-[var(--color-chat-file-accent)]"
                 aria-label="Included tools"
               >
                 {summaryToolIcons.map((IconComponent, index) => (
@@ -145,10 +142,13 @@ export function TurnStepsDropdown({
                 ))}
               </span>
             ) : null}
+            <span className="shrink-0 text-muted-foreground/70">
+              {isOpen ? <CaretDown size={14} /> : <CaretRight size={14} />}
+            </span>
           </button>
 
           {isOpen ? (
-            <div className="mt-3 space-y-3 border-l border-border/60 pl-4">
+            <div className="mt-5 space-y-3">
               {messages.map((message) => (
                 <ChatTimelineItem
                   key={message.info.id}

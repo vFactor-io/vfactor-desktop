@@ -2132,11 +2132,11 @@ export function ChatInput({
 
           <div
             className={cn(
-              "relative px-4 pt-3 pb-3"
+              "relative px-4 pt-2.5 pb-2.5"
             )}
           >
             {isComposerLocked ? (
-              <div className="flex items-center gap-3 py-2 px-1">
+              <div className="flex items-center gap-3 px-1 py-1.5">
                 <Loader size={14} className="text-muted-foreground" />
                 <span className="text-sm text-muted-foreground">Setting up workspace…</span>
               </div>
@@ -2185,7 +2185,7 @@ export function ChatInput({
                 />
 
                 {!isComposerFocused ? (
-                  <div className="pointer-events-none absolute top-3 right-4 z-10 text-sm leading-5 text-muted-foreground/58">
+                  <div className="pointer-events-none absolute top-2.5 right-4 z-10 text-sm leading-5 text-muted-foreground/58">
                     <span className="text-foreground/84">{focusChatInputHint}</span>
                     <span className="text-muted-foreground/58"> to focus</span>
                   </div>
@@ -2234,13 +2234,13 @@ export function ChatInput({
             )}
 
             {!isPromptActive && !isComposerLocked && uploadError ? (
-              <div className={cn(feedbackSurfaceClassName("destructive"), "mt-3 rounded-lg px-3 py-2 text-sm")}>
+              <div className={cn(feedbackSurfaceClassName("destructive"), "mt-2.5 rounded-lg px-3 py-2 text-sm")}>
                 {uploadError}
               </div>
             ) : null}
 
             {!isPromptActive && !isComposerLocked && (
-              <div className="mt-2 flex items-center gap-2">
+              <div className="mt-1.5 flex items-center gap-2">
                 {selectorsRow && (
                   <DropdownMenu>
                     <Tooltip>
@@ -2248,7 +2248,7 @@ export function ChatInput({
                         <DropdownMenuTrigger
                           aria-label="Open composer actions"
                           className={cn(
-                            "inline-flex h-8 w-7 items-center justify-center text-muted-foreground transition-colors cursor-pointer",
+                            "inline-flex h-7 w-7 items-center justify-center text-muted-foreground transition-colors cursor-pointer",
                             "hover:text-foreground",
                             (fastMode || isPlanModeEnabled) && "text-foreground"
                           )}
@@ -2306,7 +2306,7 @@ export function ChatInput({
 
                 {selectorsRow && <DropdownMenu>
               <DropdownMenuTrigger
-                className="inline-flex h-8 items-center gap-2 px-1 text-sm text-muted-foreground transition-colors hover:text-foreground cursor-pointer"
+                className="inline-flex h-7 items-center gap-2 px-1 text-sm text-muted-foreground transition-colors hover:text-foreground cursor-pointer"
                 aria-label={selectedModelLabel}
                 title={selectedModelLabel}
               >
@@ -2416,7 +2416,7 @@ export function ChatInput({
               </DropdownMenu>}
 
               {selectorsRow && <DropdownMenu>
-              <DropdownMenuTrigger className="inline-flex h-8 items-center gap-2 px-1 text-sm text-muted-foreground transition-colors hover:text-foreground cursor-pointer">
+              <DropdownMenuTrigger className="inline-flex h-7 items-center gap-2 px-1 text-sm text-muted-foreground transition-colors hover:text-foreground cursor-pointer">
                 <span>{reasoningEffortLabel}</span>
                 <CaretDown className="size-3 text-muted-foreground" />
               </DropdownMenuTrigger>
@@ -2445,18 +2445,18 @@ export function ChatInput({
                   <button
                     type="submit"
                     disabled={!canSubmit && !showSlashMenu && !showAtMenu}
-                    className="flex size-8 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-40"
+                    className="flex size-7 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-40"
                   >
-                    <ArrowUp02 weight="bold" className="size-4" />
+                    <ArrowUp02 weight="bold" className="size-3.5" />
                   </button>
                 ) : (
                   <button
                     type="button"
                     onClick={onAbort}
                     disabled={!onAbort}
-                    className="flex size-8 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-40"
+                    className="flex size-7 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-40"
                   >
-                    <Stop weight="fill" className="size-4" />
+                    <Stop weight="fill" className="size-3.5" />
                   </button>
                 )}
               </div>

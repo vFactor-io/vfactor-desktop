@@ -263,12 +263,13 @@ function createWindow(): BrowserWindow {
   }
 
   if (process.env.ELECTRON_RENDERER_URL) {
-    window.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+    window.webContents.on("console-message", (event) => {
+      const { level, message, lineNumber, sourceId } = event
       if (!message.includes("[file-tree-drop]")) {
         return
       }
 
-      console.log(`[renderer:${level}] ${message} (${sourceId}:${line})`)
+      console.log(`[renderer:${level}] ${message} (${sourceId}:${lineNumber})`)
     })
 
     window.webContents.once("did-finish-load", () => {
@@ -419,6 +420,9 @@ function registerIpcHandlers(storeService: JsonStoreService): void {
   )
   ipcMain.handle(IPC_CHANNELS.gitListWorktrees, (_event, projectPath: string) =>
     gitService.listWorktrees(projectPath)
+  )
+  ipcMain.handle(IPC_CHANNELS.gitInitRepo, (_event, projectPath: string) =>
+    gitService.initRepo(projectPath)
   )
   ipcMain.handle(
     IPC_CHANNELS.gitCreateWorktree,

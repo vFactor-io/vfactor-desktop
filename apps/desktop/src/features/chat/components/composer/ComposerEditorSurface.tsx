@@ -62,11 +62,11 @@ export function ComposerEditorSurface({
             onBlur={onBlur}
             aria-placeholder={placeholder}
             placeholder={<></>}
-            className="app-scrollbar w-full min-h-[58px] max-h-[328px] overflow-y-auto bg-transparent text-sm leading-5 text-foreground outline-none"
+            className="app-scrollbar w-full min-h-[46px] max-h-[288px] overflow-y-auto bg-transparent text-sm leading-5 text-foreground outline-none"
           />
         }
         placeholder={
-          <div className="pointer-events-none absolute top-[14px] left-4 text-sm leading-5 text-muted-foreground/75">
+          <div className="pointer-events-none absolute top-[10px] left-4 text-sm leading-5 text-muted-foreground/75">
             {placeholder}
           </div>
         }

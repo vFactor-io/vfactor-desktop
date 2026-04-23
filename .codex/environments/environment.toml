@@ -12,3 +12,8 @@ command = '''
 bun install
 bun run dev
 '''
+
+[[actions]]
+name = "Marketing Site"
+icon = "run"
+command = "bun run site:dev"

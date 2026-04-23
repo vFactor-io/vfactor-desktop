@@ -28,11 +28,18 @@ export function BranchTargetSelector({
     return null
   }
 
-  const currentBranch = branchData?.currentBranch ?? "Loading branch..."
+  const currentBranch = !branchData
+    ? "Loading branch..."
+    : !branchData.isGitAvailable
+      ? "Git not installed"
+      : !branchData.isRepo
+        ? "Git not initialized"
+        : branchData.currentBranch || "No branch"
   const options = (branchData?.branches ?? []).map((branchName) => ({
     value: branchName,
     label: branchName,
   }))
+  const isGitSelectable = Boolean(branchData?.isGitAvailable && branchData.isRepo)
 
   return (
     <div className="hidden min-w-0 items-center gap-2 md:flex">
@@ -54,12 +61,21 @@ export function BranchTargetSelector({
         value={projectTargetBranch}
         onValueChange={(branchName) => void setTargetBranch(projectId, branchName)}
         options={options}
-        displayValue={projectTargetBranch ?? "Choose target branch"}
+        displayValue={
+          projectTargetBranch ??
+          (!branchData
+            ? "Choose target branch"
+            : !branchData.isGitAvailable
+              ? "Install Git to pick a branch"
+              : !branchData.isRepo
+                ? "Initialize Git to pick a branch"
+                : "Choose target branch")
+        }
         icon={<GitBranch size={15} />}
         searchPlaceholder="Search target branches"
         sectionLabel="Target branch"
         emptyMessage="No matching branches found."
-        disabled={isLoading || !branchData}
+        disabled={isLoading || !isGitSelectable}
         onOpen={() => {
           void refresh({ quiet: true })
         }}

@@ -1,17 +1,22 @@
-import { useEffect, useRef, useCallback, useState } from "react"
-import { Terminal as XTerm } from "@xterm/xterm"
-import { FitAddon } from "@xterm/addon-fit"
-import { WebglAddon } from "@xterm/addon-webgl"
-import {
-  desktop,
-  type TerminalDataEvent,
-  type TerminalExitEvent,
-  type TerminalStartResponse,
-} from "@/desktop/client"
+import { useEffect, useRef, useCallback, useState, type MouseEvent as ReactMouseEvent } from "react"
+import { desktop } from "@/desktop/client"
 import { useAppearance } from "@/features/shared/appearance"
+import { useCurrentProjectWorktree } from "@/features/shared/hooks"
+import { useRightSidebar } from "@/features/shared/components/layout/useRightSidebar"
+import { useBrowserSidebarStore } from "@/features/browser/store/browserSidebarStore"
+import { useSettingsStore } from "@/features/settings/store/settingsStore"
 import { cn } from "@/lib/utils"
-import { shouldRecoverTerminal, type TerminalRenderState } from "./terminalRecovery"
-import "@xterm/xterm/css/xterm.css"
+import {
+  attachCachedTerminalSession,
+  detachCachedTerminalSession,
+  recreateCachedTerminalSession,
+  subscribeCachedTerminalSession,
+  updateCachedTerminalTheme,
+  writeCachedTerminalData,
+  type CachedTerminalSession,
+} from "./terminalSessionCache"
+import { findTerminalUrlAtPoint } from "./terminalLinks"
+import "@wterm/dom/css"
 
 interface TerminalProps {
   sessionId: string | null
@@ -22,86 +27,6 @@ interface TerminalProps {
 }
 
 const INACTIVE_MESSAGE = "\x1b[90mSelect a project to open a terminal.\x1b[0m"
-const TERMINAL_REPAINT_SETTLE_MS = 140
-let preferDomTerminalRenderer = false
-
-function getTerminalRenderState(container: HTMLDivElement | null): TerminalRenderState {
-  if (!container) {
-    return {
-      isConnected: false,
-      display: "none",
-      visibility: "hidden",
-      width: 0,
-      height: 0,
-    }
-  }
-
-  const style = getComputedStyle(container)
-  const rect = container.getBoundingClientRect()
-
-  return {
-    isConnected: container.isConnected,
-    display: style.display,
-    visibility: style.visibility,
-    width: rect.width,
-    height: rect.height,
-  }
-}
-
-function resolveThemeColor(variableName: string, fallback: string) {
-  const probe = document.createElement("div")
-  probe.style.position = "absolute"
-  probe.style.pointerEvents = "none"
-  probe.style.opacity = "0"
-  probe.style.backgroundColor = `var(${variableName})`
-  document.body.appendChild(probe)
-
-  const resolved = getComputedStyle(probe).backgroundColor.trim()
-  probe.remove()
-
-  return resolved || fallback
-}
-
-function getTerminalTheme() {
-  return {
-    background: resolveThemeColor("--terminal", "#111111"),
-    foreground: resolveThemeColor("--terminal-foreground", "#d4d4d4"),
-    cursor: resolveThemeColor("--terminal-cursor", "#f5f5f5"),
-    cursorAccent: resolveThemeColor("--terminal", "#111111"),
-    selectionBackground: resolveThemeColor("--terminal-selection", "rgba(110, 110, 110, 0.4)"),
-    scrollbarSliderBackground: "transparent",
-    scrollbarSliderHoverBackground: "transparent",
-    scrollbarSliderActiveBackground: "transparent",
-    overviewRulerBorder: "transparent",
-  }
-}
-
-function getTerminalFontFamily() {
-  const style = getComputedStyle(document.documentElement)
-  return (
-    style.getPropertyValue("--terminal-font-family").trim() ||
-    'SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace'
-  )
-}
-
-function applyTerminalSurfaceStyles(container: HTMLDivElement, background: string, foreground: string) {
-  container.style.backgroundColor = background
-  container.style.color = foreground
-
-  const xtermRoot = container.querySelector<HTMLElement>(".xterm")
-  const xtermScrollable = container.querySelector<HTMLElement>(".xterm-scrollable-element")
-  const xtermViewport = container.querySelector<HTMLElement>(".xterm-viewport")
-  const xtermScreen = container.querySelector<HTMLElement>(".xterm-screen")
-
-  for (const element of [xtermRoot, xtermScrollable, xtermViewport, xtermScreen]) {
-    if (!element) {
-      continue
-    }
-
-    element.style.backgroundColor = background
-    element.style.color = foreground
-  }
-}
 
 export function Terminal({
   sessionId,
@@ -111,42 +36,33 @@ export function Terminal({
   padded = true,
 }: TerminalProps) {
   const { themeId, resolvedAppearance } = useAppearance()
+  const { selectedWorktreeId } = useCurrentProjectWorktree()
+  const { expand, setActiveTab } = useRightSidebar()
+  const setBrowserUrl = useBrowserSidebarStore((state) => state.setUrl)
+  const terminalLinkTarget = useSettingsStore((state) => state.terminalLinkTarget)
+  const initializeSettings = useSettingsStore((state) => state.initialize)
   const terminalRef = useRef<HTMLDivElement>(null)
-  const xtermRef = useRef<XTerm | null>(null)
-  const fitAddonRef = useRef<FitAddon | null>(null)
-  const webglAddonRef = useRef<WebglAddon | null>(null)
   const sessionIdRef = useRef<string | null>(null)
+  const sessionRef = useRef<CachedTerminalSession | null>(null)
   const isSessionReadyRef = useRef(false)
-  const isRestoringBufferRef = useRef(false)
   const lastSyncedSizeRef = useRef<{ cols: number; rows: number } | null>(null)
-  const repaintFrameRef = useRef<number | null>(null)
-  const repaintSettleTimeoutRef = useRef<number | null>(null)
+  const hoveredLinkRowRef = useRef<HTMLElement | null>(null)
   const [connectionError, setConnectionError] = useState<string | null>(null)
 
+  const clearHoveredLinkRow = useCallback(() => {
+    hoveredLinkRowRef.current?.classList.remove("nucleus-terminal-link-hover")
+    hoveredLinkRowRef.current = null
+  }, [])
+
   const updateTheme = useCallback(() => {
-    const resolvedBackground = resolveThemeColor("--terminal", "#111111")
-    const resolvedForeground = resolveThemeColor("--terminal-foreground", "#d4d4d4")
-
-    if (terminalRef.current) {
-      applyTerminalSurfaceStyles(terminalRef.current, resolvedBackground, resolvedForeground)
-    }
-
-    if (xtermRef.current) {
-      xtermRef.current.options.theme = {
-        ...getTerminalTheme(),
-        background: resolvedBackground,
-        foreground: resolvedForeground,
-        cursorAccent: resolvedBackground,
-      }
-      xtermRef.current.refresh(0, Math.max(0, xtermRef.current.rows - 1))
+    if (sessionIdRef.current) {
+      updateCachedTerminalTheme(sessionIdRef.current)
     }
   }, [])
 
   const pushTerminalSize = useCallback((cols: number, rows: number, force = false) => {
-    const term = xtermRef.current
-    const sessionId = sessionIdRef.current
-
-    if (!term || !sessionId || !isSessionReadyRef.current) {
+    const activeSessionId = sessionIdRef.current
+    if (!activeSessionId || !isSessionReadyRef.current) {
       return
     }
 
@@ -164,281 +80,183 @@ export function Terminal({
     }
 
     lastSyncedSizeRef.current = { cols: nextCols, rows: nextRows }
-    void desktop.terminal.resize(sessionId, nextCols, nextRows).catch((error) => {
+    void desktop.terminal.resize(activeSessionId, nextCols, nextRows).catch((error) => {
       lastSyncedSizeRef.current = null
       console.error("Failed to resize terminal session:", error)
     })
   }, [])
 
-  const fitTerminal = useCallback((forceResizeSync = false) => {
-    const fitAddon = fitAddonRef.current
-    const term = xtermRef.current
-
-    if (!fitAddon || !term) {
-      return
-    }
-
-    fitAddon.fit()
-    pushTerminalSize(term.cols, term.rows, forceResizeSync)
-  }, [pushTerminalSize])
-
-  const repaintTerminal = useCallback(() => {
-    const term = xtermRef.current
-    if (!term) {
-      return
-    }
-
-    ;(webglAddonRef.current as (WebglAddon & { clearTextureAtlas?: () => void }) | null)?.clearTextureAtlas?.()
-    term.refresh(0, Math.max(0, term.rows - 1))
-  }, [])
-
-  const scheduleTerminalRepaint = useCallback((forceResizeSync = false, repaint = true) => {
-    if (repaintFrameRef.current != null) {
-      cancelAnimationFrame(repaintFrameRef.current)
-    }
-
-    // Wait until the current layout pass settles so xterm redraws against the final size.
-    repaintFrameRef.current = requestAnimationFrame(() => {
-      repaintFrameRef.current = null
-      if (!shouldRecoverTerminal(document.visibilityState, getTerminalRenderState(terminalRef.current))) {
-        return
+  const attachSessionToContainer = useCallback(
+    async (targetSessionId: string) => {
+      if (!terminalRef.current) {
+        return null
       }
 
-      fitTerminal(forceResizeSync)
-      if (repaint) {
-        repaintTerminal()
-      }
-    })
-  }, [fitTerminal, repaintTerminal])
+      const cachedSession = await attachCachedTerminalSession(
+        targetSessionId,
+        terminalRef.current,
+        (cols, rows) => pushTerminalSize(cols, rows)
+      )
 
-  const scheduleSettledTerminalRepaint = useCallback((forceResizeSync = false) => {
-    if (repaintSettleTimeoutRef.current != null) {
-      window.clearTimeout(repaintSettleTimeoutRef.current)
-    }
+      sessionIdRef.current = targetSessionId
+      sessionRef.current = cachedSession
+      updateTheme()
 
-    repaintSettleTimeoutRef.current = window.setTimeout(() => {
-      repaintSettleTimeoutRef.current = null
-      scheduleTerminalRepaint(forceResizeSync)
-    }, TERMINAL_REPAINT_SETTLE_MS)
-  }, [scheduleTerminalRepaint])
+      return cachedSession
+    },
+    [pushTerminalSize, updateTheme]
+  )
+
+  const recreateAttachedSession = useCallback(
+    async (targetSessionId: string) => {
+      recreateCachedTerminalSession(targetSessionId)
+      return attachSessionToContainer(targetSessionId)
+    },
+    [attachSessionToContainer]
+  )
 
   useEffect(() => {
-    if (!terminalRef.current || xtermRef.current) return
+    if (!terminalRef.current || !sessionId) {
+      return
+    }
 
-    const term = new XTerm({
-      theme: getTerminalTheme(),
-      fontFamily: getTerminalFontFamily(),
-      fontSize: 13,
-      overviewRuler: { width: 0.1 },
-      cursorBlink: true,
-      cursorStyle: "block",
-    })
+    let isActive = true
+    let unsubscribe = () => {}
 
-    const fitAddon = new FitAddon()
-    term.loadAddon(fitAddon)
-
-    term.open(terminalRef.current)
-
-    let webglAddon: WebglAddon | null = null
-    const webglLoadFrame = requestAnimationFrame(() => {
-      if (preferDomTerminalRenderer) {
-        return
-      }
-
+    void (async () => {
       try {
-        webglAddon = new WebglAddon()
-        webglAddon.onContextLoss(() => {
-          try {
-            webglAddon?.dispose()
-          } catch {
-            // Ignore renderer teardown errors and fall back to the default renderer.
+        const cachedSession = await attachSessionToContainer(sessionId)
+        if (!isActive || !cachedSession) {
+          return
+        }
+
+        unsubscribe = subscribeCachedTerminalSession(sessionId, (event) => {
+          if (event.type !== "exit") {
+            return
           }
 
-          webglAddon = null
-          webglAddonRef.current = null
-          repaintTerminal()
+          isSessionReadyRef.current = false
+          lastSyncedSizeRef.current = null
         })
-        term.loadAddon(webglAddon)
-        webglAddonRef.current = webglAddon
-        scheduleTerminalRepaint()
-      } catch {
-        preferDomTerminalRenderer = true
-        webglAddon = null
-        webglAddonRef.current = null
-      }
-    })
-
-    fitAddon.fit()
-    updateTheme()
-
-    xtermRef.current = term
-    fitAddonRef.current = fitAddon
-
-    const terminalInputDisposable = term.onData((data) => {
-      const sessionId = sessionIdRef.current
-      if (!sessionId || isRestoringBufferRef.current) {
-        return
-      }
-
-      void desktop.terminal.write(sessionId, data).catch((error) => {
-        console.error("Failed to write to terminal session:", error)
-      })
-    })
-
-    const terminalResizeDisposable = term.onResize(({ cols, rows }) => {
-      pushTerminalSize(cols, rows)
-    })
-
-    const resizeObserver = new ResizeObserver(() => {
-      scheduleTerminalRepaint(false, false)
-      scheduleSettledTerminalRepaint()
-    })
-    resizeObserver.observe(terminalRef.current)
-
-    return () => {
-      terminalInputDisposable.dispose()
-      terminalResizeDisposable.dispose()
-      resizeObserver.disconnect()
-      cancelAnimationFrame(webglLoadFrame)
-      if (repaintFrameRef.current != null) {
-        cancelAnimationFrame(repaintFrameRef.current)
-        repaintFrameRef.current = null
-      }
-      if (repaintSettleTimeoutRef.current != null) {
-        window.clearTimeout(repaintSettleTimeoutRef.current)
-        repaintSettleTimeoutRef.current = null
-      }
-      try {
-        webglAddon?.dispose()
-      } catch {
-        // Ignore renderer teardown errors during terminal disposal.
-      }
-      webglAddonRef.current = null
-      term.dispose()
-      xtermRef.current = null
-      fitAddonRef.current = null
-    }
-  }, [
-    fitTerminal,
-    pushTerminalSize,
-    repaintTerminal,
-    scheduleSettledTerminalRepaint,
-    scheduleTerminalRepaint,
-    updateTheme,
-  ])
-
-  useEffect(() => {
-    updateTheme()
-    scheduleTerminalRepaint()
-  }, [resolvedAppearance, scheduleTerminalRepaint, themeId, updateTheme])
-
-  useEffect(() => {
-    const observer = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        if (
-          mutation.attributeName === "class" ||
-          mutation.attributeName === "style" ||
-          mutation.attributeName === "data-theme" ||
-          mutation.attributeName === "data-appearance"
-        ) {
-          updateTheme()
-          scheduleTerminalRepaint()
+      } catch (error) {
+        if (!isActive) {
+          return
         }
+
+        const message = error instanceof Error ? error.message : String(error)
+        setConnectionError(message)
       }
-    })
-
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["class", "style", "data-theme", "data-appearance"],
-    })
-
-    return () => observer.disconnect()
-  }, [scheduleTerminalRepaint, updateTheme])
-
-  useEffect(() => {
-    const handleVisibilityOrFocus = () => {
-      scheduleTerminalRepaint(true)
-    }
-
-    document.addEventListener("visibilitychange", handleVisibilityOrFocus)
-    window.addEventListener("focus", handleVisibilityOrFocus)
+    })()
 
     return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityOrFocus)
-      window.removeEventListener("focus", handleVisibilityOrFocus)
+      isActive = false
+      unsubscribe()
+      clearHoveredLinkRow()
+      detachCachedTerminalSession(sessionId)
+      sessionRef.current = null
+      sessionIdRef.current = null
+      isSessionReadyRef.current = false
+      lastSyncedSizeRef.current = null
     }
-  }, [scheduleTerminalRepaint])
+  }, [attachSessionToContainer, clearHoveredLinkRow, sessionId])
+
+  useEffect(() => {
+    updateTheme()
+  }, [resolvedAppearance, themeId, updateTheme])
+
+  useEffect(() => {
+    void initializeSettings()
+  }, [initializeSettings])
 
   useEffect(() => {
     let isActive = true
 
     const attachTerminal = async () => {
-      const term = xtermRef.current
-      if (!term) {
-        return
-      }
-
-      term.reset()
       setConnectionError(null)
 
-      if (!sessionId || !cwd) {
-        sessionIdRef.current = null
-        isSessionReadyRef.current = false
-        isRestoringBufferRef.current = false
-        lastSyncedSizeRef.current = null
-        term.writeln(emptyStateMessage)
+      if (!sessionId) {
         return
       }
 
-      sessionIdRef.current = sessionId
-      isSessionReadyRef.current = false
-      isRestoringBufferRef.current = false
-      lastSyncedSizeRef.current = null
+      let cachedSession = sessionRef.current
+      if (!cachedSession || sessionIdRef.current !== sessionId) {
+        cachedSession = await attachSessionToContainer(sessionId)
+      }
+
+      if (!isActive || !cachedSession) {
+        return
+      }
+
+      if (!cwd) {
+        cachedSession = await recreateAttachedSession(sessionId)
+        if (!isActive || !cachedSession) {
+          return
+        }
+
+        cachedSession.cwd = null
+        cachedSession.isReady = false
+        cachedSession.isRestoringBuffer = false
+        isSessionReadyRef.current = false
+        lastSyncedSizeRef.current = null
+        writeCachedTerminalData(sessionId, `${emptyStateMessage}\r\n`)
+        return
+      }
+
+      if (cachedSession.cwd && cachedSession.cwd !== cwd) {
+        cachedSession = await recreateAttachedSession(sessionId)
+        if (!isActive || !cachedSession) {
+          return
+        }
+      }
+
+      const cols = Math.max(1, cachedSession.lastCols)
+      const rows = Math.max(1, cachedSession.lastRows)
 
       try {
-        const response = await desktop.terminal.createSession(
-          sessionId,
-          cwd,
-          term.cols,
-          term.rows
-        )
-
-        if (!isActive || sessionIdRef.current !== sessionId) {
+        const response = await desktop.terminal.createSession(sessionId, cwd, cols, rows)
+        if (!isActive) {
           return
         }
 
-        term.reset()
-        if (response.initialData.length > 0) {
-          // Replaying buffered PTY output can contain old terminal capability probes.
-          // Ignore any xterm-generated replies while we restore the visual buffer.
-          isRestoringBufferRef.current = true
-          term.write(response.initialData, () => {
-            if (!isActive || sessionIdRef.current !== sessionId) {
-              return
-            }
-
-            isRestoringBufferRef.current = false
-            isSessionReadyRef.current = true
-            scheduleTerminalRepaint(true)
-          })
-          return
-        }
-
+        cachedSession.cwd = cwd
+        cachedSession.isReady = true
         isSessionReadyRef.current = true
-        scheduleTerminalRepaint(true)
+
+        if (response.initialData.length > 0) {
+          cachedSession.isRestoringBuffer = true
+          writeCachedTerminalData(sessionId, response.initialData)
+          requestAnimationFrame(() => {
+            if (sessionRef.current === cachedSession) {
+              cachedSession.isRestoringBuffer = false
+            }
+          })
+        }
+
+        if (cachedSession.lastCols > 0 && cachedSession.lastRows > 0) {
+          pushTerminalSize(cachedSession.lastCols, cachedSession.lastRows, true)
+        }
       } catch (error) {
-        if (!isActive || sessionIdRef.current !== sessionId) {
+        if (!isActive) {
           return
         }
 
         const message = error instanceof Error ? error.message : String(error)
         setConnectionError(message)
         isSessionReadyRef.current = false
-        isRestoringBufferRef.current = false
         lastSyncedSizeRef.current = null
-        term.reset()
-        term.writeln("\x1b[31mUnable to start terminal session.\x1b[0m")
-        term.writeln(`\x1b[90m${message}\x1b[0m`)
+
+        cachedSession = await recreateAttachedSession(sessionId)
+        if (!isActive || !cachedSession) {
+          return
+        }
+
+        cachedSession.cwd = cwd
+        cachedSession.isReady = false
+        cachedSession.isRestoringBuffer = false
+        writeCachedTerminalData(
+          sessionId,
+          `\x1b[31mUnable to start terminal session.\x1b[0m\r\n\x1b[90m${message}\x1b[0m\r\n`
+        )
       }
     }
 
@@ -447,57 +265,102 @@ export function Terminal({
     return () => {
       isActive = false
       isSessionReadyRef.current = false
-      isRestoringBufferRef.current = false
       lastSyncedSizeRef.current = null
     }
-  }, [cwd, emptyStateMessage, scheduleTerminalRepaint, sessionId])
+  }, [attachSessionToContainer, cwd, emptyStateMessage, pushTerminalSize, recreateAttachedSession, sessionId])
 
-  useEffect(() => {
-    let isDisposed = false
-    const cleanupCallbacks: Array<() => void> = []
-
-    const bindTerminalEvents = async () => {
-      const [unlistenData, unlistenExit] = await Promise.all([
-        Promise.resolve(
-          desktop.terminal.onData((event: TerminalDataEvent) => {
-            if (event.sessionId !== sessionIdRef.current) {
-              return
-            }
-
-            xtermRef.current?.write(event.data)
-          })
-        ),
-        Promise.resolve(
-          desktop.terminal.onExit((event: TerminalExitEvent) => {
-            if (event.sessionId !== sessionIdRef.current) {
-              return
-            }
-
-            isSessionReadyRef.current = false
-            xtermRef.current?.writeln("")
-            xtermRef.current?.writeln("\x1b[90mTerminal session ended. Reopen the project terminal to start a new shell.\x1b[0m")
-          })
-        ),
-      ])
-
-      if (isDisposed) {
-        unlistenData()
-        unlistenExit()
-        return
-      }
-
-      cleanupCallbacks.push(unlistenData, unlistenExit)
+  const handleOpenLinkInApp = useCallback((url: string) => {
+    if (!url || !selectedWorktreeId) {
+      return
     }
 
-    void bindTerminalEvents()
+    setBrowserUrl(selectedWorktreeId, url)
+    expand()
+    setActiveTab("browser")
+  }, [expand, selectedWorktreeId, setActiveTab, setBrowserUrl])
 
-    return () => {
-      isDisposed = true
-      for (const cleanup of cleanupCallbacks.splice(0)) {
-        cleanup()
-      }
+  const handleOpenLinkInBrowser = useCallback((url: string) => {
+    if (!url) {
+      return
     }
+
+    void desktop.shell.openExternal(url)
   }, [])
+
+  const handleTerminalClickCapture = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || event.defaultPrevented) {
+      return
+    }
+
+    const selection = window.getSelection()
+    if (selection && !selection.isCollapsed) {
+      return
+    }
+
+    const terminalElement = terminalRef.current
+    if (!terminalElement) {
+      return
+    }
+
+    const target = event.target
+    if (!(target instanceof Element)) {
+      return
+    }
+
+    const row = target.closest(".term-row")
+    if (!(row instanceof HTMLElement) || !terminalElement.contains(row)) {
+      return
+    }
+
+    const linkMatch = findTerminalUrlAtPoint(row, event.clientX, event.clientY)
+    if (!linkMatch) {
+      return
+    }
+
+    event.preventDefault()
+    event.stopPropagation()
+
+    if (terminalLinkTarget === "system-browser" || !selectedWorktreeId) {
+      handleOpenLinkInBrowser(linkMatch.url)
+      return
+    }
+
+    handleOpenLinkInApp(linkMatch.url)
+  }, [handleOpenLinkInApp, handleOpenLinkInBrowser, selectedWorktreeId, terminalLinkTarget])
+
+  const handleTerminalMouseMove = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    const terminalElement = terminalRef.current
+    if (!terminalElement) {
+      clearHoveredLinkRow()
+      return
+    }
+
+    const target = event.target
+    if (!(target instanceof Element)) {
+      clearHoveredLinkRow()
+      return
+    }
+
+    const row = target.closest(".term-row")
+    if (!(row instanceof HTMLElement) || !terminalElement.contains(row)) {
+      clearHoveredLinkRow()
+      return
+    }
+
+    const linkMatch = findTerminalUrlAtPoint(row, event.clientX, event.clientY)
+    if (!linkMatch) {
+      clearHoveredLinkRow()
+      return
+    }
+
+    if (hoveredLinkRowRef.current === row) {
+      return
+    }
+
+    clearHoveredLinkRow()
+    row.classList.add("nucleus-terminal-link-hover")
+    hoveredLinkRowRef.current = row
+  }, [clearHoveredLinkRow])
 
   return (
     <div
@@ -506,6 +369,9 @@ export function Terminal({
         padded && "px-3 py-2",
         className
       )}
+      onClickCapture={handleTerminalClickCapture}
+      onMouseMove={handleTerminalMouseMove}
+      onMouseLeave={clearHoveredLinkRow}
     >
       <div ref={terminalRef} className="h-full min-h-0 bg-terminal" />
       {connectionError ? <span className="sr-only">{connectionError}</span> : null}

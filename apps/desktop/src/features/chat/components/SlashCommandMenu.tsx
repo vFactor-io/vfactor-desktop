@@ -155,13 +155,16 @@ export function SlashCommandMenu(props: SlashCommandMenuProps) {
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => onSelectTheme?.(theme.id, index)}
                 className={cn(
-                  "flex cursor-pointer items-center gap-2 rounded-xl px-2 py-1.5 text-sm transition-colors",
+                  "flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
                   isSelected
-                    ? "bg-[var(--sidebar-item-hover)] text-foreground"
+                    ? "bg-primary/[0.09] text-foreground dark:bg-primary/[0.18]"
                     : "text-foreground/88 hover:bg-[var(--sidebar-item-hover)]"
                 )}
               >
-                <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground/78">
+                <span className={cn(
+                  "flex size-4 shrink-0 items-center justify-center",
+                  isSelected ? "text-foreground" : "text-muted-foreground/78"
+                )}>
                   {isActive ? <CheckCircle size={14} /> : <Circle size={14} />}
                 </span>
                 <span className="min-w-0 flex-1 truncate font-medium">{theme.label}</span>
@@ -208,9 +211,9 @@ export function SlashCommandMenu(props: SlashCommandMenuProps) {
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => onSelect?.(cmd)}
                     className={cn(
-                      "flex cursor-pointer items-center gap-2 rounded-xl px-2 py-1.5 text-sm transition-colors",
+                      "flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
                       isSelected
-                        ? "bg-[var(--sidebar-item-hover)] text-foreground"
+                        ? "bg-primary/[0.09] text-foreground dark:bg-primary/[0.18]"
                         : "text-foreground/88 hover:bg-[var(--sidebar-item-hover)]"
                     )}
                   >
@@ -218,15 +221,24 @@ export function SlashCommandMenu(props: SlashCommandMenuProps) {
                       <ProjectActionIcon
                         action={cmd.projectAction}
                         size={14}
-                        className="shrink-0 text-muted-foreground/78"
+                        className={cn(
+                          "shrink-0",
+                          isSelected ? "text-foreground" : "text-muted-foreground/78"
+                        )}
                       />
                     ) : (
-                      <Icon size={14} className="shrink-0 text-muted-foreground/78" />
+                      <Icon
+                        size={14}
+                        className={cn(
+                          "shrink-0",
+                          isSelected ? "text-foreground" : "text-muted-foreground/78"
+                        )}
+                      />
                     )}
 
                     <div className="min-w-0 flex-1">
                       <div className="flex min-w-0 items-center gap-2">
-                        <span className="truncate font-medium text-foreground">
+                        <span className="truncate font-medium">
                           {cmd.name}
                         </span>
                         {cmd.inputHint ? (
@@ -238,7 +250,7 @@ export function SlashCommandMenu(props: SlashCommandMenuProps) {
                     </div>
 
                     {cmd.description ? (
-                      <InfoTooltip description={cmd.description} />
+                      <InfoTooltip description={cmd.description} isSelected={isSelected} />
                     ) : null}
                   </div>
                 )
@@ -251,7 +263,7 @@ export function SlashCommandMenu(props: SlashCommandMenuProps) {
   )
 }
 
-function InfoTooltip({ description }: { description: string }) {
+function InfoTooltip({ description, isSelected }: { description: string; isSelected?: boolean }) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -259,7 +271,12 @@ function InfoTooltip({ description }: { description: string }) {
       <TooltipTrigger asChild>
         <button
           type="button"
-          className="ml-auto shrink-0 rounded-md p-0.5 text-muted-foreground/50 transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-muted-foreground"
+          className={cn(
+            "ml-auto shrink-0 rounded-md p-0.5 transition-colors",
+            isSelected
+              ? "text-foreground/60 hover:bg-primary/[0.12] hover:text-foreground dark:hover:bg-primary/[0.22]"
+              : "text-muted-foreground/50 hover:bg-[var(--sidebar-item-hover)] hover:text-muted-foreground"
+          )}
           onMouseDown={(e) => e.preventDefault()}
           onClick={(e) => {
             e.stopPropagation()

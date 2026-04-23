@@ -18,6 +18,7 @@ import { openFolderPicker } from "@/features/workspace/utils/folderDialog"
 import { isWorktreeReady } from "@/features/workspace/utils/worktrees"
 import { cn } from "@/lib/utils"
 import { Terminal } from "@/features/terminal/components"
+import { disposeCachedTerminalSession } from "@/features/terminal/components/terminalSessionCache"
 import { getTerminalSessionId } from "@/features/terminal/utils/terminalTabs"
 import type { Tab } from "@/features/chat/types"
 import type { SettingsSectionId } from "@/features/settings/config"
@@ -27,13 +28,33 @@ interface DiffTabContentProps {
   tab: Tab
 }
 
+function useRenderedWorktreePath() {
+  const currentWorktreeId = useTabStore((state) => state.currentWorktreeId)
+  const projects = useProjectStore((state) => state.projects)
+
+  return useMemo(() => {
+    if (!currentWorktreeId) {
+      return null
+    }
+
+    for (const project of projects) {
+      const worktree = project.worktrees.find((candidate) => candidate.id === currentWorktreeId)
+      if (worktree) {
+        return worktree.path
+      }
+    }
+
+    return null
+  }, [currentWorktreeId, projects])
+}
+
 function DiffTabContent({ tab }: DiffTabContentProps) {
-  const { selectedWorktreePath } = useCurrentProjectWorktree()
+  const renderedWorktreePath = useRenderedWorktreePath()
 
   return (
     <ProjectDiffViewer
       filename={tab.title}
-      projectPath={selectedWorktreePath}
+      projectPath={renderedWorktreePath}
       filePath={tab.filePath}
       previousFilePath={tab.previousFilePath}
     />
@@ -41,13 +62,14 @@ function DiffTabContent({ tab }: DiffTabContentProps) {
 }
 
 function TerminalTabContent({ tab }: DiffTabContentProps) {
-  const { selectedWorktreePath } = useCurrentProjectWorktree()
+  const renderedWorktreePath = useRenderedWorktreePath()
 
   return (
     <Terminal
       sessionId={getTerminalSessionId(tab.id)}
-      cwd={selectedWorktreePath}
+      cwd={renderedWorktreePath}
       className="h-full min-h-0 flex-1 border-t-0"
+      padded={false}
     />
   )
 }
@@ -494,7 +516,9 @@ export function MainContent({ activeView, activeSettingsSection, onOpenSettings 
     const remainingTabs = tabs.filter((tab) => tab.id !== tabId)
 
     if (closingTab?.type === "terminal") {
-      void desktop.terminal.closeSession(getTerminalSessionId(closingTab.id)).catch((error) => {
+      const terminalSessionId = getTerminalSessionId(closingTab.id)
+      disposeCachedTerminalSession(terminalSessionId)
+      void desktop.terminal.closeSession(terminalSessionId).catch((error) => {
         console.error("Failed to close terminal session:", error)
       })
     }

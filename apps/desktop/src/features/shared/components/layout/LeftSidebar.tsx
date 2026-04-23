@@ -51,8 +51,11 @@ import {
   resolveSidebarBranchIndicator,
   resolveSidebarPullRequestIndicator,
 } from "./sidebarGitIndicators"
+import { LEFT_SIDEBAR_WIDTH_CSS_VAR } from "./layoutSizing"
 
 const OPEN_PROJECT_SETTINGS_EVENT = "nucleus:open-project-settings"
+const LEFT_SIDEBAR_MIN_WIDTH = 240
+const LEFT_SIDEBAR_MAX_WIDTH = 420
 
 interface LeftSidebarProps {
   activeView?: "chat" | "settings" | "automations"
@@ -67,6 +70,10 @@ const COLLAPSED_HOVER_TRIGGER_WIDTH = 12
 
 function haveProjectIdsChangedOrder(nextProjectIds: string[], currentProjects: Project[]) {
   return nextProjectIds.some((projectId, index) => projectId !== currentProjects[index]?.id)
+}
+
+function clampLeftSidebarWidth(width: number) {
+  return Math.min(LEFT_SIDEBAR_MAX_WIDTH, Math.max(LEFT_SIDEBAR_MIN_WIDTH, width))
 }
 
 function getWorktreeRemovalDisabledReason({
@@ -284,7 +291,7 @@ export function LeftSidebar({
     }
 
     onOpenChat?.()
-    await selectProject(project.id)
+    void prewarmProjectData(worktree.id, worktree.path, hoveredWorktreePrewarmTarget)
     await selectWorktree(project.id, worktree.id)
   }
 
@@ -404,6 +411,7 @@ export function LeftSidebar({
               "group/project flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 pr-16 text-left",
               "text-sidebar-foreground/72 hover:bg-[var(--sidebar-item-hover)] hover:text-sidebar-foreground/92",
               "group-hover/project-row:bg-[var(--sidebar-item-hover)] group-hover/project-row:text-sidebar-foreground/92",
+              isProjectMenuOpen && "bg-[var(--sidebar-item-hover)] text-sidebar-foreground/92",
             )}
             aria-label={isExpanded ? `Collapse ${project.name}` : `Expand ${project.name}`}
             aria-expanded={isExpanded}
@@ -440,14 +448,14 @@ export function LeftSidebar({
             <DropdownMenuTrigger
               className={cn(
                 projectActionButtonClass,
-                "right-1",
+                "right-0.5 h-7 w-7 text-sidebar-foreground/44 hover:text-sidebar-foreground/88 focus-visible:text-sidebar-foreground/88",
                 isProjectMenuOpen
                   ? "text-sidebar-foreground opacity-100"
                   : "opacity-0 group-hover/project-row:opacity-100",
               )}
               aria-label={`${project.name} settings menu`}
             >
-              <DotsThree size={14} />
+              <DotsThree size={16} weight="bold" />
             </DropdownMenuTrigger>
             <DropdownMenuContent side="bottom" align="end" className="w-40">
               <DropdownMenuItem onClick={() => setProjectSettingsProject(project)}>
@@ -522,6 +530,8 @@ export function LeftSidebar({
                       className={cn(
                         "flex h-8 w-full min-w-0 items-center gap-2 rounded-md pl-8 pr-14 text-left",
                         "text-sidebar-foreground/56 hover:bg-[var(--sidebar-item-hover)] hover:text-sidebar-foreground/80",
+                        "group-hover/worktree-row:bg-[var(--sidebar-item-hover)] group-hover/worktree-row:text-sidebar-foreground/80",
+                        isWorktreeMenuOpen && "bg-[var(--sidebar-item-hover)] text-sidebar-foreground/80",
                         !isWorktreeReadyForSelection &&
                           "cursor-not-allowed opacity-60 hover:bg-transparent hover:text-sidebar-foreground/56",
                         isSelectedWorktree && "text-sidebar-accent-foreground",
@@ -593,14 +603,14 @@ export function LeftSidebar({
                     >
                       <DropdownMenuTrigger
                         className={cn(
-                          "absolute top-1/2 right-2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-sidebar-foreground/30 transition",
+                          "absolute top-1/2 right-1.5 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded text-sidebar-foreground/42 transition hover:text-sidebar-foreground/82 focus-visible:text-sidebar-foreground/82",
                           isWorktreeMenuOpen
                             ? "text-sidebar-foreground/72 opacity-100"
                             : "opacity-0 group-hover/worktree-row:opacity-100",
                         )}
                         aria-label={`${worktree.name} settings menu`}
                       >
-                        <DotsThree size={14} />
+                        <DotsThree size={16} weight="bold" />
                       </DropdownMenuTrigger>
                       <DropdownMenuContent side="bottom" align="end" className="w-44">
                         {removeWorktreeDisabledReason ? (
@@ -843,7 +853,7 @@ export function LeftSidebar({
           {(isHoverPreviewOpen || draggedProjectId !== null) && (
             <div
               className="fixed top-11 bottom-0 left-0 z-30 flex flex-col overflow-hidden border-r border-sidebar-border/70 bg-sidebar text-sidebar-foreground shadow-[0_12px_28px_rgba(0,0,0,0.12)]"
-              style={{ width }}
+              style={{ width: `var(${LEFT_SIDEBAR_WIDTH_CSS_VAR}, ${width}px)` }}
               onMouseEnter={() => setIsHoverPreviewOpen(true)}
               onMouseLeave={() => setIsHoverPreviewOpen(false)}
             >
@@ -856,6 +866,7 @@ export function LeftSidebar({
       <SidebarShell
         width={width}
         setWidth={setWidth}
+        clampWidth={clampLeftSidebarWidth}
         isCollapsed={isCollapsed}
         side="left"
         sizeConstraintClass="min-w-[240px] max-w-[420px]"

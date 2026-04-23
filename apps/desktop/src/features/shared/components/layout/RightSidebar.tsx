@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { desktop, type GitPullRequest } from "@/desktop/client"
 import { CheckCircle, Folder, GitDiff, Globe } from "@/components/icons"
 import { BrowserSidebar } from "@/features/browser/components/BrowserSidebar"
-import { FileChangesList, FileChangesToolbar, FileTreeViewer, useFileChangesState } from "@/features/version-control/components"
+import { ChangesPanel, FilePreviewPanel, FileTreeViewer } from "@/features/version-control/components"
 import { useFileTreeStore } from "@/features/workspace/store"
 import { useTabStore } from "@/features/editor/store"
 import { useCurrentProjectWorktree } from "@/features/shared/hooks"
@@ -16,10 +16,11 @@ import { getChecksTabBadgeCount, shouldAutoOpenChecksTab } from "./pullRequestCh
 import { useRightSidebar } from "./useRightSidebar"
 import { SidebarShell } from "./SidebarShell"
 import { RightSidebarEmptyState } from "./RightSidebarEmptyState"
+import { useResizablePanel } from "./useResizablePanel"
 import { HorizontalOverflowFade } from "@/features/shared/components/ui"
-import { LayoutGroup, motion } from "framer-motion"
 import { cn } from "@/lib/utils"
 import { prewarmProjectData } from "@/features/shared/utils/prewarmProjectData"
+import { RIGHT_SIDEBAR_WIDTH_CSS_VAR } from "./layoutSizing"
 
 interface RightSidebarProps {
   activeView?: "chat" | "settings" | "automations"
@@ -36,16 +37,26 @@ const RIGHT_SIDEBAR_TABS: Array<{
   { key: "browser", label: "Browser", icon: Globe },
 ]
 const COLLAPSED_HOVER_TRIGGER_WIDTH = 12
+const FILES_TREE_PANEL_WIDTH_CSS_VAR = "--files-tree-panel-width"
+const FILES_TREE_PANEL_MIN_WIDTH = 180
+const FILES_PREVIEW_PANEL_MIN_WIDTH = 260
 
 export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
   const [isInitialLoad, setIsInitialLoad] = useState(true)
   const [fileImportError, setFileImportError] = useState<string | null>(null)
   const [isImportingFiles, setIsImportingFiles] = useState(false)
   const [isHoverPreviewOpen, setIsHoverPreviewOpen] = useState(false)
+  const [selectedPreviewFile, setSelectedPreviewFile] = useState<{
+    path: string
+    name: string
+  } | null>(null)
   const previousChecksStatusByPullRequestRef = useRef<
     Map<string, GitPullRequest["checksStatus"] | null>
   >(new Map())
-  const { isAvailable, isCollapsed, width, setWidth, persistWidth, activeTab, setActiveTab, expand, toggle } = useRightSidebar()
+  const { isAvailable, isCollapsed, width, clampWidth, setWidth, persistWidth, activeTab, setActiveTab, expand, toggle } = useRightSidebar()
+  const [filesTreePanelWidth, setFilesTreePanelWidth] = useState(() =>
+    Math.round(Math.max(FILES_TREE_PANEL_MIN_WIDTH, width / 3))
+  )
   const { selectedWorktreeId, selectedWorktree, selectedWorktreePath } = useCurrentProjectWorktree()
   const {
     activeProjectPath,
@@ -58,8 +69,6 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
   const {
     initialize: initializeTabs,
     isInitialized: isTabsInitialized,
-    openDiff,
-    openFile,
     switchProject,
   } = useTabStore()
   const { branchData } = useProjectGitBranches(selectedWorktreePath, { enabled: Boolean(selectedWorktreePath) })
@@ -70,6 +79,10 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
   } = useProjectGitChanges(selectedWorktreePath, {
     enabled: Boolean(selectedWorktreePath) && activeView === "chat",
   })
+  const trackedProjectChanges = useMemo(
+    () => projectChanges.filter((change) => change.status !== "untracked"),
+    [projectChanges]
+  )
   const openPullRequest = branchData?.openPullRequest ?? null
   const shouldLoadChecks = openPullRequest?.state === "open"
   const {
@@ -82,11 +95,34 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
   } = useProjectGitPullRequestChecks(selectedWorktreePath, {
     enabled: Boolean(selectedWorktreePath) && shouldLoadChecks,
   })
-  const fileChangesState = useFileChangesState(projectChanges)
+  const gitMissing = branchData != null && !branchData.isGitAvailable
+  const gitUninitialized = branchData != null && branchData.isGitAvailable && !branchData.isRepo
   const checksTabBadgeCount = getChecksTabBadgeCount(openPullRequest, pullRequestChecks)
 
   const fileTreeData = activeProjectPath ? (dataByProjectPath[activeProjectPath] ?? {}) : {}
   const isFileTreeLoading = activeProjectPath ? (loadingByProjectPath[activeProjectPath] ?? false) : false
+  const selectedWorktreePathMatchesFileTree =
+    Boolean(selectedWorktreePath) && activeProjectPath === selectedWorktreePath
+
+  const clampFilesTreePanelWidth = useCallback(
+    (nextWidth: number) => {
+      const maxWidth = Math.max(FILES_TREE_PANEL_MIN_WIDTH, width - FILES_PREVIEW_PANEL_MIN_WIDTH)
+      return Math.min(Math.max(Math.round(nextWidth), FILES_TREE_PANEL_MIN_WIDTH), maxWidth)
+    },
+    [width]
+  )
+
+  const { handleResizeStart: handleFilesPanelResizeStart, isResizing: isResizingFilesPanel } =
+    useResizablePanel({
+      width: clampFilesTreePanelWidth(filesTreePanelWidth),
+      setWidth: setFilesTreePanelWidth,
+      isCollapsed: activeTab !== "files",
+      widthCssVariable: FILES_TREE_PANEL_WIDTH_CSS_VAR,
+      clampWidth: clampFilesTreePanelWidth,
+      side: "left",
+    })
+
+  const resolvedFilesTreePanelWidth = clampFilesTreePanelWidth(filesTreePanelWidth)
 
   // Switch project tabs and load files when selected project changes
   useEffect(() => {
@@ -108,7 +144,23 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
   useEffect(() => {
     setFileImportError(null)
     setIsImportingFiles(false)
+    setSelectedPreviewFile(null)
   }, [selectedWorktreePath])
+
+  useEffect(() => {
+    setFilesTreePanelWidth((current) => clampFilesTreePanelWidth(current))
+  }, [clampFilesTreePanelWidth])
+
+  useEffect(() => {
+    if (!selectedPreviewFile) {
+      return
+    }
+
+    const nextEntry = fileTreeData[selectedPreviewFile.path]
+    if (!nextEntry || nextEntry.isDirectory) {
+      setSelectedPreviewFile(null)
+    }
+  }, [fileTreeData, selectedPreviewFile])
 
   useEffect(() => {
     setIsInitialLoad(true)
@@ -155,18 +207,9 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
 
       setIsImportingFiles(true)
       setFileImportError(null)
-      console.debug("[file-tree-drop] import requested", {
-        projectPath: selectedWorktreePath,
-        targetDirectory,
-        sourcePaths,
-      })
 
       try {
         await desktop.fs.copyPathsIntoDirectory(sourcePaths, targetDirectory)
-        console.debug("[file-tree-drop] import succeeded", {
-          targetDirectory,
-          sourcePaths,
-        })
         await refreshActiveProject()
       } catch (error) {
         console.error("Failed to import dropped files into project:", error)
@@ -190,6 +233,14 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
     void prewarmProjectData(selectedWorktreeId, selectedWorktreePath, activeTab)
   }, [activeTab, selectedWorktreeId, selectedWorktreePath])
 
+  const handleFilePreviewSelect = useCallback((filePath: string, fileName: string) => {
+    setSelectedPreviewFile((current) =>
+      current?.path === filePath && current.name === fileName
+        ? current
+        : { path: filePath, name: fileName }
+    )
+  }, [])
+
   useEffect(() => {
     if (!isCollapsed && isHoverPreviewOpen) {
       setIsHoverPreviewOpen(false)
@@ -208,8 +259,7 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
 
   const renderSidebarBody = (isResizingTabs: boolean) => (
     <>
-      <div className="shrink-0 px-3 py-1.5">
-        <LayoutGroup id="right-sidebar-tabs">
+        <div className="shrink-0 px-3 py-1.5">
           <HorizontalOverflowFade viewportClassName="w-full" contentClassName="pr-3">
             <div className="flex items-center gap-1">
             {RIGHT_SIDEBAR_TABS.map(({ key, label, icon: Icon }) => {
@@ -230,21 +280,13 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
                   )}
                 >
                   {isActive && (
-                    <motion.div
-                      layoutId="rightSidebarActiveTab"
-                      className="absolute inset-0 rounded-lg bg-[var(--sidebar-item-active)]"
-                      transition={
-                        isResizingTabs
-                          ? { duration: 0 }
-                          : { type: "spring", stiffness: 500, damping: 35, mass: 0.5 }
-                      }
-                    />
+                    <span className="absolute inset-0 rounded-lg bg-[var(--sidebar-item-active)]" />
                   )}
                   <span className="relative z-10 flex items-center gap-1">
                     <Icon className="size-3.5 shrink-0" />
                     <span>{label}</span>
                   </span>
-                  {key === "changes" && projectChanges.length > 0 ? (
+                  {key === "changes" && trackedProjectChanges.length > 0 ? (
                     <span
                       className={cn(
                         "relative z-10 text-[9px] leading-none",
@@ -253,7 +295,7 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
                           : "text-sidebar-foreground/40"
                       )}
                     >
-                      {projectChanges.length}
+                      {trackedProjectChanges.length}
                     </span>
                   ) : null}
                   {key === "checks" && checksTabBadgeCount > 0 ? (
@@ -273,123 +315,175 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
             })}
             </div>
           </HorizontalOverflowFade>
-        </LayoutGroup>
-      </div>
-
-      {activeTab === "changes" && projectChanges.length > 0 ? (
-        <div className="shrink-0 border-b border-sidebar-border/70 py-1">
-          <FileChangesToolbar handle={fileChangesState} />
         </div>
-      ) : null}
 
-      <div className="flex min-h-0 flex-1 flex-col">
-        <div
-          className={cn(
-            "flex min-h-0 flex-1 flex-col",
-            activeTab === "browser"
-              ? "overflow-hidden pt-1.5"
-              : "app-scrollbar-sm overflow-y-auto px-1.5 py-1.5"
-          )}
-        >
+        <div className="flex min-h-0 flex-1 flex-col">
           <div
             className={cn(
-              "min-h-0 w-full flex-1",
-              activeTab === "browser" ? "flex" : "hidden"
+              "flex min-h-0 flex-1 flex-col",
+              activeTab === "browser" || activeTab === "files"
+                ? "overflow-hidden pt-1.5"
+                : "app-scrollbar-sm overflow-y-auto px-1.5 py-1.5"
             )}
-            aria-hidden={activeTab === "browser" ? undefined : true}
           >
-            <BrowserSidebar />
-          </div>
+            <div
+              className={cn(
+                "min-h-0 w-full flex-1",
+                activeTab === "browser" ? "flex" : "hidden"
+              )}
+              aria-hidden={activeTab === "browser" ? undefined : true}
+            >
+              <BrowserSidebar />
+            </div>
 
-          {activeTab === "files" ? (
-            isInitialLoad || isFileTreeLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <span className="text-sm text-muted-foreground">Loading files...</span>
-              </div>
+            {activeTab === "files" ? (
+              isInitialLoad || isFileTreeLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <span className="text-sm text-muted-foreground">Loading files...</span>
+                </div>
+              ) : !selectedWorktree ? (
+                <RightSidebarEmptyState
+                  title="No project selected"
+                  description="Choose a worktree to browse files in this panel."
+                />
+              ) : (
+                <div className="flex h-full flex-col gap-2">
+                  {isImportingFiles ? (
+                    <div className="px-0.5 py-1 text-xs leading-5 text-muted-foreground">
+                      Importing dropped files into the project...
+                    </div>
+                  ) : null}
+
+                  {fileImportError ? (
+                    <div className="px-0.5 py-1 text-xs leading-5 text-destructive">
+                      {fileImportError}
+                    </div>
+                  ) : null}
+
+                  {!selectedWorktreePathMatchesFileTree ? (
+                    <div className="flex items-center justify-center py-8">
+                      <span className="text-sm text-muted-foreground">Loading files...</span>
+                    </div>
+                  ) : Object.keys(fileTreeData).length === 0 ? (
+                    <RightSidebarEmptyState
+                      title="No files yet"
+                      description="This project folder is empty right now."
+                    />
+                  ) : (
+                    <div className="flex h-full min-h-0">
+                      <div
+                        style={{
+                          width: `var(${FILES_TREE_PANEL_WIDTH_CSS_VAR}, ${resolvedFilesTreePanelWidth}px)`,
+                        }}
+                        className="min-h-0 shrink-0 overflow-hidden pr-2"
+                      >
+                        <FileTreeViewer
+                          data={fileTreeData}
+                          initialExpanded={["root"]}
+                          projectPath={selectedWorktree.path}
+                          onFileClick={handleFilePreviewSelect}
+                          onExternalDrop={handleExternalFileDrop}
+                        />
+                      </div>
+
+                      <div
+                        role="separator"
+                        aria-orientation="vertical"
+                        aria-label="Resize files panels"
+                        onPointerDown={handleFilesPanelResizeStart}
+                        className="group relative z-10 -mx-1 w-2 shrink-0 cursor-col-resize"
+                      >
+                        <div
+                          className={cn(
+                            "absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-sidebar-border/70 transition-colors",
+                            isResizingFilesPanel
+                              ? "bg-sidebar-border"
+                              : "group-hover:bg-sidebar-border/95"
+                          )}
+                        />
+                      </div>
+
+                      <div className="min-h-0 min-w-0 flex-1 border-l border-sidebar-border/80 pl-2">
+                        {selectedPreviewFile ? (
+                          <FilePreviewPanel
+                            key={selectedPreviewFile.path}
+                            fileName={selectedPreviewFile.name}
+                            filePath={selectedPreviewFile.path}
+                            projectPath={selectedWorktree.path}
+                          />
+                        ) : (
+                          <div className="flex h-full items-center justify-center px-4 text-center text-sm text-muted-foreground">
+                            Select a file to preview it here.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            ) : activeTab === "browser" ? null : activeTab === "changes" ? (
+              !selectedWorktree ? (
+                <RightSidebarEmptyState
+                  title="No project selected"
+                  description="Choose a worktree to inspect local changes."
+                />
+              ) : gitMissing ? (
+                <RightSidebarEmptyState
+                  title="Git not installed"
+                  description="Install Git on this machine to inspect tracked changes for this project."
+                />
+              ) : gitUninitialized ? (
+                <RightSidebarEmptyState
+                  title="Git not initialized"
+                  description="Initialize Git for this project to inspect tracked changes here."
+                />
+              ) : isChangesLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <span className="text-sm text-muted-foreground">Loading changes...</span>
+                </div>
+              ) : changesError ? (
+                <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-2.5 py-2 text-xs leading-5 text-destructive">
+                  {changesError}
+                </div>
+              ) : trackedProjectChanges.length === 0 ? (
+                <RightSidebarEmptyState
+                  title="No tracked changes"
+                  description="This worktree has no tracked file changes right now."
+                />
+              ) : (
+                <ChangesPanel
+                  projectPath={selectedWorktree.path}
+                  changes={trackedProjectChanges}
+                />
+              )
             ) : !selectedWorktree ? (
               <RightSidebarEmptyState
                 title="No project selected"
-                description="Choose a worktree to browse files in this panel."
+                description="Choose a worktree to inspect pull request checks."
+              />
+            ) : gitMissing ? (
+              <RightSidebarEmptyState
+                title="Git not installed"
+                description="Install Git on this machine to inspect pull request checks for this project."
+              />
+            ) : gitUninitialized ? (
+              <RightSidebarEmptyState
+                title="Git not initialized"
+                description="Initialize Git for this project before checking pull request status."
               />
             ) : (
-              <div className="flex h-full flex-col gap-2">
-                {isImportingFiles ? (
-                  <div className="rounded-xl border border-border/70 bg-card px-2.5 py-2 text-xs leading-5 text-muted-foreground">
-                    Importing dropped files into the project...
-                  </div>
-                ) : null}
-
-                {fileImportError ? (
-                  <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-2.5 py-2 text-xs leading-5 text-destructive">
-                    {fileImportError}
-                  </div>
-                ) : null}
-
-                {Object.keys(fileTreeData).length === 0 ? (
-                  <RightSidebarEmptyState
-                    title="No files yet"
-                    description="This project folder is empty right now."
-                  />
-                ) : (
-                  <FileTreeViewer
-                    data={fileTreeData}
-                    initialExpanded={["root"]}
-                    projectPath={selectedWorktree.path}
-                    onFileClick={openFile}
-                    onExternalDrop={handleExternalFileDrop}
-                  />
-                )}
-              </div>
-            )
-          ) : activeTab === "browser" ? null : activeTab === "changes" ? (
-            !selectedWorktree ? (
-              <RightSidebarEmptyState
-                title="No project selected"
-                description="Choose a worktree to inspect local changes."
+              <PullRequestChecksPanel
+                pullRequest={openPullRequest}
+                checks={pullRequestChecks}
+                comments={pullRequestComments}
+                reviews={pullRequestReviews}
+                reviewComments={pullRequestReviewComments}
+                isLoading={isPullRequestChecksLoading}
+                loadError={pullRequestChecksError ?? openPullRequest?.checksError ?? null}
               />
-            ) : isChangesLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <span className="text-sm text-muted-foreground">Loading changes...</span>
-              </div>
-            ) : changesError ? (
-              <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-2.5 py-2 text-xs leading-5 text-destructive">
-                {changesError}
-              </div>
-            ) : projectChanges.length === 0 ? (
-              <RightSidebarEmptyState
-                title="Working tree clean"
-                description="This worktree has no local file changes right now."
-              />
-            ) : (
-              <div className="px-1.5 py-1">
-                <FileChangesList
-                  changes={projectChanges}
-                  state={fileChangesState}
-                  onFileClick={(file) => {
-                    const fileName = file.path.split("/").pop() ?? file.path
-                    openDiff(file.path, fileName, file.previousPath)
-                  }}
-                />
-              </div>
-            )
-          ) : !selectedWorktree ? (
-            <RightSidebarEmptyState
-              title="No project selected"
-              description="Choose a worktree to inspect pull request checks."
-            />
-          ) : (
-            <PullRequestChecksPanel
-              pullRequest={openPullRequest}
-              checks={pullRequestChecks}
-              comments={pullRequestComments}
-              reviews={pullRequestReviews}
-              reviewComments={pullRequestReviewComments}
-              isLoading={isPullRequestChecksLoading}
-              loadError={pullRequestChecksError ?? openPullRequest?.checksError ?? null}
-            />
-          )}
+            )}
+          </div>
         </div>
-      </div>
     </>
   )
 
@@ -408,7 +502,7 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
           {isHoverPreviewOpen ? (
             <div
               className="fixed top-11 right-0 bottom-0 z-30 flex flex-col overflow-hidden border-l border-sidebar-border bg-sidebar text-sidebar-foreground shadow-[-12px_0_28px_rgba(0,0,0,0.12)]"
-              style={{ width }}
+              style={{ width: `var(${RIGHT_SIDEBAR_WIDTH_CSS_VAR}, ${width}px)` }}
               onMouseEnter={() => setIsHoverPreviewOpen(true)}
               onMouseLeave={() => setIsHoverPreviewOpen(false)}
             >
@@ -421,6 +515,7 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
       <SidebarShell
         width={width}
         setWidth={setWidth}
+        clampWidth={clampWidth}
         persistWidth={persistWidth}
         isCollapsed={isCollapsed}
         side="right"
