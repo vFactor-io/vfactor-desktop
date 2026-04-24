@@ -10,7 +10,7 @@ if (shouldSkip) {
 }
 
 const desktopDir = new URL("../apps/desktop/", import.meta.url).pathname
-const command = Bun.spawn(["bun", "x", "electron-builder", "install-app-deps"], {
+const command = Bun.spawn([process.execPath, "x", "electron-builder", "install-app-deps"], {
   cwd: desktopDir,
   env: process.env,
   stdout: "inherit",
