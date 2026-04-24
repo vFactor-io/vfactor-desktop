@@ -64,6 +64,7 @@ jobs:
       - name: Build release assets
         shell: bash
         run: |
+          rm -rf release apps/desktop/dist
           bun run --cwd apps/desktop build
           bun run --cwd apps/desktop prepare:runtime-env
           (cd apps/desktop && bun x electron-builder install-app-deps --platform ${{ matrix.electron_platform }} --arch ${{ matrix.electron_arch }})
@@ -124,11 +125,11 @@ jobs:
           name: ${{ matrix.artifact_name }}
           if-no-files-found: error
           path: |
-            apps/desktop/dist/*.blockmap
-            apps/desktop/dist/*.dmg
-            apps/desktop/dist/*.exe
-            apps/desktop/dist/*.yml
-            apps/desktop/dist/*.zip
+            release/*.blockmap
+            release/*.dmg
+            release/*.exe
+            release/*.yml
+            release/*.zip
 
   publish-release:
     needs: build-electron

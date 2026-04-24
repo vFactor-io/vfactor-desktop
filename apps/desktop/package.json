@@ -1,6 +1,6 @@
 {
   "name": "nucleus-desktop",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "description": "Desktop ADE for local-first coding projects",
   "repository": {
     "type": "git",
@@ -76,11 +76,11 @@
     "productName": "Nucleus",
     "files": [
       "out/**/*",
-      "dist/**/*",
       "package.json"
     ],
     "directories": {
-      "buildResources": "build"
+      "buildResources": "build",
+      "output": "../../release"
     },
     "extraResources": [
       {
