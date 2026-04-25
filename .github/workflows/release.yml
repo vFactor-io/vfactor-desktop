@@ -30,11 +30,9 @@ jobs:
             build_args: ""
 
     runs-on: ${{ matrix.platform }}
-    timeout-minutes: 45
+    timeout-minutes: 20
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      CSC_LINK: ${{ secrets.CSC_LINK }}
-      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
       APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
       APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
       APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
@@ -61,9 +59,49 @@ jobs:
           NUCLEUS_SKIP_DESKTOP_POSTINSTALL: "1"
         run: bun install --frozen-lockfile
 
+      - name: Import macOS signing certificate
+        if: matrix.platform == 'macos-latest'
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.CSC_LINK }}
+          p12-password: ${{ secrets.CSC_KEY_PASSWORD }}
+
       - name: Build release assets
         shell: bash
         run: |
+          fail_with_context() {
+            local exit_code=$?
+            echo "::group::release diagnostics"
+            security find-identity -v -p codesigning || true
+            find release -maxdepth 2 -type f -exec ls -lh {} \; 2>/dev/null || true
+            ps -axo pid,stat,etime,command | grep -E 'electron-builder|codesign|notarytool|hdiutil|ditto|app-builder' | grep -v grep || true
+            echo "::endgroup::"
+            exit "$exit_code"
+          }
+
+          run_with_timeout() {
+            local timeout_seconds="$1"
+            shift
+            "$@" &
+            local command_pid=$!
+            (
+              sleep "$timeout_seconds"
+              echo "::error::Command timed out after ${timeout_seconds}s: $*"
+              ps -axo pid,stat,etime,command | grep -E 'electron-builder|codesign|notarytool|hdiutil|ditto|app-builder' | grep -v grep || true
+              kill -TERM "$command_pid" 2>/dev/null || true
+              sleep 10
+              kill -KILL "$command_pid" 2>/dev/null || true
+            ) &
+            local watchdog_pid=$!
+            wait "$command_pid"
+            local status=$?
+            kill "$watchdog_pid" 2>/dev/null || true
+            wait "$watchdog_pid" 2>/dev/null || true
+            return "$status"
+          }
+
+          trap fail_with_context ERR
+
           rm -rf release apps/desktop/dist
           bun run --cwd apps/desktop build
           bun run --cwd apps/desktop prepare:runtime-env
@@ -78,32 +116,23 @@ jobs:
               return 0
             }
 
-            if ! has_all "$CSC_LINK" "$CSC_KEY_PASSWORD"; then
-              echo "Missing macOS Developer ID signing certificate secrets: CSC_LINK and CSC_KEY_PASSWORD." >&2
+            signing_identity="$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application:.*\)".*/\1/p' | head -n 1)"
+            if [[ -z "$signing_identity" ]]; then
+              echo "No Developer ID Application signing identity is available after importing CSC_LINK." >&2
               exit 1
             fi
 
-            cert_path="$RUNNER_TEMP/nucleus-developer-id.p12"
-            keychain_path="$RUNNER_TEMP/nucleus-signing.keychain-db"
-            keychain_password="$(uuidgen)"
-            existing_keychains="$(security list-keychains -d user | tr -d '\"')"
-
-            printf '%s' "$CSC_LINK" | base64 -D > "$cert_path"
-            security create-keychain -p "$keychain_password" "$keychain_path"
-            security set-keychain-settings -lut 21600 "$keychain_path"
-            security unlock-keychain -p "$keychain_password" "$keychain_path"
-            security import "$cert_path" -k "$keychain_path" -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security -T /usr/bin/productsign
-            security list-keychains -d user -s "$keychain_path" $existing_keychains
-            security default-keychain -s "$keychain_path"
-            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain_path"
-            security find-identity -v -p codesigning
-            export CSC_KEYCHAIN="$keychain_path"
-            unset CSC_LINK
-            unset CSC_KEY_PASSWORD
+            preflight_binary="$RUNNER_TEMP/nucleus-codesign-preflight"
+            printf '#!/bin/sh\nexit 0\n' > "$preflight_binary"
+            chmod +x "$preflight_binary"
+            echo "Running codesign preflight with: $signing_identity"
+            run_with_timeout 90 /usr/bin/codesign --force --timestamp --options runtime --sign "$signing_identity" "$preflight_binary"
+            /usr/bin/codesign --verify --verbose=2 "$preflight_binary"
 
             if has_all "$APPLE_API_KEY" "$APPLE_API_KEY_ID" "$APPLE_API_ISSUER"; then
               key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
               printf '%s' "$APPLE_API_KEY" > "$key_path"
+              chmod 600 "$key_path"
               export APPLE_API_KEY="$key_path"
               echo "macOS notarization enabled with App Store Connect API key."
             elif has_all "$APPLE_ID" "$APPLE_APP_SPECIFIC_PASSWORD" "$APPLE_TEAM_ID"; then
@@ -114,10 +143,16 @@ jobs:
             fi
 
             du -sh apps/desktop/out apps/desktop/node_modules node_modules || true
-            DEBUG=electron-builder,electron-builder:* DEBUG_COLORS=false ./node_modules/.bin/electron-builder --projectDir apps/desktop --publish never ${{ matrix.build_args }}
+            export DEBUG=electron-builder,electron-builder:*,electron-notarize*
+            export DEBUG_COLORS=false
+            run_with_timeout 960 ./node_modules/.bin/electron-builder --projectDir apps/desktop --publish never ${{ matrix.build_args }}
           else
-            ./node_modules/.bin/electron-builder --projectDir apps/desktop --publish never ${{ matrix.build_args }}
+            run_with_timeout 900 ./node_modules/.bin/electron-builder --projectDir apps/desktop --publish never ${{ matrix.build_args }}
           fi
+
+          echo "::group::packaged release files"
+          find release -maxdepth 2 -type f -exec ls -lh {} \;
+          echo "::endgroup::"
 
       - name: Upload packaged artifacts
         uses: actions/upload-artifact@v4
