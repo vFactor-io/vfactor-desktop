@@ -46,6 +46,7 @@ import type { CodexServerService } from "../codexServer"
 import { MainCodexRpcClient } from "./codexRpcClient"
 import type { ProviderSettingsService } from "./providerSettings"
 import type { RuntimeProviderAdapter, RuntimeProviderContext } from "./providerTypes"
+import { captureRuntimeError } from "./runtimeTelemetry"
 
 type CodexSessionPermissionPreset = {
   approvalPolicy: "unlessTrusted" | "on-request" | "never"
@@ -423,7 +424,18 @@ export class CodexRuntimeProvider implements RuntimeProviderAdapter {
 
   async sendTurn(input: HarnessTurnInput): Promise<HarnessTurnResult> {
     const threadId = getRemoteSessionId(input.session)
-    await this.ensureThreadReady(input, threadId)
+    try {
+      await this.ensureThreadReady(input, threadId)
+    } catch (error) {
+      captureRuntimeError("provider_operation_failed", error, {
+        harnessId: this.harnessId,
+        phase: "codex.thread_ready",
+        session: input.session,
+        model: input.model,
+        runtimeMode: input.runtimeMode,
+      })
+      throw error
+    }
 
     const requestedModel = input.model?.trim() || null
     const shouldIncludeReasoningSummary = requestedModel
@@ -465,6 +477,16 @@ export class CodexRuntimeProvider implements RuntimeProviderAdapter {
       response = await this.startTurn(input, threadId, shouldIncludeReasoningSummary)
     } catch (error) {
       if (!shouldIncludeReasoningSummary || !isUnsupportedReasoningSummaryError(error)) {
+        captureRuntimeError("provider_operation_failed", error, {
+          harnessId: this.harnessId,
+          phase: "codex.turn_start",
+          session: input.session,
+          model: input.model,
+          runtimeMode: input.runtimeMode,
+          extra: {
+            included_reasoning_summary: shouldIncludeReasoningSummary,
+          },
+        })
         unsubscribeDiagnostics()
         throw error
       }
@@ -478,6 +500,17 @@ export class CodexRuntimeProvider implements RuntimeProviderAdapter {
       try {
         response = await this.startTurn(input, threadId, false)
       } catch (retryError) {
+        captureRuntimeError("provider_operation_failed", retryError, {
+          harnessId: this.harnessId,
+          phase: "codex.turn_start",
+          session: input.session,
+          model: input.model,
+          runtimeMode: input.runtimeMode,
+          extra: {
+            included_reasoning_summary: false,
+            retry_after_unsupported_reasoning_summary: true,
+          },
+        })
         unsubscribeDiagnostics()
         throw retryError
       }

@@ -68,6 +68,11 @@ export function captureException(error: unknown, properties?: Record<string, unk
   client.captureException(error, deviceId, properties)
 }
 
+export async function flushAnalytics(): Promise<void> {
+  if (!client) return
+  await client.flush()
+}
+
 export async function shutdownAnalytics(timeoutMs = 2_000): Promise<void> {
   if (!client) return
 

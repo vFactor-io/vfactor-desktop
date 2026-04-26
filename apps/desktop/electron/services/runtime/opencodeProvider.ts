@@ -39,6 +39,7 @@ import {
   mapOpenCodeQuestionResponse,
   parseOpenCodeModelId,
 } from "./opencodeTransforms"
+import { captureRuntimeError } from "./runtimeTelemetry"
 
 const OPEN_CODE_MODEL_CACHE_TTL_MS = 5 * 60 * 1000
 const OPEN_CODE_AGENT_CACHE_TTL_MS = 5 * 60 * 1000
@@ -63,7 +64,25 @@ type OpenCodeSessionState = {
   messagesById: Map<string, TrackedMessage>
   pendingPrompts: Map<string, RuntimePrompt>
   activePrompt: RuntimePrompt | null
+  activeTurn?: {
+    resolve: (result: HarnessTurnResult) => void
+    reject: (error: Error) => void
+  }
   onUpdate?: (result: HarnessTurnResult) => void
+}
+
+function createDeferred<T>(): {
+  promise: Promise<T>
+  resolve: (value: T) => void
+  reject: (error: Error) => void
+} {
+  let resolve!: (value: T) => void
+  let reject!: (error: Error) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
 }
 
 function createProvisionalAssistantInfo(sessionId: string, messageId: string): Message {
@@ -106,6 +125,12 @@ function assertOpenCodeData<T>(result: OpenCodeResponse<T>, context: string): T 
   }
 
   return result.data
+}
+
+function assertOpenCodeAccepted(result: OpenCodeResponse<void>, context: string): void {
+  if (result.error) {
+    throw result.error instanceof Error ? result.error : new Error(String(result.error))
+  }
 }
 
 function mapToolStatus(status: ToolState["status"]): RuntimeToolState["status"] {
@@ -590,8 +615,32 @@ export class OpenCodeRuntimeProvider implements RuntimeProviderAdapter {
   }
 
   async sendTurn(input: HarnessTurnInput): Promise<HarnessTurnResult> {
-    const client = await this.getClient()
-    await this.ensureEventStream()
+    let client: OpencodeClient
+    try {
+      client = await this.getClient()
+    } catch (error) {
+      captureRuntimeError("provider_operation_failed", error, {
+        harnessId: this.harnessId,
+        phase: "opencode.client",
+        session: input.session,
+        model: input.model,
+        runtimeMode: input.runtimeMode,
+      })
+      throw error
+    }
+
+    try {
+      await this.ensureEventStream()
+    } catch (error) {
+      captureRuntimeError("provider_operation_failed", error, {
+        harnessId: this.harnessId,
+        phase: "opencode.event_stream",
+        session: input.session,
+        model: input.model,
+        runtimeMode: input.runtimeMode,
+      })
+      throw error
+    }
 
     const remoteId = getRemoteSessionId(input.session)
     const state = await this.ensureSessionState(input.session)
@@ -603,10 +652,15 @@ export class OpenCodeRuntimeProvider implements RuntimeProviderAdapter {
     this.activeTurns.add(remoteId)
 
     const model = parseOpenCodeModelId(input.model ?? input.session.model ?? null)
+    const turnDeferred = createDeferred<HarnessTurnResult>()
+    state.activeTurn = {
+      resolve: turnDeferred.resolve,
+      reject: turnDeferred.reject,
+    }
 
     try {
-      const message = assertOpenCodeData(
-        await client.session.prompt({
+      assertOpenCodeAccepted(
+        await client.session.promptAsync({
           sessionID: remoteId,
           directory: state.projectPath,
           agent: input.agent,
@@ -618,23 +672,33 @@ export class OpenCodeRuntimeProvider implements RuntimeProviderAdapter {
             },
           ],
         }),
-        "session.prompt"
+        "session.promptAsync"
       )
 
-      updateTrackedMessageInfo(state, message.info)
-      for (const part of message.parts ?? []) {
-        updateTrackedPart(state, part)
-      }
-
-      return {
-        messages: mapTrackedMessagesToRuntimeMessages(state),
-        prompt: state.activePrompt,
-      }
+      return await turnDeferred.promise
     } catch (error) {
+      captureRuntimeError("provider_operation_failed", error, {
+        harnessId: this.harnessId,
+        phase: "opencode.session_prompt",
+        session: input.session,
+        model: input.model,
+        runtimeMode: input.runtimeMode,
+        extra: {
+          has_agent: Boolean(input.agent),
+        },
+      })
+      if (state.activeTurn?.reject === turnDeferred.reject) {
+        state.activeTurn = undefined
+      }
       throw error instanceof Error ? error : new Error(String(error))
     } finally {
-      state.onUpdate = undefined
-      this.activeTurns.delete(remoteId)
+      if (state.activeTurn?.reject === turnDeferred.reject) {
+        state.activeTurn = undefined
+        this.activeTurns.delete(remoteId)
+      }
+      if (!state.activeTurn) {
+        state.onUpdate = undefined
+      }
     }
   }
 
@@ -703,6 +767,12 @@ export class OpenCodeRuntimeProvider implements RuntimeProviderAdapter {
       "session.abort"
     )
     this.activeTurns.delete(remoteId)
+    const state = this.sessions.get(remoteId)
+    if (state?.activeTurn) {
+      state.activeTurn.reject(new Error("OpenCode turn interrupted."))
+      state.activeTurn = undefined
+      state.onUpdate = undefined
+    }
   }
 
   getActiveTurnCount(): number {
@@ -713,6 +783,11 @@ export class OpenCodeRuntimeProvider implements RuntimeProviderAdapter {
     this.eventAbortController?.abort()
     this.eventAbortController = null
     this.eventTask = null
+    for (const state of this.sessions.values()) {
+      state.activeTurn?.reject(new Error("OpenCode provider disposed."))
+      state.activeTurn = undefined
+      state.onUpdate = undefined
+    }
     this.sessions.clear()
     this.activeTurns.clear()
   }
@@ -877,6 +952,18 @@ export class OpenCodeRuntimeProvider implements RuntimeProviderAdapter {
         return
       }
 
+      case "session.status": {
+        if (payload.properties.status.type === "idle") {
+          this.settleActiveTurn(payload.properties.sessionID)
+        }
+        return
+      }
+
+      case "session.idle": {
+        this.settleActiveTurn(payload.properties.sessionID)
+        return
+      }
+
       case "message.part.updated": {
         const sessionState = this.sessions.get(payload.properties.part.sessionID)
         if (!sessionState) {
@@ -1000,6 +1087,7 @@ export class OpenCodeRuntimeProvider implements RuntimeProviderAdapter {
           payload.properties.error && typeof payload.properties.error === "object"
             ? JSON.stringify(payload.properties.error)
             : "OpenCode session failed."
+        const activeTurn = sessionState.activeTurn
         sessionState.onUpdate?.({
           messages: [
             createAssistantMessage(
@@ -1019,6 +1107,9 @@ export class OpenCodeRuntimeProvider implements RuntimeProviderAdapter {
             ),
           ],
         })
+        activeTurn?.reject(new Error(errorMessage))
+        sessionState.activeTurn = undefined
+        sessionState.onUpdate = undefined
         return
       }
 
@@ -1044,6 +1135,22 @@ export class OpenCodeRuntimeProvider implements RuntimeProviderAdapter {
       this.harnessId,
       result
     )
+  }
+
+  private settleActiveTurn(sessionId: string): void {
+    const sessionState = this.sessions.get(sessionId)
+    const activeTurn = sessionState?.activeTurn
+    if (!sessionState || !activeTurn) {
+      return
+    }
+
+    this.activeTurns.delete(sessionId)
+    sessionState.activeTurn = undefined
+    sessionState.onUpdate = undefined
+    activeTurn.resolve({
+      messages: mapTrackedMessagesToRuntimeMessages(sessionState),
+      prompt: sessionState.activePrompt,
+    })
   }
 
   private async persistSession(

@@ -32,6 +32,7 @@ import {
 } from "@/features/chat/types"
 import type { RuntimeProviderAdapter, RuntimeProviderContext } from "./providerTypes"
 import type { ProviderSettingsService } from "./providerSettings"
+import { captureRuntimeError } from "./runtimeTelemetry"
 
 const CLAUDE_MODEL_CACHE_TTL_MS = 5 * 60 * 1000
 const CLAUDE_COMMAND_CACHE_TTL_MS = 5 * 60 * 1000
@@ -624,8 +625,20 @@ export class ClaudeRuntimeProvider implements RuntimeProviderAdapter {
   }
 
   async sendTurn(input: HarnessTurnInput): Promise<HarnessTurnResult> {
-    const state = await this.ensureSessionState(input.session)
-    await this.ensureQuery(state, input)
+    let state: ClaudeSessionState
+    try {
+      state = await this.ensureSessionState(input.session)
+      await this.ensureQuery(state, input)
+    } catch (error) {
+      captureRuntimeError("provider_operation_failed", error, {
+        harnessId: this.harnessId,
+        phase: "claude.session_ready",
+        session: input.session,
+        model: input.model,
+        runtimeMode: input.runtimeMode,
+      })
+      throw error
+    }
 
     if (!state.promptQueue || !state.query) {
       throw new Error("Claude session did not initialize correctly.")
@@ -655,14 +668,26 @@ export class ClaudeRuntimeProvider implements RuntimeProviderAdapter {
       reject: turnDeferred.reject,
     }
 
-    state.promptQueue.push({
-      type: "user",
-      message: {
-        role: "user",
-        content: input.text,
-      },
-      parent_tool_use_id: null,
-    })
+    try {
+      state.promptQueue.push({
+        type: "user",
+        message: {
+          role: "user",
+          content: input.text,
+        },
+        parent_tool_use_id: null,
+      })
+    } catch (error) {
+      state.pendingTurn = null
+      captureRuntimeError("provider_operation_failed", error, {
+        harnessId: this.harnessId,
+        phase: "claude.message_send",
+        session: input.session,
+        model: state.model,
+        runtimeMode: input.runtimeMode,
+      })
+      throw error
+    }
 
     return turnDeferred.promise
   }
@@ -882,6 +907,12 @@ export class ClaudeRuntimeProvider implements RuntimeProviderAdapter {
         }
       }
     } catch (error) {
+      captureRuntimeError("provider_operation_failed", error, {
+        harnessId: this.harnessId,
+        phase: "claude.message_send",
+        session: state.session,
+        model: state.model,
+      })
       state.pendingTurn?.reject(
         error instanceof Error ? error : new Error(String(error))
       )
@@ -979,7 +1010,17 @@ export class ClaudeRuntimeProvider implements RuntimeProviderAdapter {
         const reason = "errors" in message && Array.isArray(message.errors)
           ? message.errors.join(" ")
           : "Claude turn failed."
-        turn.reject(new Error(reason))
+        const error = new Error(reason)
+        captureRuntimeError("provider_operation_failed", error, {
+          harnessId: this.harnessId,
+          phase: "claude.message_send",
+          session: state.session,
+          model: state.model,
+          extra: {
+            result_subtype: message.subtype,
+          },
+        })
+        turn.reject(error)
         return
       }
 

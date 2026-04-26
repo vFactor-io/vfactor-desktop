@@ -107,6 +107,7 @@ const sessionPromptMock = mock(async () => ({
     ],
   },
 }))
+const sessionPromptAsyncMock = mock(async () => ({ data: undefined }))
 const permissionReplyMock = mock(async () => ({ data: true }))
 const questionReplyMock = mock(async () => ({ data: true }))
 const sessionAbortMock = mock(async () => ({ data: true }))
@@ -131,6 +132,7 @@ mock.module("@opencode-ai/sdk/v2/client", () => ({
     session: {
       create: sessionCreateMock,
       prompt: sessionPromptMock,
+      promptAsync: sessionPromptAsyncMock,
       abort: sessionAbortMock,
     },
     permission: {
@@ -183,6 +185,7 @@ describe("OpenCodeRuntimeProvider", () => {
     eventStream.close()
     sessionCreateMock.mockClear()
     sessionPromptMock.mockClear()
+    sessionPromptAsyncMock.mockClear()
     permissionReplyMock.mockClear()
     questionReplyMock.mockClear()
     sessionAbortMock.mockClear()
@@ -257,6 +260,7 @@ describe("OpenCodeRuntimeProvider", () => {
         session: {
           create: sessionCreateMock,
           prompt: sessionPromptMock,
+          promptAsync: sessionPromptAsyncMock,
           abort: sessionAbortMock,
         },
         permission: {
@@ -395,6 +399,68 @@ describe("OpenCodeRuntimeProvider", () => {
     })
     expect(updates.at(-1)?.result.prompt).toBeNull()
 
+    liveEventStream.emit({
+      directory: "/tmp/project",
+      payload: {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            id: "assistant-1-text",
+            sessionID: "session-1",
+            messageID: "assistant-1",
+            type: "text",
+            text: "Final answer",
+          },
+        },
+      },
+    })
+    liveEventStream.emit({
+      directory: "/tmp/project",
+      payload: {
+        type: "message.updated",
+        properties: {
+          info: {
+            id: "assistant-1",
+            sessionID: "session-1",
+            role: "assistant",
+            time: {
+              created: 10,
+              completed: 20,
+            },
+            parentID: "user-1",
+            modelID: "gpt-5.4",
+            providerID: "openai",
+            mode: "build",
+            agent: "build",
+            path: {
+              cwd: "/tmp/project",
+              root: "/tmp/project",
+            },
+            cost: 0,
+            tokens: {
+              input: 0,
+              output: 0,
+              reasoning: 0,
+              cache: {
+                read: 0,
+                write: 0,
+              },
+            },
+            finish: "stop",
+          },
+        },
+      },
+    })
+    liveEventStream.emit({
+      directory: "/tmp/project",
+      payload: {
+        type: "session.idle",
+        properties: {
+          sessionID: "session-1",
+        },
+      },
+    })
+
     const result = await sendPromise
 
     expect(result.messages?.some((message) =>
@@ -404,93 +470,6 @@ describe("OpenCodeRuntimeProvider", () => {
 
   test("streams text from message.part.delta events before the final snapshot arrives", async () => {
     const liveEventStream = new AsyncEventStream<any>()
-    let resolvePrompt:
-      | ((value: {
-          data: {
-            info: {
-              id: string
-              sessionID: string
-              role: string
-              time: {
-                created: number
-                completed: number
-              }
-              parentID: string
-              modelID: string
-              providerID: string
-              mode: string
-              agent: string
-              path: {
-                cwd: string
-                root: string
-              }
-              cost: number
-              tokens: {
-                input: number
-                output: number
-                reasoning: number
-                cache: {
-                  read: number
-                  write: number
-                }
-              }
-              finish: string
-            }
-            parts: Array<{
-              id: string
-              sessionID: string
-              messageID: string
-              type: string
-              text: string
-            }>
-          }
-        }) => void)
-      | null = null
-    const delayedPromptMock = mock(
-      () =>
-        new Promise<{
-          data: {
-            info: {
-              id: string
-              sessionID: string
-              role: string
-              time: {
-                created: number
-                completed: number
-              }
-              parentID: string
-              modelID: string
-              providerID: string
-              mode: string
-              agent: string
-              path: {
-                cwd: string
-                root: string
-              }
-              cost: number
-              tokens: {
-                input: number
-                output: number
-                reasoning: number
-                cache: {
-                  read: number
-                  write: number
-                }
-              }
-              finish: string
-            }
-            parts: Array<{
-              id: string
-              sessionID: string
-              messageID: string
-              type: string
-              text: string
-            }>
-          }
-        }>((resolve) => {
-          resolvePrompt = resolve
-        })
-    )
     mock.module("@opencode-ai/sdk/v2/client", () => ({
       createOpencodeClient: () => ({
         global: {
@@ -500,7 +479,8 @@ describe("OpenCodeRuntimeProvider", () => {
         },
         session: {
           create: sessionCreateMock,
-          prompt: delayedPromptMock,
+          prompt: sessionPromptMock,
+          promptAsync: sessionPromptAsyncMock,
           abort: sessionAbortMock,
         },
         permission: {
@@ -611,46 +591,53 @@ describe("OpenCodeRuntimeProvider", () => {
       )
     )).toBe(true)
 
-    resolvePrompt?.({
-      data: {
-        info: {
-          id: "assistant-1",
-          sessionID: "session-1",
-          role: "assistant",
-          time: {
-            created: 10,
-            completed: 20,
-          },
-          parentID: "user-1",
-          modelID: "gpt-5.4",
-          providerID: "openai",
-          mode: "build",
-          agent: "build",
-          path: {
-            cwd: "/tmp/project",
-            root: "/tmp/project",
-          },
-          cost: 0,
-          tokens: {
-            input: 0,
-            output: 0,
-            reasoning: 0,
-            cache: {
-              read: 0,
-              write: 0,
-            },
-          },
-          finish: "stop",
-        },
-        parts: [
-          {
-            id: "assistant-1-text",
+    liveEventStream.emit({
+      directory: "/tmp/project",
+      payload: {
+        type: "message.updated",
+        properties: {
+          info: {
+            id: "assistant-1",
             sessionID: "session-1",
-            messageID: "assistant-1",
-            type: "text",
-            text: "Final answer",
+            role: "assistant",
+            time: {
+              created: 10,
+              completed: 20,
+            },
+            parentID: "user-1",
+            modelID: "gpt-5.4",
+            providerID: "openai",
+            mode: "build",
+            agent: "build",
+            path: {
+              cwd: "/tmp/project",
+              root: "/tmp/project",
+            },
+            cost: 0,
+            tokens: {
+              input: 0,
+              output: 0,
+              reasoning: 0,
+              cache: {
+                read: 0,
+                write: 0,
+              },
+            },
+            finish: "stop",
           },
-        ],
+        },
+      },
+    })
+    liveEventStream.emit({
+      directory: "/tmp/project",
+      payload: {
+        type: "session.status",
+        properties: {
+          sessionID: "session-1",
+          status: {
+            type: "idle",
+          },
+        },
       },
     })
 

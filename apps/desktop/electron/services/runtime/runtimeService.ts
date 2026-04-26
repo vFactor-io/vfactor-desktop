@@ -33,6 +33,10 @@ import type { RuntimeProviderAdapter } from "./providerTypes"
 import { ProviderRuntimeManager } from "./providerRuntimeManager"
 import { ProviderSettingsService } from "./providerSettings"
 import { RuntimeSessionStore } from "./runtimeSessionStore"
+import {
+  captureRuntimeError,
+  captureRuntimeEvent,
+} from "./runtimeTelemetry"
 
 type EventSender = (channel: string, payload: unknown) => void
 
@@ -90,9 +94,15 @@ export class RuntimeService {
   }
 
   async listModels(input: RuntimeListModelsInput): Promise<RuntimeModelsResult> {
-    return {
-      models: await this.getProvider(input.harnessId).listModels(),
-    }
+    return this.captureRuntimeOperation(
+      {
+        harnessId: input.harnessId,
+        phase: "runtime.list_models",
+      },
+      async () => ({
+        models: await this.getProvider(input.harnessId).listModels(),
+      })
+    )
   }
 
   async listProviderStatuses(): Promise<RuntimeProviderStatusesResult> {
@@ -131,19 +141,38 @@ export class RuntimeService {
   }
 
   async sendTurn(input: RuntimeSendTurnInput) {
-    return this.getProvider(input.harnessId).sendTurn(
-      this.toHarnessTurnInput(input)
+    return this.captureRuntimeOperation(
+      {
+        harnessId: input.harnessId,
+        phase: "runtime.send_turn",
+        session: input.session,
+        model: input.model,
+        runtimeMode: input.runtimeMode,
+      },
+      () => this.getProvider(input.harnessId).sendTurn(this.toHarnessTurnInput(input))
     )
   }
 
   async answerPrompt(input: RuntimeAnswerPromptInput) {
-    return this.getProvider(input.harnessId).answerPrompt(
-      this.toHarnessPromptInput(input)
+    return this.captureRuntimeOperation(
+      {
+        harnessId: input.harnessId,
+        phase: "runtime.answer_prompt",
+        session: input.session,
+      },
+      () => this.getProvider(input.harnessId).answerPrompt(this.toHarnessPromptInput(input))
     )
   }
 
   async interruptTurn(input: RuntimeInterruptTurnInput): Promise<void> {
-    return this.getProvider(input.harnessId).interruptTurn(input.session)
+    return this.captureRuntimeOperation(
+      {
+        harnessId: input.harnessId,
+        phase: "runtime.interrupt_turn",
+        session: input.session,
+      },
+      () => this.getProvider(input.harnessId).interruptTurn(input.session)
+    )
   }
 
   getActiveTurnCount(): number {
@@ -170,6 +199,29 @@ export class RuntimeService {
     }
 
     return provider
+  }
+
+  private async captureRuntimeOperation<T>(
+    input: Parameters<typeof captureRuntimeEvent>[1],
+    operation: () => Promise<T>
+  ): Promise<T> {
+    const startedAt = Date.now()
+    captureRuntimeEvent("runtime_operation_started", input)
+
+    try {
+      const result = await operation()
+      captureRuntimeEvent("runtime_operation_completed", {
+        ...input,
+        durationMs: Date.now() - startedAt,
+      })
+      return result
+    } catch (error) {
+      captureRuntimeError("runtime_operation_failed", error, {
+        ...input,
+        durationMs: Date.now() - startedAt,
+      })
+      throw error
+    }
   }
 
   private toHarnessTurnInput(input: RuntimeSendTurnInput): HarnessTurnInput {
