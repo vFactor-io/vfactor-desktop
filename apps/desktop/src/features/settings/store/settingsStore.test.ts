@@ -57,16 +57,19 @@ function resetSettingsStore() {
       codex: {
         model: "",
         reasoningEffort: "",
+        modelVariant: "",
         fastMode: false,
       },
       "claude-code": {
         model: "",
         reasoningEffort: "",
+        modelVariant: "",
         fastMode: false,
       },
       opencode: {
         model: "",
         reasoningEffort: "",
+        modelVariant: "",
         fastMode: false,
       },
     },
@@ -183,6 +186,7 @@ describe("settingsStore resolve prompts", () => {
     useSettingsStore.getState().setHarnessDefaultReasoningEffort("codex", " medium ")
     useSettingsStore.getState().setHarnessDefaultFastMode("codex", true)
     useSettingsStore.getState().setHarnessDefaultModel("opencode", " openai/gpt-5.4 ")
+    useSettingsStore.getState().setHarnessDefaultModelVariant("opencode", " high ")
 
     await Bun.sleep(350)
 
@@ -190,16 +194,19 @@ describe("settingsStore resolve prompts", () => {
       codex: {
         model: "gpt-5.4",
         reasoningEffort: "medium",
+        modelVariant: "",
         fastMode: true,
       },
       "claude-code": {
         model: "",
         reasoningEffort: "",
+        modelVariant: "",
         fastMode: false,
       },
       opencode: {
         model: "openai/gpt-5.4",
         reasoningEffort: "",
+        modelVariant: "high",
         fastMode: false,
       },
     })
@@ -231,11 +238,13 @@ describe("settingsStore resolve prompts", () => {
 
     useSettingsStore.getState().setHarnessDefaultModel("codex", "gpt-5.4")
     useSettingsStore.getState().setHarnessDefaultReasoningEffort("codex", "high")
+    useSettingsStore.getState().setHarnessDefaultModelVariant("codex", "deep")
     useSettingsStore.getState().setHarnessDefaultFastMode("codex", true)
     await Bun.sleep(350)
 
     useSettingsStore.getState().resetHarnessDefaultModel("codex")
     useSettingsStore.getState().resetHarnessDefaultReasoningEffort("codex")
+    useSettingsStore.getState().resetHarnessDefaultModelVariant("codex")
     useSettingsStore.getState().resetHarnessDefaultFastMode("codex")
     await Bun.sleep(350)
 
@@ -243,21 +252,25 @@ describe("settingsStore resolve prompts", () => {
       codex: {
         model: "",
         reasoningEffort: "",
+        modelVariant: "",
         fastMode: false,
       },
       "claude-code": {
         model: "",
         reasoningEffort: "",
+        modelVariant: "",
         fastMode: false,
       },
       opencode: {
         model: "",
         reasoningEffort: "",
+        modelVariant: "",
         fastMode: false,
       },
     })
     expect(useSettingsStore.getState().harnessDefaults.codex.model).toBe("")
     expect(useSettingsStore.getState().harnessDefaults.codex.reasoningEffort).toBe("")
+    expect(useSettingsStore.getState().harnessDefaults.codex.modelVariant).toBe("")
     expect(useSettingsStore.getState().harnessDefaults.codex.fastMode).toBe(false)
   })
 })

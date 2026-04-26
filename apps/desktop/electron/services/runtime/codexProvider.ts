@@ -762,6 +762,7 @@ export class CodexRuntimeProvider implements RuntimeProviderAdapter {
 
     return this.sendTurn({
       session: input.session,
+      turnId: input.prompt.kind === "approval" ? input.prompt.approval.turnId : `prompt:${input.prompt.id}`,
       projectPath: input.projectPath,
       text: input.response.text,
     })

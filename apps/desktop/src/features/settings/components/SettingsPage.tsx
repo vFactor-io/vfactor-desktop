@@ -179,6 +179,33 @@ function buildReasoningOptions(model: RuntimeModel | null, additionalEffort?: st
   return options
 }
 
+function buildModelVariantOptions(model: RuntimeModel | null, additionalVariant?: string) {
+  const options = Array.from(
+    new Map(
+      (model?.modelVariants ?? [])
+        .map((variant) => ({
+          value: variant.id.trim(),
+          label: variant.label.trim() || variant.id.trim(),
+        }))
+        .filter((variant) => variant.value.length > 0)
+        .map((variant) => [variant.value, variant])
+    ).values()
+  )
+
+  const normalizedAdditionalVariant = additionalVariant?.trim() ?? ""
+  if (
+    normalizedAdditionalVariant.length > 0 &&
+    !options.some((option) => option.value === normalizedAdditionalVariant)
+  ) {
+    options.unshift({
+      value: normalizedAdditionalVariant,
+      label: normalizedAdditionalVariant,
+    })
+  }
+
+  return options
+}
+
 function GitSettingsSection() {
   const gitGenerationModel = useSettingsStore((state) => state.gitGenerationModel)
   const gitResolvePrompts = useSettingsStore((state) => state.gitResolvePrompts)
@@ -542,6 +569,12 @@ function HarnessSettingsSection({ harnessId }: { harnessId: HarnessId }) {
   const resetHarnessDefaultReasoningEffort = useSettingsStore(
     (state) => state.resetHarnessDefaultReasoningEffort
   )
+  const setHarnessDefaultModelVariant = useSettingsStore(
+    (state) => state.setHarnessDefaultModelVariant
+  )
+  const resetHarnessDefaultModelVariant = useSettingsStore(
+    (state) => state.resetHarnessDefaultModelVariant
+  )
   const setHarnessDefaultFastMode = useSettingsStore((state) => state.setHarnessDefaultFastMode)
   const resetHarnessDefaultFastMode = useSettingsStore(
     (state) => state.resetHarnessDefaultFastMode
@@ -614,6 +647,7 @@ function HarnessSettingsSection({ harnessId }: { harnessId: HarnessId }) {
   const providerStatus = providerStatuses[harnessId]
   const defaultModelValue = defaults.model
   const defaultReasoningEffortValue = defaults.reasoningEffort
+  const defaultModelVariantValue = defaults.modelVariant
   const defaultFastModeValue = defaults.fastMode
 
   const modelOptions = useMemo(
@@ -638,7 +672,12 @@ function HarnessSettingsSection({ harnessId }: { harnessId: HarnessId }) {
     () => buildReasoningOptions(effectiveDefaultModel, defaultReasoningEffortValue),
     [defaultReasoningEffortValue, effectiveDefaultModel]
   )
+  const modelVariantOptions = useMemo(
+    () => buildModelVariantOptions(effectiveDefaultModel, defaultModelVariantValue),
+    [defaultModelVariantValue, effectiveDefaultModel]
+  )
   const supportsReasoningEffort = harnessDefinition.capabilities.supportsReasoningEffort
+  const supportsModelVariants = modelVariantOptions.length > 0
   const supportsFastMode =
     harnessDefinition.capabilities.supportsFastMode && effectiveDefaultModel?.supportsFastMode === true
   const reasoningPlaceholder =
@@ -667,11 +706,11 @@ function HarnessSettingsSection({ harnessId }: { harnessId: HarnessId }) {
   ])
 
   const introCopy =
-    harnessId === "codex"
-      ? "Choose the model behavior new Codex chats should start from. Fast mode is available when the selected model supports it and trades higher usage for more speed."
-      : harnessId === "claude-code"
-        ? "Choose the model behavior new Claude chats should start from. Fast mode is currently available on supported Claude models and can deliver faster output at premium API pricing."
-        : "Choose the default model new OpenCode chats should start from. OpenCode keeps reasoning and speed controls on its own side for now."
+	    harnessId === "codex"
+	      ? "Choose the model behavior new Codex chats should start from. Fast mode is available when the selected model supports it and trades higher usage for more speed."
+	      : harnessId === "claude-code"
+	        ? "Choose the model behavior new Claude chats should start from. Fast mode is currently available on supported Claude models and can deliver faster output at premium API pricing."
+	        : "Choose the model behavior new OpenCode chats should start from. Provider-native variants appear when the selected model exposes them."
   const fastModeDescription =
     harnessId === "claude-code"
       ? "Uses Claude fast mode when the selected model supports it. Up to 2.5x faster output at premium API pricing."
@@ -879,6 +918,35 @@ function HarnessSettingsSection({ harnessId }: { harnessId: HarnessId }) {
             </Field>
           ) : null}
 
+          {supportsModelVariants ? (
+            <Field>
+              <FieldTitle>Default variant</FieldTitle>
+              <FieldDescription>
+                Applies provider-native model behavior when the selected model exposes variants.
+              </FieldDescription>
+              <SearchableSelect
+                value={defaultModelVariantValue || null}
+                onValueChange={(value) => setHarnessDefaultModelVariant(harnessId, value)}
+                options={modelVariantOptions}
+                placeholder={effectiveDefaultModel?.defaultModelVariant?.trim() || "Default variant"}
+                searchPlaceholder="Search variants"
+                emptyMessage="No variants available for this model."
+                disabled={isSettingsLoading || isLoadingModels || effectiveDefaultModel == null}
+                className="mt-2"
+                errorMessage={loadError}
+                statusMessage={
+                  isSettingsLoading
+                    ? "Loading saved settings…"
+                    : isLoadingModels
+                      ? "Loading models…"
+                      : effectiveDefaultModel == null
+                        ? "Choose a model first."
+                        : null
+                }
+              />
+            </Field>
+          ) : null}
+
           {harnessDefinition.capabilities.supportsFastMode ? (
             <>
               <Field orientation="horizontal" className="items-start gap-3">
@@ -925,6 +993,17 @@ function HarnessSettingsSection({ harnessId }: { harnessId: HarnessId }) {
               disabled={isSettingsLoading}
             >
               Reset reasoning
+            </Button>
+          ) : null}
+          {supportsModelVariants ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => resetHarnessDefaultModelVariant(harnessId)}
+              disabled={isSettingsLoading}
+            >
+              Reset variant
             </Button>
           ) : null}
           <Button

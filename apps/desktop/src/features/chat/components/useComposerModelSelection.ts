@@ -12,9 +12,11 @@ import {
 } from "../types"
 import {
   resolveDefaultFastMode,
+  resolveDefaultModelVariant,
   resolveDefaultReasoningEffort,
   resolveEffectiveComposerModelId,
   resolveSessionSelectedModelId,
+  shouldShowModelVariantSelector,
   shouldShowReasoningEffortSelector,
 } from "./chatInputModelSelection"
 import { getModelLogoKind } from "./ModelLogo"
@@ -46,6 +48,7 @@ export function useComposerModelSelection({
   const favoriteModels = useSettingsStore((state) => state.favoriteModels)
   const toggleFavoriteModel = useSettingsStore((state) => state.toggleFavoriteModel)
   const setSessionModel = useChatStore((state) => state.setSessionModel)
+  const setSessionModelPreferences = useChatStore((state) => state.setSessionModelPreferences)
   const {
     models: codexModels,
     isLoading: isLoadingCodexModels,
@@ -66,6 +69,7 @@ export function useComposerModelSelection({
   const [modelHarnessFilter, setModelHarnessFilter] = useState<ModelHarnessFilter>("all")
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null)
   const [reasoningEffortOverride, setReasoningEffortOverride] = useState<RuntimeReasoningEffort | null>(null)
+  const [modelVariantOverride, setModelVariantOverride] = useState<string | null | undefined>(undefined)
   const [fastModeOverride, setFastModeOverride] = useState<boolean | null>(null)
 
   useEffect(() => {
@@ -106,7 +110,7 @@ export function useComposerModelSelection({
     () => availableModels.find((model) => model.isDefault) ?? availableModels[0] ?? null,
     [availableModels]
   )
-  const sessionModelIdForComposer = isDraftSession ? null : activeSessionModelId
+  const sessionModelIdForComposer = activeSessionModelId
   const selectedHarnessDefaults = selectedHarnessId ? harnessDefaults[selectedHarnessId] : null
   const selectedHarnessDefinition = selectedHarnessId ? getHarnessDefinition(selectedHarnessId) : null
   const harnessDefaultModelId = selectedHarnessDefaults?.model ?? ""
@@ -271,6 +275,36 @@ export function useComposerModelSelection({
       reasoningEffortOverride,
     ]
   )
+  const availableModelVariants = useMemo(
+    () =>
+      (effectiveModel?.modelVariants ?? [])
+        .map((variant) => ({
+          ...variant,
+          id: variant.id.trim(),
+        }))
+        .filter((variant) => variant.id.length > 0),
+    [effectiveModel]
+  )
+  const modelVariantIds = useMemo(
+    () => availableModelVariants.map((variant) => variant.id),
+    [availableModelVariants]
+  )
+  const harnessDefaultModelVariant = selectedHarnessDefaults?.modelVariant ?? null
+  const modelVariant = useMemo(
+    () =>
+      resolveDefaultModelVariant({
+        overrideModelVariant: modelVariantOverride,
+        defaultModelVariant: harnessDefaultModelVariant,
+        modelDefaultVariant: effectiveModel?.defaultModelVariant ?? null,
+        supportedModelVariants: modelVariantIds,
+      }),
+    [
+      effectiveModel?.defaultModelVariant,
+      harnessDefaultModelVariant,
+      modelVariantIds,
+      modelVariantOverride,
+    ]
+  )
   const supportsFastMode = effectiveModel?.supportsFastMode === true
   const harnessDefaultFastMode = selectedHarnessDefaults?.fastMode ?? false
   const fastMode = useMemo(
@@ -283,8 +317,12 @@ export function useComposerModelSelection({
     [fastModeOverride, harnessDefaultFastMode, supportsFastMode]
   )
   const toggleFastMode = useCallback(() => {
-    setFastModeOverride((current) => (current == null ? !fastMode : !current))
-  }, [fastMode])
+    const nextFastMode = fastModeOverride == null ? !fastMode : !fastModeOverride
+    setFastModeOverride(nextFastMode)
+    if (activeSession?.id) {
+      void setSessionModelPreferences(activeSession.id, { fastMode: nextFastMode })
+    }
+  }, [activeSession?.id, fastMode, fastModeOverride, setSessionModelPreferences])
   const selectedModelLabel = effectiveModel
     ? getRuntimeModelLabel(effectiveModel)
     : selectedModelId
@@ -293,6 +331,9 @@ export function useComposerModelSelection({
   const showReasoningEffortSelector = shouldShowReasoningEffortSelector({
     supportsReasoningEffort: selectedHarnessDefinition?.capabilities.supportsReasoningEffort === true,
     availableReasoningEfforts,
+  })
+  const showModelVariantSelector = shouldShowModelVariantSelector({
+    availableModelVariants: modelVariantIds,
   })
   const isAnyModelCatalogLoading = modelGroups.some((group) => group.isLoading)
   const fastModeTooltipLabel = !supportsFastMode
@@ -306,10 +347,6 @@ export function useComposerModelSelection({
       return
     }
 
-    if (isDraftSession) {
-      return
-    }
-
     const resolvedModelId = resolveSessionSelectedModelId(
       activeSessionModelId,
       availableModels.map((model) => model.id)
@@ -320,15 +357,26 @@ export function useComposerModelSelection({
     activeSession?.id,
     activeSessionModelId,
     availableModels,
-    isDraftSession,
     selectedHarnessId,
     selectedWorktreeId,
   ])
 
   useEffect(() => {
-    setReasoningEffortOverride(null)
-    setFastModeOverride(null)
-  }, [activeSession?.id, effectiveModel?.id, selectedHarnessId, selectedWorktreeId])
+    setReasoningEffortOverride(activeSession?.reasoningEffort ?? null)
+    setModelVariantOverride(
+      activeSession && Object.prototype.hasOwnProperty.call(activeSession, "modelVariant")
+        ? activeSession.modelVariant ?? null
+        : undefined
+    )
+    setFastModeOverride(activeSession?.fastMode ?? null)
+  }, [
+    activeSession?.fastMode,
+    activeSession?.id,
+    activeSession?.modelVariant,
+    activeSession?.reasoningEffort,
+    selectedHarnessId,
+    selectedWorktreeId,
+  ])
 
   useEffect(() => {
     if (isModelPickerOpen) {
@@ -342,7 +390,6 @@ export function useComposerModelSelection({
   const handleSelectModel = useCallback(
     async (harnessId: HarnessId, modelId: string | null) => {
       const trimmedModelId = modelId?.trim() || null
-      const shouldUseLocalHarnessSelection = !activeSession?.id || isDraftSession
 
       if (activeSession?.id && !isDraftSession && activeSession.harnessId !== harnessId) {
         return
@@ -357,7 +404,7 @@ export function useComposerModelSelection({
         setSelectedHarnessOverride(harnessId === persistedHarnessId ? null : harnessId)
       })
 
-      if (shouldUseLocalHarnessSelection) {
+      if (!activeSession?.id) {
         return
       }
 
@@ -371,9 +418,24 @@ export function useComposerModelSelection({
       setSessionModel,
     ]
   )
-  const handleSelectReasoningEffort = useCallback((effort: RuntimeReasoningEffort) => {
-    setReasoningEffortOverride(effort)
-  }, [])
+  const handleSelectReasoningEffort = useCallback(
+    (effort: RuntimeReasoningEffort) => {
+      setReasoningEffortOverride(effort)
+      if (activeSession?.id) {
+        void setSessionModelPreferences(activeSession.id, { reasoningEffort: effort })
+      }
+    },
+    [activeSession?.id, setSessionModelPreferences]
+  )
+  const handleSelectModelVariant = useCallback(
+    (variant: string | null) => {
+      setModelVariantOverride(variant)
+      if (activeSession?.id) {
+        void setSessionModelPreferences(activeSession.id, { modelVariant: variant })
+      }
+    },
+    [activeSession?.id, setSessionModelPreferences]
+  )
   const modelPickerProps = useMemo<ModelPickerProps>(
     () => ({
       isOpen: isModelPickerOpen,
@@ -420,14 +482,18 @@ export function useComposerModelSelection({
 
   return {
     availableReasoningEfforts,
+    availableModelVariants,
     effectiveModel,
     fastMode,
     fastModeTooltipLabel,
+    handleSelectModelVariant,
     handleSelectReasoningEffort,
     isLoadingModels,
+    modelVariant,
     modelPickerProps,
     reasoningEffort,
     selectedHarnessId,
+    showModelVariantSelector,
     showReasoningEffortSelector,
     supportsFastMode,
     toggleFastMode,

@@ -58,6 +58,7 @@ interface ChatMessagesProps {
   threadKey: string
   messages: MessageWithParts[]
   status: "idle" | "connecting" | "streaming" | "error"
+  workStartedAt?: number | null
   activePromptState?: RuntimePromptState | null
   selectedProject?: Project | null
   selectedWorktree?: ProjectWorktree | null
@@ -237,6 +238,7 @@ export function ChatMessages({
   threadKey,
   messages,
   status,
+  workStartedAt = null,
   activePromptState = null,
   selectedProject,
   selectedWorktree,
@@ -265,45 +267,41 @@ export function ChatMessages({
     orphanChildSessions,
   } = timelineViewModel
   const hasContent = renderedMessages.length > 0
-  const [activeWorkStartTime, setActiveWorkStartTime] = useState<number | null>(null)
   const [lastCompletedWork, setLastCompletedWork] = useState<{
     messageId: string
     durationMs: number
   } | null>(null)
   const [previewImage, setPreviewImage] = useState<ChatImagePreviewRequest | null>(null)
   const previousStatusRef = useRef(status)
+  const previousWorkStartedAtRef = useRef<number | null>(workStartedAt)
 
   useEffect(() => {
-    setActiveWorkStartTime(status === "streaming" ? Date.now() : null)
     setLastCompletedWork(null)
     setPreviewImage(null)
     previousStatusRef.current = status
+    previousWorkStartedAtRef.current = workStartedAt
   }, [threadKey])
 
   useEffect(() => {
     const previousStatus = previousStatusRef.current
+    const previousWorkStartedAt = previousWorkStartedAtRef.current
 
-    if (status === "streaming" && activeWorkStartTime == null) {
-      setActiveWorkStartTime(Date.now())
-      setLastCompletedWork(null)
-    } else if (previousStatus !== "streaming" && status === "streaming") {
-      setActiveWorkStartTime(Date.now())
+    if (previousStatus !== "streaming" && status === "streaming") {
       setLastCompletedWork(null)
     }
 
-    if (previousStatus === "streaming" && status !== "streaming" && activeWorkStartTime != null) {
+    if (previousStatus === "streaming" && status !== "streaming" && previousWorkStartedAt != null) {
       if (latestTurnFooterMessage) {
         setLastCompletedWork({
           messageId: latestTurnFooterMessage.info.id,
-          durationMs: Date.now() - activeWorkStartTime,
+          durationMs: Date.now() - previousWorkStartedAt,
         })
       }
-
-      setActiveWorkStartTime(null)
     }
 
     previousStatusRef.current = status
-  }, [activeWorkStartTime, latestTurnFooterMessage, status])
+    previousWorkStartedAtRef.current = workStartedAt
+  }, [latestTurnFooterMessage, status, workStartedAt])
   const resolvedCompletedFooterByMessageId = useMemo(() => {
     const resolved = new Map(completedFooterByMessageId)
 
@@ -325,7 +323,7 @@ export function ChatMessages({
         ? lastCompletedWork.durationMs
         : (completedWorkDurationByMessageId.get(latestTurnFooterMessageId) ?? null)
   const shouldRenderLatestTurnFooter =
-    status === "connecting" || (status === "streaming" && activeWorkStartTime != null)
+    status === "connecting" || (status === "streaming" && workStartedAt != null)
 
   const collapsedMessagesByFooterId = useMemo(
     () => getTurnCollapsedMessagesByFooterId(renderedMessages, status),
@@ -396,7 +394,7 @@ export function ChatMessages({
           {shouldRenderLatestTurnFooter ? (
             <AssistantTurnFooter
               activityState={status === "connecting" ? "connecting" : "streaming"}
-              startTime={status === "streaming" ? activeWorkStartTime : null}
+              startTime={status === "streaming" ? workStartedAt : null}
               completedDurationMs={latestTurnDurationMs ?? undefined}
             />
           ) : null}

@@ -114,8 +114,8 @@ const ModelPickerDropdownContent = memo(function ModelPickerDropdownContent({
   onSelectModel,
 }: ModelPickerDropdownContentProps) {
   return (
-    <div className="flex h-full min-w-0 bg-popover">
-      <div className="flex w-14 shrink-0 flex-col border-r border-border/70 bg-muted/15 p-1.5">
+    <div className="flex h-full min-w-0 bg-card">
+      <div className="flex w-14 shrink-0 flex-col border-r border-border/70 bg-[color-mix(in_oklab,var(--muted)_18%,transparent)] p-1.5">
         <div className="space-y-0.5">
           <button
             type="button"
@@ -129,14 +129,14 @@ const ModelPickerDropdownContent = memo(function ModelPickerDropdownContent({
             className={cn(
               "model-picker-control group relative isolate flex h-10 w-full items-center justify-center overflow-hidden rounded-md transition-colors",
               modelHarnessFilter === "favorites"
-                ? "text-accent-foreground"
-                : "text-muted-foreground hover:bg-accent/55 hover:text-accent-foreground"
+                ? "text-foreground"
+                : "text-muted-foreground hover:bg-[var(--sidebar-item-hover)] hover:text-foreground"
             )}
           >
             {modelHarnessFilter === "favorites" ? (
               <motion.div
                 layoutId="modelHarnessFilterRail"
-                className="model-picker-control absolute inset-0 z-0 rounded-md bg-accent"
+                className="model-picker-control absolute inset-0 z-0 rounded-md bg-[var(--sidebar-item-active)]"
                 transition={{ type: "spring", stiffness: 500, damping: 35, mass: 0.5 }}
               />
             ) : null}
@@ -155,14 +155,14 @@ const ModelPickerDropdownContent = memo(function ModelPickerDropdownContent({
             className={cn(
               "model-picker-control group relative isolate flex h-10 w-full items-center justify-center overflow-hidden rounded-md transition-colors",
               modelHarnessFilter === "all"
-                ? "text-accent-foreground"
-                : "text-muted-foreground hover:bg-accent/55 hover:text-accent-foreground"
+                ? "text-foreground"
+                : "text-muted-foreground hover:bg-[var(--sidebar-item-hover)] hover:text-foreground"
             )}
           >
             {modelHarnessFilter === "all" ? (
               <motion.div
                 layoutId="modelHarnessFilterRail"
-                className="model-picker-control absolute inset-0 z-0 rounded-md bg-accent"
+                className="model-picker-control absolute inset-0 z-0 rounded-md bg-[var(--sidebar-item-active)]"
                 transition={{ type: "spring", stiffness: 500, damping: 35, mass: 0.5 }}
               />
             ) : null}
@@ -184,14 +184,14 @@ const ModelPickerDropdownContent = memo(function ModelPickerDropdownContent({
               className={cn(
                 "model-picker-control group relative isolate flex h-10 w-full items-center justify-center overflow-hidden rounded-md transition-colors",
                 modelHarnessFilter === group.harnessId
-                  ? "text-accent-foreground"
-                  : "text-muted-foreground hover:bg-accent/55 hover:text-accent-foreground"
+                  ? "text-foreground"
+                  : "text-muted-foreground hover:bg-[var(--sidebar-item-hover)] hover:text-foreground"
               )}
             >
               {modelHarnessFilter === group.harnessId ? (
                 <motion.div
                   layoutId="modelHarnessFilterRail"
-                  className="model-picker-control absolute inset-0 z-0 rounded-md bg-accent"
+                  className="model-picker-control absolute inset-0 z-0 rounded-md bg-[var(--sidebar-item-active)]"
                   transition={{ type: "spring", stiffness: 500, damping: 35, mass: 0.5 }}
                 />
               ) : null}
@@ -238,8 +238,8 @@ const ModelPickerDropdownContent = memo(function ModelPickerDropdownContent({
                     className={cn(
                       "model-picker-row flex h-7 items-center gap-1 rounded-md px-1 text-left transition-colors",
                       isSelected
-                        ? "bg-accent text-accent-foreground"
-                        : "hover:bg-accent/55 hover:text-accent-foreground",
+                        ? "bg-[var(--sidebar-item-active)] text-foreground"
+                        : "hover:bg-[var(--sidebar-item-hover)] hover:text-foreground",
                       entry.disabled && "cursor-not-allowed opacity-50 hover:bg-transparent hover:text-inherit"
                     )}
                   >
@@ -262,7 +262,7 @@ const ModelPickerDropdownContent = memo(function ModelPickerDropdownContent({
                       className={cn(
                         "model-picker-icon-button flex size-6 shrink-0 items-center justify-center rounded-sm transition-colors",
                         isSelected
-                          ? "text-accent-foreground/78 hover:text-accent-foreground"
+                          ? "text-foreground/78 hover:text-foreground"
                           : "text-muted-foreground hover:text-foreground"
                       )}
                     >
@@ -289,13 +289,13 @@ const ModelPickerDropdownContent = memo(function ModelPickerDropdownContent({
                         </span>
                         <span className={cn(
                           "shrink-0 text-xs leading-4",
-                          isSelected ? "text-accent-foreground/78" : "text-muted-foreground"
+                          isSelected ? "text-foreground/70" : "text-muted-foreground"
                         )}>
                           {entry.subtitle}
                         </span>
                       </span>
                       {isSelected ? (
-                        <CheckCircle className="size-3 shrink-0 text-accent-foreground/78" />
+                        <CheckCircle className="size-3 shrink-0 text-foreground/70" />
                       ) : null}
                     </button>
                   </div>
@@ -352,7 +352,7 @@ export const ModelPicker = memo(function ModelPicker({
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="start"
-        className="model-picker-surface h-[min(24rem,calc(100vh-1rem))] w-[min(30rem,calc(100vw-1rem))] overflow-hidden rounded-xl p-0"
+        className="model-picker-surface composer-layer-surface h-[min(24rem,calc(100vh-1rem))] w-[min(30rem,calc(100vw-1rem))] overflow-hidden rounded-xl p-0"
       >
         <ModelPickerDropdownContent {...contentProps} />
       </DropdownMenuContent>

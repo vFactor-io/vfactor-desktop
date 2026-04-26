@@ -8,6 +8,7 @@ export type ChatStatus = "idle" | "connecting" | "streaming" | "error";
 export interface SessionActivityState {
   status: ChatStatus;
   unread: boolean;
+  workStartedAt?: number;
 }
 
 export interface QueuedChatMessage {
@@ -55,6 +56,9 @@ export interface RuntimeSession {
   remoteId?: string;
   harnessId: HarnessId;
   model?: string | null;
+  reasoningEffort?: RuntimeReasoningEffort | null;
+  modelVariant?: string | null;
+  fastMode?: boolean | null;
   runtimeMode?: RuntimeModeKind;
   title?: string;
   projectPath?: string;
@@ -89,6 +93,7 @@ export interface RuntimeMessage {
     | "approval"
     | "providerNotice";
   phase?: string | null;
+  runtimeNotice?: RuntimeNotice;
 }
 
 export interface RuntimeTextPart {
@@ -166,6 +171,12 @@ export interface RuntimeFileSearchResult {
 
 export type RuntimeReasoningEffort = string;
 
+export interface RuntimeModelVariant {
+  id: string;
+  label: string;
+  description?: string;
+}
+
 export interface RuntimeModel {
   id: string;
   displayName: string;
@@ -173,7 +184,37 @@ export interface RuntimeModel {
   isDefault: boolean;
   defaultReasoningEffort?: RuntimeReasoningEffort | null;
   supportedReasoningEfforts?: RuntimeReasoningEffort[];
+  defaultModelVariant?: string | null;
+  modelVariants?: RuntimeModelVariant[];
   supportsFastMode?: boolean;
+}
+
+export type RuntimeNoticeKind =
+  | "retrying"
+  | "rate_limited"
+  | "provider_unavailable"
+  | "auth_required"
+  | "network_error"
+  | "degraded"
+  | "failed"
+  | "recovered";
+
+export type RuntimeNoticeSeverity = "info" | "warning" | "error";
+
+export interface RuntimeNotice {
+  id: string;
+  harnessId: HarnessId;
+  providerId?: string;
+  providerName?: string;
+  modelId?: string;
+  modelName?: string;
+  kind: RuntimeNoticeKind;
+  severity: RuntimeNoticeSeverity;
+  message: string;
+  attempt?: number;
+  retryAt?: number;
+  createdAt?: number;
+  updatedAt?: number;
 }
 
 export interface RuntimePromptOption {
@@ -272,6 +313,7 @@ export interface HarnessCreateSessionOptions {
 
 export interface HarnessTurnInput {
   session: RuntimeSession;
+  turnId: string;
   projectPath?: string;
   text: string;
   agent?: string;
@@ -279,6 +321,7 @@ export interface HarnessTurnInput {
   runtimeMode?: RuntimeModeKind;
   model?: string;
   reasoningEffort?: RuntimeReasoningEffort | null;
+  modelVariant?: string | null;
   fastMode?: boolean;
   onUpdate?: (result: HarnessTurnResult) => void;
 }
@@ -301,6 +344,7 @@ export interface HarnessTurnResult {
   messages?: MessageWithParts[];
   childSessions?: ChildSessionState[];
   prompt?: RuntimePrompt | null;
+  notices?: RuntimeNotice[];
 }
 
 export interface HarnessAdapter {

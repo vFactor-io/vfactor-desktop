@@ -22,6 +22,7 @@ import type {
   RuntimeMessagePart,
   RuntimeModel,
   RuntimeModeKind,
+  RuntimeNotice,
   RuntimePrompt,
   RuntimeSession,
   RuntimeToolPart,
@@ -65,6 +66,13 @@ type OpenCodeSessionState = {
   pendingPrompts: Map<string, RuntimePrompt>
   activePrompt: RuntimePrompt | null
   activeTurn?: {
+    turnId: string
+    noticeId: string
+    providerId?: string
+    providerName?: string
+    modelId?: string
+    modelName?: string
+    lastRetryAttempt?: number
     resolve: (result: HarnessTurnResult) => void
     reject: (error: Error) => void
   }
@@ -147,12 +155,131 @@ function mapToolStatus(status: ToolState["status"]): RuntimeToolState["status"] 
   }
 }
 
+function formatProviderLabel(providerId: string | undefined): string | undefined {
+  const normalized = providerId?.trim()
+  if (!normalized) {
+    return undefined
+  }
+
+  if (normalized === "opencode-go") {
+    return "OpenCode Go"
+  }
+
+  if (normalized === "opencode") {
+    return "OpenCode"
+  }
+
+  return normalized
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ")
+}
+
+function formatModelLabel(modelId: string | undefined): string | undefined {
+  const normalized = modelId?.trim()
+  if (!normalized) {
+    return undefined
+  }
+
+  return normalized
+    .split(/[\/:_\s-]+/)
+    .filter(Boolean)
+    .map((part) => {
+      if (/^k2p(\d+)$/i.test(part)) {
+        return part.replace(/^k2p/i, "K2.")
+      }
+
+      if (/^(kimi|k2)$/i.test(part)) {
+        return part.toUpperCase() === "KIMI" ? "Kimi" : part.toUpperCase()
+      }
+
+      return part.charAt(0).toUpperCase() + part.slice(1)
+    })
+    .join(" ")
+}
+
+function createOpenCodeRetryNotice(
+  state: OpenCodeSessionState,
+  status: { attempt?: number; message?: string; next?: number }
+): RuntimeNotice | null {
+  const activeTurn = state.activeTurn
+  if (!activeTurn) {
+    return null
+  }
+
+  const attempt = typeof status.attempt === "number" ? status.attempt : undefined
+  activeTurn.lastRetryAttempt = attempt ?? activeTurn.lastRetryAttempt
+
+  return {
+    id: activeTurn.noticeId,
+    harnessId: "opencode",
+    providerId: activeTurn.providerId,
+    providerName: activeTurn.providerName,
+    modelId: activeTurn.modelId,
+    modelName: activeTurn.modelName,
+    kind: "retrying",
+    severity: "warning",
+    message: status.message?.trim() || "Provider returned an error. Retrying...",
+    attempt,
+    retryAt: typeof status.next === "number" ? status.next : undefined,
+    updatedAt: Date.now(),
+  }
+}
+
+function createOpenCodeRecoveredNotice(state: OpenCodeSessionState): RuntimeNotice | null {
+  const activeTurn = state.activeTurn
+  if (!activeTurn?.lastRetryAttempt) {
+    return null
+  }
+
+  return {
+    id: activeTurn.noticeId,
+    harnessId: "opencode",
+    providerId: activeTurn.providerId,
+    providerName: activeTurn.providerName,
+    modelId: activeTurn.modelId,
+    modelName: activeTurn.modelName,
+    kind: "recovered",
+    severity: "info",
+    message: `Provider recovered after ${activeTurn.lastRetryAttempt} ${
+      activeTurn.lastRetryAttempt === 1 ? "retry" : "retries"
+    }.`,
+    attempt: activeTurn.lastRetryAttempt,
+    updatedAt: Date.now(),
+  }
+}
+
+function createOpenCodeFailedNotice(
+  state: OpenCodeSessionState,
+  message: string
+): RuntimeNotice | null {
+  const activeTurn = state.activeTurn
+  if (!activeTurn) {
+    return null
+  }
+
+  return {
+    id: activeTurn.noticeId,
+    harnessId: "opencode",
+    providerId: activeTurn.providerId,
+    providerName: activeTurn.providerName,
+    modelId: activeTurn.modelId,
+    modelName: activeTurn.modelName,
+    kind: "failed",
+    severity: "error",
+    message,
+    attempt: activeTurn.lastRetryAttempt,
+    updatedAt: Date.now(),
+  }
+}
+
 function createAssistantMessage(
   sessionId: string,
   messageId: string,
   createdAt: number,
   parts: RuntimeMessagePart[],
-  metadata?: Pick<RuntimeMessage, "itemType" | "finishReason">
+  metadata?: Pick<RuntimeMessage, "itemType" | "finishReason" | "turnId">
 ): MessageWithParts {
   return {
     info: {
@@ -162,6 +289,7 @@ function createAssistantMessage(
       createdAt,
       finishReason: metadata?.finishReason,
       itemType: metadata?.itemType,
+      turnId: metadata?.turnId,
     },
     parts,
   }
@@ -173,7 +301,8 @@ function createToolMessage(
   createdAt: number,
   tool: string,
   state: RuntimeToolState,
-  itemType: RuntimeMessage["itemType"] = "dynamicToolCall"
+  itemType: RuntimeMessage["itemType"] = "dynamicToolCall",
+  turnId?: string
 ): MessageWithParts {
   return createAssistantMessage(
     sessionId,
@@ -189,7 +318,7 @@ function createToolMessage(
         state,
       } satisfies RuntimeToolPart,
     ],
-    { itemType }
+    { itemType, turnId }
   )
 }
 
@@ -210,7 +339,8 @@ function toToolError(state: ToolState): unknown {
 }
 
 function mapTrackedMessagesToRuntimeMessages(
-  state: OpenCodeSessionState
+  state: OpenCodeSessionState,
+  turnId?: string
 ): MessageWithParts[] {
   return state.messageOrder.flatMap((messageId) => {
     const trackedMessage = state.messagesById.get(messageId)
@@ -245,6 +375,7 @@ function mapTrackedMessagesToRuntimeMessages(
           ],
           {
             finishReason: trackedMessage.info.time.completed ? "end_turn" : undefined,
+            turnId,
           }
         )
       )
@@ -267,6 +398,7 @@ function mapTrackedMessagesToRuntimeMessages(
               ],
               {
                 itemType: "reasoning",
+                turnId,
               }
             )
           )
@@ -290,7 +422,8 @@ function mapTrackedMessagesToRuntimeMessages(
                 output: toToolOutput(part.state),
                 error: toToolError(part.state),
               },
-              "dynamicToolCall"
+              "dynamicToolCall",
+              turnId
             )
           )
           break
@@ -316,7 +449,8 @@ function mapTrackedMessagesToRuntimeMessages(
                   hash: part.hash,
                 },
               },
-              "fileChange"
+              "fileChange",
+              turnId
             )
           )
           break
@@ -333,6 +467,7 @@ function mapTrackedMessagesToRuntimeMessages(
                   text: `Delegated to ${part.agent}: ${part.description}`,
                 },
               ],
+              { turnId }
             )
           )
           break
@@ -654,6 +789,12 @@ export class OpenCodeRuntimeProvider implements RuntimeProviderAdapter {
     const model = parseOpenCodeModelId(input.model ?? input.session.model ?? null)
     const turnDeferred = createDeferred<HarnessTurnResult>()
     state.activeTurn = {
+      turnId: input.turnId,
+      noticeId: `opencode:${remoteId}:${input.turnId}:provider-status`,
+      providerId: model?.providerID,
+      providerName: formatProviderLabel(model?.providerID),
+      modelId: model?.modelID,
+      modelName: formatModelLabel(model?.modelID),
       resolve: turnDeferred.resolve,
       reject: turnDeferred.reject,
     }
@@ -665,6 +806,7 @@ export class OpenCodeRuntimeProvider implements RuntimeProviderAdapter {
           directory: state.projectPath,
           agent: input.agent,
           model: model ?? undefined,
+          variant: input.modelVariant?.trim() || undefined,
           parts: [
             {
               type: "text",
@@ -747,6 +889,7 @@ export class OpenCodeRuntimeProvider implements RuntimeProviderAdapter {
 
     return this.sendTurn({
       session: input.session,
+      turnId: input.prompt.kind === "approval" ? input.prompt.approval.turnId : `prompt:${input.prompt.id}`,
       projectPath: input.projectPath ?? state.projectPath,
       text: input.response.text,
     })
@@ -948,11 +1091,28 @@ export class OpenCodeRuntimeProvider implements RuntimeProviderAdapter {
         }
 
         updateTrackedMessageInfo(sessionState, payload.properties.info)
+        if (sessionState.activeTurn && payload.properties.info.role === "assistant") {
+          sessionState.activeTurn.providerId = payload.properties.info.providerID
+          sessionState.activeTurn.providerName = formatProviderLabel(payload.properties.info.providerID)
+          sessionState.activeTurn.modelId = payload.properties.info.modelID
+          sessionState.activeTurn.modelName = formatModelLabel(payload.properties.info.modelID)
+        }
         this.emitSessionUpdate(sessionState)
         return
       }
 
       case "session.status": {
+        if (payload.properties.status.type === "retry") {
+          const sessionState = this.sessions.get(payload.properties.sessionID)
+          const notice = sessionState
+            ? createOpenCodeRetryNotice(sessionState, payload.properties.status)
+            : null
+          if (sessionState && notice) {
+            this.emitSessionUpdate(sessionState, { notices: [notice] })
+          }
+          return
+        }
+
         if (payload.properties.status.type === "idle") {
           this.settleActiveTurn(payload.properties.sessionID)
         }
@@ -1088,25 +1248,31 @@ export class OpenCodeRuntimeProvider implements RuntimeProviderAdapter {
             ? JSON.stringify(payload.properties.error)
             : "OpenCode session failed."
         const activeTurn = sessionState.activeTurn
-        sessionState.onUpdate?.({
-          messages: [
-            createAssistantMessage(
-              sessionState.session.id,
-              `opencode-error:${sessionId}`,
-              Date.now(),
-              [
-                {
-                  id: `opencode-error:${sessionId}:text`,
-                  type: "text",
-                  text: errorMessage,
-                },
-              ],
-              {
-                itemType: "approval",
+        const failedNotice = createOpenCodeFailedNotice(sessionState, errorMessage)
+        this.emitSessionUpdate(
+          sessionState,
+          failedNotice
+            ? { notices: [failedNotice] }
+            : {
+                messages: [
+                  createAssistantMessage(
+                    sessionState.session.id,
+                    `opencode-error:${sessionId}`,
+                    Date.now(),
+                    [
+                      {
+                        id: `opencode-error:${sessionId}:text`,
+                        type: "text",
+                        text: errorMessage,
+                      },
+                    ],
+                    {
+                      itemType: "providerNotice",
+                    }
+                  ),
+                ],
               }
-            ),
-          ],
-        })
+        )
         activeTurn?.reject(new Error(errorMessage))
         sessionState.activeTurn = undefined
         sessionState.onUpdate = undefined
@@ -1125,7 +1291,10 @@ export class OpenCodeRuntimeProvider implements RuntimeProviderAdapter {
     const result =
       overrideResult ??
       ({
-        messages: mapTrackedMessagesToRuntimeMessages(sessionState),
+        messages: mapTrackedMessagesToRuntimeMessages(
+          sessionState,
+          sessionState.activeTurn?.turnId
+        ),
         prompt: sessionState.activePrompt,
       } satisfies HarnessTurnResult)
 
@@ -1145,10 +1314,12 @@ export class OpenCodeRuntimeProvider implements RuntimeProviderAdapter {
     }
 
     this.activeTurns.delete(sessionId)
+    const recoveredNotice = createOpenCodeRecoveredNotice(sessionState)
     sessionState.activeTurn = undefined
     sessionState.onUpdate = undefined
     activeTurn.resolve({
-      messages: mapTrackedMessagesToRuntimeMessages(sessionState),
+      messages: mapTrackedMessagesToRuntimeMessages(sessionState, activeTurn.turnId),
+      notices: recoveredNotice ? [recoveredNotice] : undefined,
       prompt: sessionState.activePrompt,
     })
   }

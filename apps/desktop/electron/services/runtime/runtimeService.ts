@@ -227,6 +227,7 @@ export class RuntimeService {
   private toHarnessTurnInput(input: RuntimeSendTurnInput): HarnessTurnInput {
     return {
       session: input.session,
+      turnId: input.turnId,
       projectPath: input.projectPath,
       text: input.text,
       agent: input.agent,
@@ -234,6 +235,7 @@ export class RuntimeService {
       runtimeMode: input.runtimeMode,
       model: input.model,
       reasoningEffort: input.reasoningEffort,
+      modelVariant: input.modelVariant,
       fastMode: input.fastMode,
     }
   }

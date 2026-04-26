@@ -63,6 +63,7 @@ class PlaceholderHarnessAdapter implements HarnessAdapter {
   async answerPrompt(input: HarnessPromptInput): Promise<HarnessTurnResult> {
     return this.sendMessage({
       session: input.session,
+      turnId: input.prompt.kind === "approval" ? input.prompt.approval.turnId : `prompt:${input.prompt.id}`,
       projectPath: input.projectPath,
       text: input.response.text,
     })

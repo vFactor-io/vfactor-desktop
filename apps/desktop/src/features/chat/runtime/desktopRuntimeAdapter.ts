@@ -67,6 +67,7 @@ export class DesktopRuntimeHarnessAdapter implements HarnessAdapter {
       return (await desktop.runtime.sendTurn({
         harnessId: this.definition.id,
         session: input.session,
+        turnId: input.turnId,
         projectPath: input.projectPath,
         text: input.text,
         agent: input.agent,
@@ -74,6 +75,7 @@ export class DesktopRuntimeHarnessAdapter implements HarnessAdapter {
         runtimeMode: input.runtimeMode,
         model: input.model,
         reasoningEffort: input.reasoningEffort,
+        modelVariant: input.modelVariant,
         fastMode: input.fastMode,
       })) as HarnessTurnResult
     } finally {

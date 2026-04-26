@@ -149,6 +149,56 @@ export function resolveDefaultReasoningEffort({
   return normalizedSupportedReasoningEfforts[0] ?? null
 }
 
+interface ResolveDefaultModelVariantParams {
+  overrideModelVariant: string | null | undefined
+  defaultModelVariant: string | null
+  modelDefaultVariant: string | null | undefined
+  supportedModelVariants: string[] | null | undefined
+}
+
+function normalizeModelVariant(variant: string | null | undefined): string | null {
+  const normalizedVariant = variant?.trim() ?? null
+  return normalizedVariant ? normalizedVariant : null
+}
+
+export function resolveDefaultModelVariant({
+  overrideModelVariant,
+  defaultModelVariant,
+  modelDefaultVariant,
+  supportedModelVariants,
+}: ResolveDefaultModelVariantParams): string | null {
+  const normalizedSupportedModelVariants = Array.from(
+    new Set(
+      (supportedModelVariants ?? [])
+        .map((variant) => variant.trim())
+        .filter((variant) => variant.length > 0)
+    )
+  )
+  const supportsModelVariant = (variant: string | null) =>
+    variant != null && normalizedSupportedModelVariants.includes(variant)
+
+  const normalizedOverrideModelVariant = normalizeModelVariant(overrideModelVariant)
+  if (overrideModelVariant === null) {
+    return null
+  }
+
+  if (supportsModelVariant(normalizedOverrideModelVariant)) {
+    return normalizedOverrideModelVariant
+  }
+
+  const normalizedDefaultModelVariant = normalizeModelVariant(defaultModelVariant)
+  if (supportsModelVariant(normalizedDefaultModelVariant)) {
+    return normalizedDefaultModelVariant
+  }
+
+  const normalizedModelDefaultVariant = normalizeModelVariant(modelDefaultVariant)
+  if (supportsModelVariant(normalizedModelDefaultVariant)) {
+    return normalizedModelDefaultVariant
+  }
+
+  return null
+}
+
 interface ResolveFastModeParams {
   overrideFastMode: boolean | null
   defaultFastMode: boolean
@@ -185,4 +235,14 @@ export function shouldShowReasoningEffortSelector({
   }
 
   return availableReasoningEfforts.some((effort) => effort.trim().length > 0)
+}
+
+interface ShouldShowModelVariantSelectorParams {
+  availableModelVariants: string[]
+}
+
+export function shouldShowModelVariantSelector({
+  availableModelVariants,
+}: ShouldShowModelVariantSelectorParams): boolean {
+  return availableModelVariants.some((variant) => variant.trim().length > 0)
 }

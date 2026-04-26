@@ -23,7 +23,7 @@ function ChatTimelinePane({
   selectedProject: ReturnType<typeof useChatProjectState>["selectedProject"]
   selectedWorktree: ReturnType<typeof useChatProjectState>["selectedWorktree"]
 }) {
-  const { messages, childSessions, status, activePromptState } =
+  const { messages, childSessions, status, workStartedAt, activePromptState } =
     useChatTimelineState(activeSessionId)
 
   return (
@@ -31,6 +31,7 @@ function ChatTimelinePane({
       threadKey={threadKey}
       messages={messages}
       status={status}
+      workStartedAt={workStartedAt}
       activePromptState={activePromptState}
       selectedProject={selectedProject}
       selectedWorktree={selectedWorktree}

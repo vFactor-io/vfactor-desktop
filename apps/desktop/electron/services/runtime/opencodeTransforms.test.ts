@@ -23,6 +23,11 @@ describe("opencodeTransforms", () => {
               tool_call: true,
               limit: { context: 200000, output: 32000 },
               options: {},
+              variants: {
+                low: {},
+                high: {},
+                disabled: { disabled: true },
+              },
             },
           },
         },
@@ -59,6 +64,11 @@ describe("opencodeTransforms", () => {
         isDefault: true,
         supportedReasoningEfforts: [],
         defaultReasoningEffort: null,
+        defaultModelVariant: null,
+        modelVariants: [
+          { id: "low", label: "Low" },
+          { id: "high", label: "High" },
+        ],
         supportsFastMode: false,
       },
     ])

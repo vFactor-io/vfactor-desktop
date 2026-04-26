@@ -3,9 +3,11 @@ import { getChatInputPlaceholder } from "./chatInputConfig"
 import { getActiveSlashCommandQuery } from "./chatInputSlashCommands"
 import {
   resolveDefaultFastMode,
+  resolveDefaultModelVariant,
   resolveDefaultReasoningEffort,
   resolveEffectiveComposerModelId,
   resolveSessionSelectedModelId,
+  shouldShowModelVariantSelector,
   shouldShowReasoningEffortSelector,
 } from "./chatInputModelSelection"
 
@@ -120,6 +122,41 @@ describe("resolveDefaultFastMode", () => {
   })
 })
 
+describe("resolveDefaultModelVariant", () => {
+  test("uses the saved default variant when supported", () => {
+    expect(
+      resolveDefaultModelVariant({
+        overrideModelVariant: undefined,
+        defaultModelVariant: "high",
+        modelDefaultVariant: null,
+        supportedModelVariants: ["low", "high"],
+      })
+    ).toBe("high")
+  })
+
+  test("lets the composer explicitly fall back to the provider default", () => {
+    expect(
+      resolveDefaultModelVariant({
+        overrideModelVariant: null,
+        defaultModelVariant: "high",
+        modelDefaultVariant: "low",
+        supportedModelVariants: ["low", "high"],
+      })
+    ).toBeNull()
+  })
+
+  test("does not leak stale variants onto models that no longer support them", () => {
+    expect(
+      resolveDefaultModelVariant({
+        overrideModelVariant: undefined,
+        defaultModelVariant: "max",
+        modelDefaultVariant: null,
+        supportedModelVariants: ["low", "high"],
+      })
+    ).toBeNull()
+  })
+})
+
 describe("shouldShowReasoningEffortSelector", () => {
   test("hides the effort selector when the harness does not support effort controls", () => {
     expect(
@@ -146,6 +183,13 @@ describe("shouldShowReasoningEffortSelector", () => {
         availableReasoningEfforts: ["medium"],
       })
     ).toBe(true)
+  })
+})
+
+describe("shouldShowModelVariantSelector", () => {
+  test("shows the selector only when variants are available", () => {
+    expect(shouldShowModelVariantSelector({ availableModelVariants: ["low"] })).toBe(true)
+    expect(shouldShowModelVariantSelector({ availableModelVariants: [] })).toBe(false)
   })
 })
 

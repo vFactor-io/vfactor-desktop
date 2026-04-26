@@ -6,6 +6,9 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/features/shared/components/ui/dropdown-menu"
 import { HorizontalOverflowFade } from "@/features/shared/components/ui"
@@ -14,6 +17,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { cn } from "@/lib/utils"
 import { getTerminalTabLabel } from "@/features/terminal/utils/terminalTabs"
 import { TabItem } from "./TabItem"
+import { ModelLogo, getHarnessLogoKind } from "./ModelLogo"
+import { listHarnesses } from "../runtime/harnesses"
 import type { HarnessId, Tab } from "../types"
 
 interface TabBarProps {
@@ -44,6 +49,7 @@ export function TabBar({ tabs, activeTabId, onTabChange, onTabClose }: TabBarPro
   const contentRef = useRef<HTMLDivElement | null>(null)
   const tabElementByIdRef = useRef(new Map<string, HTMLDivElement>())
   const enableLayoutAnimation = draggedTabId !== null
+  const harnesses = useMemo(() => listHarnesses(), [])
 
   const tabById = useMemo(() => new Map(tabs.map((tab) => [tab.id, tab])), [tabs])
   const tabIds = tabs.map((tab) => tab.id)
@@ -119,12 +125,14 @@ export function TabBar({ tabs, activeTabId, onTabChange, onTabClose }: TabBarPro
 
   const worktreeChat = selectedWorktreeId ? getProjectChat(selectedWorktreeId) : null
 
-  const handleCreateChatTab = () => {
+  const handleCreateChatTab = (harnessId: HarnessId) => {
     if (!selectedWorktreeId || !selectedWorktreePath) {
       return
     }
 
-    const session = createOptimisticSession(selectedWorktreeId, selectedWorktreePath)
+    const session = createOptimisticSession(selectedWorktreeId, selectedWorktreePath, {
+      harnessId,
+    })
     if (session) {
       openChatSession(session.id, session.title)
     }
@@ -217,7 +225,7 @@ export function TabBar({ tabs, activeTabId, onTabChange, onTabClose }: TabBarPro
                 : null
             if (tab.type === "chat-session" && tab.sessionId && worktreeChat) {
               const session = worktreeChat.sessions.find((s) => s.id === tab.sessionId)
-              harnessId = session?.remoteId ? session.harnessId : undefined
+              harnessId = session?.harnessId
             }
 
             return (
@@ -272,16 +280,32 @@ export function TabBar({ tabs, activeTabId, onTabChange, onTabClose }: TabBarPro
           <DropdownMenuContent
             align="end"
             sideOffset={8}
-            className="w-40 border border-border/70 bg-card p-0.5 shadow-lg"
+            className="w-48 border border-border/70 bg-card p-0.5 shadow-lg"
           >
-            <DropdownMenuItem
-              onClick={handleCreateChatTab}
-              disabled={!selectedWorktreePath}
-              className="min-h-7 gap-1.5 px-1.5 py-0.5"
-            >
-              <ChatCircle size={14} />
-              <span>New chat</span>
-            </DropdownMenuItem>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger
+                disabled={!selectedWorktreePath}
+                className="min-h-7 gap-1.5 px-1.5 py-0.5"
+              >
+                <ChatCircle size={14} />
+                <span>New chat</span>
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent
+                alignOffset={-4}
+                className="w-44 border border-border/70 bg-card p-0.5 shadow-lg"
+              >
+                {harnesses.map((harness) => (
+                  <DropdownMenuItem
+                    key={harness.id}
+                    onClick={() => handleCreateChatTab(harness.id)}
+                    className="min-h-7 gap-1.5 px-1.5 py-0.5"
+                  >
+                    <ModelLogo kind={getHarnessLogoKind(harness.id)} className="size-3.5" />
+                    <span>{harness.label}</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
             <DropdownMenuItem
               onClick={handleCreateTerminalTab}
               className="min-h-7 gap-1.5 px-1.5 py-0.5"

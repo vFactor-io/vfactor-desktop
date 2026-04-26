@@ -24,7 +24,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/features/shared/components/ui/tooltip"
-import type { RuntimeReasoningEffort } from "../types"
+import type { RuntimeModelVariant, RuntimeReasoningEffort } from "../types"
 import { ModelPicker } from "./ModelPicker"
 import { cn } from "@/lib/utils"
 
@@ -39,6 +39,7 @@ function formatReasoningEffortLabel(value: string): string {
 }
 
 export const ComposerToolbar = memo(function ComposerToolbar({
+  availableModelVariants,
   availableReasoningEfforts,
   canSubmit,
   fastMode,
@@ -47,13 +48,16 @@ export const ComposerToolbar = memo(function ComposerToolbar({
   isPlanModeAvailable,
   isPlanModeEnabled,
   modelPickerProps,
+  modelVariant,
   onAbort,
   onAttachFiles,
+  onSelectModelVariant,
   onSelectReasoningEffort,
   onToggleFastMode,
   onTogglePlanMode,
   planModeShortcutLabel,
   reasoningEffort,
+  shouldShowModelVariantSelector,
   shouldShowReasoningEffortSelector,
   shouldShowSendAction,
   showAtMenu,
@@ -61,6 +65,7 @@ export const ComposerToolbar = memo(function ComposerToolbar({
   showSlashMenu,
   supportsFastMode,
 }: {
+  availableModelVariants: RuntimeModelVariant[]
   availableReasoningEfforts: RuntimeReasoningEffort[]
   canSubmit: boolean
   fastMode: boolean
@@ -69,13 +74,16 @@ export const ComposerToolbar = memo(function ComposerToolbar({
   isPlanModeAvailable: boolean
   isPlanModeEnabled: boolean
   modelPickerProps: ModelPickerProps
+  modelVariant: string | null
   onAbort?: () => void
   onAttachFiles: () => void
+  onSelectModelVariant: (variant: string | null) => void
   onSelectReasoningEffort: (effort: RuntimeReasoningEffort) => void
   onToggleFastMode: () => void
   onTogglePlanMode: () => void
   planModeShortcutLabel: string
   reasoningEffort: RuntimeReasoningEffort | null
+  shouldShowModelVariantSelector: boolean
   shouldShowReasoningEffortSelector: boolean
   shouldShowSendAction: boolean
   showAtMenu: boolean
@@ -92,6 +100,8 @@ export const ComposerToolbar = memo(function ComposerToolbar({
     : isLoadingModels
       ? "Loading effort..."
       : "Default"
+  const selectedModelVariant = availableModelVariants.find((variant) => variant.id === modelVariant)
+  const modelVariantLabel = selectedModelVariant?.label ?? "Default"
 
   return (
     <div className="mt-1.5 flex items-center gap-2">
@@ -164,17 +174,20 @@ export const ComposerToolbar = memo(function ComposerToolbar({
               <span>{reasoningEffortLabel}</span>
               <CaretDown className="size-3 text-muted-foreground" />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-40">
+            <DropdownMenuContent align="start" className="composer-layer-surface w-40">
               {availableReasoningEfforts.length > 0 ? (
                 availableReasoningEfforts.map((effort) => (
                   <DropdownMenuItem
                     key={effort}
                     onClick={() => onSelectReasoningEffort(effort)}
-                    className="flex items-center justify-between gap-3"
+                    className={cn(
+                      "flex items-center justify-between gap-3",
+                      effort === reasoningEffort && "bg-[var(--sidebar-item-active)] text-foreground"
+                    )}
                   >
                     <span>{formatReasoningEffortLabel(effort)}</span>
                     {effort === reasoningEffort ? (
-                      <CheckCircle className="size-3.5 text-muted-foreground" />
+                      <CheckCircle className="size-3.5 text-foreground/70" />
                     ) : null}
                   </DropdownMenuItem>
                 ))
@@ -183,6 +196,45 @@ export const ComposerToolbar = memo(function ComposerToolbar({
                   <span>{isLoadingModels ? "Loading effort..." : "No effort options"}</span>
                 </DropdownMenuItem>
               )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
+
+        {shouldShowModelVariantSelector ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger className="inline-flex h-7 items-center gap-2 px-1 text-sm text-muted-foreground transition-colors hover:text-foreground cursor-pointer">
+              <span>{modelVariantLabel}</span>
+              <CaretDown className="size-3 text-muted-foreground" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="composer-layer-surface w-44">
+              <DropdownMenuItem
+                onClick={() => onSelectModelVariant(null)}
+                className={cn(
+                  "flex items-center justify-between gap-3",
+                  modelVariant == null && "bg-[var(--sidebar-item-active)] text-foreground"
+                )}
+              >
+                <span>Default variant</span>
+                {modelVariant == null ? (
+                  <CheckCircle className="size-3.5 text-foreground/70" />
+                ) : null}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              {availableModelVariants.map((variant) => (
+                <DropdownMenuItem
+                  key={variant.id}
+                  onClick={() => onSelectModelVariant(variant.id)}
+                  className={cn(
+                    "flex items-center justify-between gap-3",
+                    variant.id === modelVariant && "bg-[var(--sidebar-item-active)] text-foreground"
+                  )}
+                >
+                  <span>{variant.label}</span>
+                  {variant.id === modelVariant ? (
+                    <CheckCircle className="size-3.5 text-foreground/70" />
+                  ) : null}
+                </DropdownMenuItem>
+              ))}
             </DropdownMenuContent>
           </DropdownMenu>
         ) : null}

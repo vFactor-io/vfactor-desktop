@@ -148,6 +148,7 @@ interface PendingClaudeQuestion {
 }
 
 interface PendingClaudeTurn {
+  turnId: string
   assistantMessageId: string
   textPartId: string
   text: string
@@ -220,7 +221,8 @@ function createAssistantMessage(
   sessionId: string,
   messageId: string,
   partId: string,
-  text: string
+  text: string,
+  turnId?: string
 ): HarnessTurnResult["messages"] {
   const parts: RuntimeMessagePart[] = [
     {
@@ -238,6 +240,7 @@ function createAssistantMessage(
         role: "assistant",
         createdAt: Date.now(),
         finishReason: "end_turn",
+        turnId,
       },
       parts,
     },
@@ -661,6 +664,7 @@ export class ClaudeRuntimeProvider implements RuntimeProviderAdapter {
 
     const turnDeferred = createDeferred<HarnessTurnResult>()
     state.pendingTurn = {
+      turnId: input.turnId,
       assistantMessageId: `claude:${randomUUID()}:message`,
       textPartId: `claude:${randomUUID()}:text`,
       text: "",
@@ -929,7 +933,8 @@ export class ClaudeRuntimeProvider implements RuntimeProviderAdapter {
                   remoteId,
                   pendingTurn.assistantMessageId,
                   pendingTurn.textPartId,
-                  pendingTurn.text
+                  pendingTurn.text,
+                  pendingTurn.turnId
                 )
               : [],
           })
@@ -977,7 +982,13 @@ export class ClaudeRuntimeProvider implements RuntimeProviderAdapter {
       if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
         turn.text += event.delta.text ?? ""
         this.context.emitUpdate(remoteId, this.harnessId, {
-          messages: createAssistantMessage(remoteId, turn.assistantMessageId, turn.textPartId, turn.text),
+          messages: createAssistantMessage(
+            remoteId,
+            turn.assistantMessageId,
+            turn.textPartId,
+            turn.text,
+            turn.turnId
+          ),
         })
       }
       return
@@ -993,7 +1004,13 @@ export class ClaudeRuntimeProvider implements RuntimeProviderAdapter {
       if (nextText.length > 0) {
         turn.text = nextText
         this.context.emitUpdate(remoteId, this.harnessId, {
-          messages: createAssistantMessage(remoteId, turn.assistantMessageId, turn.textPartId, turn.text),
+          messages: createAssistantMessage(
+            remoteId,
+            turn.assistantMessageId,
+            turn.textPartId,
+            turn.text,
+            turn.turnId
+          ),
         })
       }
       return
@@ -1029,7 +1046,13 @@ export class ClaudeRuntimeProvider implements RuntimeProviderAdapter {
         : "")
       turn.resolve({
         messages: finalText
-          ? createAssistantMessage(remoteId, turn.assistantMessageId, turn.textPartId, finalText)
+          ? createAssistantMessage(
+              remoteId,
+              turn.assistantMessageId,
+              turn.textPartId,
+              finalText,
+              turn.turnId
+            )
           : [],
       })
     }

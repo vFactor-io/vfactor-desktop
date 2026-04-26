@@ -44,6 +44,7 @@ export type TerminalLinkTarget = "in-app" | "system-browser"
 export interface HarnessDefaults {
   model: string
   reasoningEffort: string
+  modelVariant: string
   fastMode: boolean
 }
 
@@ -83,6 +84,8 @@ interface SettingsState extends PersistedSettings {
   resetHarnessDefaultModel: (harnessId: HarnessId) => void
   setHarnessDefaultReasoningEffort: (harnessId: HarnessId, effort: string) => void
   resetHarnessDefaultReasoningEffort: (harnessId: HarnessId) => void
+  setHarnessDefaultModelVariant: (harnessId: HarnessId, variant: string) => void
+  resetHarnessDefaultModelVariant: (harnessId: HarnessId) => void
   setHarnessDefaultFastMode: (harnessId: HarnessId, enabled: boolean) => void
   resetHarnessDefaultFastMode: (harnessId: HarnessId) => void
   setProviderEnabled: (harnessId: HarnessId, enabled: boolean) => void
@@ -101,6 +104,7 @@ let persistTimeoutId: ReturnType<typeof setTimeout> | null = null
 export const EMPTY_HARNESS_DEFAULTS: HarnessDefaults = Object.freeze({
   model: "",
   reasoningEffort: "",
+  modelVariant: "",
   fastMode: false,
 })
 
@@ -197,6 +201,10 @@ export function normalizeHarnessDefaultReasoningEffort(effort: string | null | u
   return effort?.trim() ?? ""
 }
 
+export function normalizeHarnessDefaultModelVariant(variant: string | null | undefined): string {
+  return variant?.trim() ?? ""
+}
+
 export function normalizeHarnessDefaultFastMode(enabled: boolean | null | undefined): boolean {
   return enabled === true
 }
@@ -208,6 +216,7 @@ export function normalizeHarnessDefaults(
     codex: {
       model: normalizeHarnessDefaultModel(value?.codex?.model),
       reasoningEffort: normalizeHarnessDefaultReasoningEffort(value?.codex?.reasoningEffort),
+      modelVariant: normalizeHarnessDefaultModelVariant(value?.codex?.modelVariant),
       fastMode: normalizeHarnessDefaultFastMode(value?.codex?.fastMode),
     },
     "claude-code": {
@@ -215,11 +224,13 @@ export function normalizeHarnessDefaults(
       reasoningEffort: normalizeHarnessDefaultReasoningEffort(
         value?.["claude-code"]?.reasoningEffort
       ),
+      modelVariant: normalizeHarnessDefaultModelVariant(value?.["claude-code"]?.modelVariant),
       fastMode: normalizeHarnessDefaultFastMode(value?.["claude-code"]?.fastMode),
     },
     opencode: {
       model: normalizeHarnessDefaultModel(value?.opencode?.model),
       reasoningEffort: normalizeHarnessDefaultReasoningEffort(value?.opencode?.reasoningEffort),
+      modelVariant: normalizeHarnessDefaultModelVariant(value?.opencode?.modelVariant),
       fastMode: normalizeHarnessDefaultFastMode(value?.opencode?.fastMode),
     },
   }
@@ -604,6 +615,31 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
         [harnessId]: {
           ...get().harnessDefaults[harnessId],
           reasoningEffort: "",
+        },
+      }
+      set({ harnessDefaults: nextHarnessDefaults })
+      persistWith({ harnessDefaults: nextHarnessDefaults })
+    },
+
+    setHarnessDefaultModelVariant: (harnessId, variant) => {
+      const normalized = normalizeHarnessDefaultModelVariant(variant)
+      const nextHarnessDefaults = {
+        ...get().harnessDefaults,
+        [harnessId]: {
+          ...get().harnessDefaults[harnessId],
+          modelVariant: normalized,
+        },
+      }
+      set({ harnessDefaults: nextHarnessDefaults })
+      persistWith({ harnessDefaults: nextHarnessDefaults })
+    },
+
+    resetHarnessDefaultModelVariant: (harnessId) => {
+      const nextHarnessDefaults = {
+        ...get().harnessDefaults,
+        [harnessId]: {
+          ...get().harnessDefaults[harnessId],
+          modelVariant: "",
         },
       }
       set({ harnessDefaults: nextHarnessDefaults })

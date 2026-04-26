@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, mock, test } from "bun:test"
 
 const storeData = new Map<string, unknown>()
 let pendingHarnessTurn: Promise<{ messages?: Array<{ info: { id: string; sessionId: string; role: "assistant"; createdAt: number }; parts: Array<{ id: string; type: "text"; text: string }> }> }> | null = null
-let lastHarnessTurnInput: { text: string; runtimeMode?: string | null } | null = null
-const harnessTurnInputs: Array<{ text: string; runtimeMode?: string | null }> = []
+let lastHarnessTurnInput: { text: string; turnId?: string; runtimeMode?: string | null } | null = null
+const harnessTurnInputs: Array<{ text: string; turnId?: string; runtimeMode?: string | null }> = []
 let lastCreateSessionOptions: { runtimeMode?: string | null } | null = null
 let createSessionCallCount = 0
 const abortCalls: string[] = []
@@ -115,7 +115,7 @@ mock.module("../runtime/harnesses", () => ({
     listCommands: async () => [],
     listModels: async () => [],
     searchFiles: async () => [],
-    sendMessage: async (input: { text: string }) => {
+    sendMessage: async (input: { text: string; turnId?: string }) => {
       lastHarnessTurnInput = input
       harnessTurnInputs.push(input)
       return pendingHarnessTurn ?? { messages: [] }
@@ -223,6 +223,44 @@ describe("chatStore worktree scoping", () => {
     expect(persisted.chatByWorktree["worktree-1"]?.sessions[0]?.model).toBe("gpt-5.4")
   })
 
+  test("persists selected model preferences on a chat session", async () => {
+    const session = useChatStore.getState().createOptimisticSession("worktree-1", "/tmp/worktree-1")
+
+    expect(session).not.toBeNull()
+
+    await useChatStore.getState().setSessionModelPreferences(session!.id, {
+      model: "gpt-5.4",
+      reasoningEffort: "high",
+      modelVariant: "thinking",
+      fastMode: true,
+    })
+
+    const persisted = storeData.get("chatState") as {
+      chatByWorktree: Record<
+        string,
+        {
+          sessions: Array<{
+            model?: string | null
+            reasoningEffort?: string | null
+            modelVariant?: string | null
+            fastMode?: boolean | null
+          }>
+        }
+      >
+    }
+    const updatedSession = useChatStore
+      .getState()
+      .chatByWorktree["worktree-1"]?.sessions.find((candidate) => candidate.id === session!.id)
+
+    expect(updatedSession?.model).toBe("gpt-5.4")
+    expect(updatedSession?.reasoningEffort).toBe("high")
+    expect(updatedSession?.modelVariant).toBe("thinking")
+    expect(updatedSession?.fastMode).toBe(true)
+    expect(persisted.chatByWorktree["worktree-1"]?.sessions[0]?.reasoningEffort).toBe("high")
+    expect(persisted.chatByWorktree["worktree-1"]?.sessions[0]?.modelVariant).toBe("thinking")
+    expect(persisted.chatByWorktree["worktree-1"]?.sessions[0]?.fastMode).toBe(true)
+  })
+
   test("persists the selected runtime mode on a chat session", async () => {
     const session = useChatStore.getState().createOptimisticSession("worktree-1", "/tmp/worktree-1")
 
@@ -258,6 +296,9 @@ describe("chatStore worktree scoping", () => {
 
     expect(updatedSession?.harnessId).toBe("claude-code")
     expect(updatedSession?.model).toBeNull()
+    expect(updatedSession?.reasoningEffort).toBeNull()
+    expect(updatedSession?.modelVariant).toBeUndefined()
+    expect(updatedSession?.fastMode).toBeNull()
   })
 
   test("clears transient session state when deleting the active session", async () => {
@@ -617,6 +658,7 @@ describe("chatStore worktree scoping", () => {
       runtimeMode: "approval-required",
     })
     expect(lastHarnessTurnInput?.runtimeMode).toBe("approval-required")
+    expect(lastHarnessTurnInput?.turnId).toMatch(/^turn-/)
   })
 
   test("marks a finished background session as unread until it is reselected", async () => {
@@ -643,12 +685,17 @@ describe("chatStore worktree scoping", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0))
 
-    expect(useChatStore.getState().sessionActivityById[firstSession!.id]).toEqual({
+    const firstWorkStartedAt = Number(
+      useChatStore.getState().sessionActivityById[firstSession!.id]?.workStartedAt
+    )
+    expect(useChatStore.getState().sessionActivityById[firstSession!.id]).toMatchObject({
       status: "connecting",
       unread: false,
     })
+    expect(typeof firstWorkStartedAt).toBe("number")
 
     await useChatStore.getState().selectSession("worktree-1", secondSession!.id)
+    expect(useChatStore.getState().sessionActivityById[firstSession!.id]?.workStartedAt).toBe(firstWorkStartedAt)
 
     resolveHarnessTurn!({
       messages: [

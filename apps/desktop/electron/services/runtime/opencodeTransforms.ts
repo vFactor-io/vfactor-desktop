@@ -39,6 +39,25 @@ const OPEN_CODE_WRITE_PERMISSIONS = [
   "doom_loop",
 ] as const
 
+function formatOpenCodeVariantLabel(variantId: string): string {
+  return variantId
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ")
+}
+
+function getOpenCodeModelVariants(
+  variants: Record<string, { disabled?: boolean } | undefined> | null | undefined
+): RuntimeModel["modelVariants"] {
+  return Object.entries(variants ?? {})
+    .filter(([variantId, variant]) => variantId.trim().length > 0 && variant?.disabled !== true)
+    .map(([variantId]) => ({
+      id: variantId,
+      label: formatOpenCodeVariantLabel(variantId),
+    }))
+}
+
 function createPermissionRules(
   action: "allow" | "ask",
   permissions: readonly string[]
@@ -100,6 +119,7 @@ export function flattenOpenCodeModels(
 
     for (const model of Object.values(provider.models ?? {})) {
       const modelId = `${provider.id}/${model.id}`
+      const modelVariants = getOpenCodeModelVariants(model.variants)
       models.push({
         id: modelId,
         displayName: model.name,
@@ -107,6 +127,8 @@ export function flattenOpenCodeModels(
         isDefault: defaultModelsByProvider[provider.id] === model.id,
         supportedReasoningEfforts: [],
         defaultReasoningEffort: null,
+        defaultModelVariant: null,
+        modelVariants,
         supportsFastMode: false,
       })
     }

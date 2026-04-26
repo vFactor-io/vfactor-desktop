@@ -102,6 +102,7 @@ export function useChatTimelineState(activeSessionId: string | null): {
   messages: MessageWithParts[]
   childSessions?: Map<string, ChildSessionState>
   status: ChatStatus
+  workStartedAt: number | null
   activePromptState: RuntimePromptState | null
 } {
   const messages = useChatStore((state) =>
@@ -109,9 +110,11 @@ export function useChatTimelineState(activeSessionId: string | null): {
   )
   const currentSessionId = useChatStore((state) => state.currentSessionId)
   const childSessions = useChatStore((state) => state.childSessions)
-  const sessionStatus = useChatStore((state) =>
-    activeSessionId ? state.sessionActivityById[activeSessionId]?.status ?? "idle" : "idle"
+  const sessionActivity = useChatStore((state) =>
+    activeSessionId ? state.sessionActivityById[activeSessionId] : undefined
   )
+  const sessionStatus = sessionActivity?.status ?? "idle"
+  const workStartedAt = sessionActivity?.workStartedAt ?? null
   const activePromptState = useChatStore((state) =>
     activeSessionId ? state.activePromptBySession[activeSessionId] ?? null : null
   )
@@ -122,6 +125,7 @@ export function useChatTimelineState(activeSessionId: string | null): {
     messages,
     childSessions: isResolvedActiveSession ? childSessions : undefined,
     status: sessionStatus,
+    workStartedAt,
     activePromptState,
   }
 }
@@ -167,6 +171,7 @@ export function useChatComposerState({
       runtimeMode?: RuntimeModeKind
       model?: string
       reasoningEffort?: string | null
+      modelVariant?: string | null
       fastMode?: boolean
       attachments?: DraftChatAttachment[]
     }
@@ -296,6 +301,7 @@ export function useChatComposerState({
         runtimeMode?: RuntimeModeKind
         model?: string
         reasoningEffort?: string | null
+        modelVariant?: string | null
         fastMode?: boolean
         attachments?: DraftChatAttachment[]
       }
@@ -447,6 +453,7 @@ export function useNewWorkspaceSetupState(): {
       runtimeMode?: RuntimeModeKind
       model?: string
       reasoningEffort?: string | null
+      modelVariant?: string | null
       fastMode?: boolean
     }
   ) => Promise<boolean>
@@ -576,6 +583,7 @@ export function useNewWorkspaceSetupState(): {
         runtimeMode?: RuntimeModeKind
         model?: string
         reasoningEffort?: string | null
+        modelVariant?: string | null
         fastMode?: boolean
       }
     ) => {

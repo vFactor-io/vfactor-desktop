@@ -11,7 +11,9 @@ import {
   InformationCircle,
   MagnifyingGlass,
   PencilSimple,
+  Refresh,
   Robot,
+  ShieldWarning,
   Zap,
   type Icon,
 } from "@/components/icons"
@@ -20,6 +22,7 @@ import { desktop } from "@/desktop/client"
 import type {
   MessageWithParts,
   RuntimeAttachmentPart,
+  RuntimeNotice,
   RuntimeApprovalDisplayState,
   RuntimeMessagePart,
   RuntimeToolPart,
@@ -143,15 +146,36 @@ function TimelineTextBlock({
 
 function TimelineNoticeBlock({
   text,
+  notice,
   withinGroup = false,
 }: {
   text: string
+  notice?: RuntimeNotice
   withinGroup?: boolean
 }) {
+  const title = getRuntimeNoticeTitle(notice)
+  const metadata = getRuntimeNoticeMetadata(notice)
+  const IconComponent = getRuntimeNoticeIcon(notice)
+  const toneClass = getRuntimeNoticeToneClass(notice)
   const content = (
-    <div className="inline-flex max-w-full items-start gap-2 py-1 text-[13px] leading-5 text-muted-foreground">
-      <InformationCircle className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/70" />
-      <span className="min-w-0 flex-1">{text}</span>
+    <div
+      className={cn(
+        "inline-flex max-w-full items-start gap-2 rounded-md border px-2.5 py-2 text-[13px] leading-5",
+        toneClass
+      )}
+    >
+      <IconComponent className="mt-0.5 size-3.5 shrink-0" />
+      <div className="min-w-0 flex-1">
+        {title ? <div className="font-medium text-foreground/85">{title}</div> : null}
+        <div className="text-muted-foreground">{text}</div>
+        {metadata.length > 0 ? (
+          <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground/75">
+            {metadata.map((item) => (
+              <span key={item}>{item}</span>
+            ))}
+          </div>
+        ) : null}
+      </div>
     </div>
   )
 
@@ -164,6 +188,91 @@ function TimelineNoticeBlock({
       <MessageContent>{content}</MessageContent>
     </MessageComponent>
   )
+}
+
+function getRuntimeNoticeIcon(notice: RuntimeNotice | undefined): Icon {
+  if (!notice) {
+    return InformationCircle
+  }
+
+  switch (notice.kind) {
+    case "retrying":
+      return Refresh
+    case "failed":
+    case "provider_unavailable":
+    case "auth_required":
+    case "network_error":
+      return ShieldWarning
+    case "recovered":
+    case "degraded":
+    case "rate_limited":
+    default:
+      return InformationCircle
+  }
+}
+
+function getRuntimeNoticeToneClass(notice: RuntimeNotice | undefined): string {
+  switch (notice?.severity) {
+    case "error":
+      return "border-destructive/25 bg-destructive/5 text-destructive"
+    case "warning":
+      return "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+    case "info":
+    default:
+      return "border-border/70 bg-muted/30 text-muted-foreground"
+  }
+}
+
+function getRuntimeNoticeTitle(notice: RuntimeNotice | undefined): string | null {
+  if (!notice) {
+    return null
+  }
+
+  const target = notice.modelName ?? notice.modelId ?? notice.providerName ?? notice.providerId
+
+  switch (notice.kind) {
+    case "retrying":
+      return target ? `Retrying ${target}` : "Retrying provider request"
+    case "recovered":
+      return target ? `${target} recovered` : "Provider recovered"
+    case "failed":
+      return target ? `${target} failed` : "Provider request failed"
+    case "provider_unavailable":
+      return target ? `${target} is unavailable` : "Provider unavailable"
+    case "rate_limited":
+      return target ? `${target} is rate limited` : "Provider rate limited"
+    case "auth_required":
+      return "Provider authentication required"
+    case "network_error":
+      return "Provider network issue"
+    case "degraded":
+      return target ? `${target} is degraded` : "Provider degraded"
+    default:
+      return "Runtime notice"
+  }
+}
+
+function getRuntimeNoticeMetadata(notice: RuntimeNotice | undefined): string[] {
+  if (!notice) {
+    return []
+  }
+
+  const metadata: string[] = []
+
+  if (notice.providerName && notice.modelName) {
+    metadata.push(notice.providerName)
+  }
+
+  if (typeof notice.attempt === "number") {
+    metadata.push(`Attempt ${notice.attempt}`)
+  }
+
+  if (typeof notice.retryAt === "number") {
+    const retryInSeconds = Math.max(0, Math.ceil((notice.retryAt - Date.now()) / 1000))
+    metadata.push(`Retrying in ${retryInSeconds}s`)
+  }
+
+  return metadata
 }
 
 function getBaseName(path: string): string {
@@ -883,7 +992,13 @@ export function ChatTimelineItem({
   const phase = message.info.phase
 
   if (itemType === "providerNotice") {
-    return <TimelineNoticeBlock text={text} withinGroup={withinGroup} />
+    return (
+      <TimelineNoticeBlock
+        text={text}
+        notice={message.info.runtimeNotice}
+        withinGroup={withinGroup}
+      />
+    )
   }
 
   if (itemType === "reasoning") {

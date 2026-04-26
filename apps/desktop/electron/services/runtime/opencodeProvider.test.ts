@@ -248,6 +248,118 @@ describe("OpenCodeRuntimeProvider", () => {
     expect(commands[0]?.inputHint).toBeUndefined()
   })
 
+  test("normalizes provider retry status events into runtime notices", async () => {
+    const liveEventStream = new AsyncEventStream<any>()
+    mock.module("@opencode-ai/sdk/v2/client", () => ({
+      createOpencodeClient: () => ({
+        global: {
+          event: async () => ({
+            stream: liveEventStream,
+          }),
+        },
+        session: {
+          create: sessionCreateMock,
+          prompt: sessionPromptMock,
+          promptAsync: sessionPromptAsyncMock,
+          abort: sessionAbortMock,
+        },
+        permission: {
+          reply: permissionReplyMock,
+        },
+        question: {
+          reply: questionReplyMock,
+        },
+        provider: {
+          list: providerListMock,
+        },
+        app: {
+          agents: agentsMock,
+        },
+        command: {
+          list: commandsMock,
+        },
+        find: {
+          files: findFilesMock,
+        },
+      }),
+    }))
+
+    const { OpenCodeRuntimeProvider } = await import("./opencodeProvider")
+    const provider = new OpenCodeRuntimeProvider(context, {
+      getBaseUrl: async () => "http://127.0.0.1:4096",
+    } as never)
+
+    const session = await provider.createSession("/tmp/project")
+    const streamingUpdates: Array<RuntimeTurnUpdateEvent["result"]> = []
+
+    const sendPromise = provider.sendTurn({
+      turnId: "turn-test",
+      session,
+      projectPath: "/tmp/project",
+      text: "Ping",
+      model: "opencode-go/kimi-k2.6",
+      onUpdate: (result) => {
+        streamingUpdates.push(result)
+      },
+    })
+    await Bun.sleep(0)
+
+    liveEventStream.emit({
+      directory: "/tmp/project",
+      payload: {
+        type: "session.status",
+        properties: {
+          sessionID: "session-1",
+          status: {
+            type: "retry",
+            attempt: 2,
+            message: "Error from provider: Provider returned error",
+            next: 12345,
+          },
+        },
+      },
+    })
+
+    await Bun.sleep(20)
+
+    const noticeUpdate = updates.find((event) => event.result.notices?.length)
+    const notice = noticeUpdate?.result.notices?.[0]
+    expect(notice).toMatchObject({
+      harnessId: "opencode",
+      providerId: "opencode-go",
+      providerName: "OpenCode Go",
+      modelId: "kimi-k2.6",
+      modelName: "Kimi K2.6",
+      kind: "retrying",
+      severity: "warning",
+      message: "Error from provider: Provider returned error",
+      attempt: 2,
+      retryAt: 12345,
+    })
+    expect(streamingUpdates.at(-1)?.notices?.[0]).toMatchObject({
+      kind: "retrying",
+      attempt: 2,
+    })
+
+    liveEventStream.emit({
+      directory: "/tmp/project",
+      payload: {
+        type: "session.idle",
+        properties: {
+          sessionID: "session-1",
+        },
+      },
+    })
+
+    const result = await sendPromise
+
+    expect(result.notices?.[0]).toMatchObject({
+      kind: "recovered",
+      severity: "info",
+      attempt: 2,
+    })
+  })
+
   test("streams assistant text updates and clears approval prompts after reply", async () => {
     const liveEventStream = new AsyncEventStream<any>()
     mock.module("@opencode-ai/sdk/v2/client", () => ({
@@ -293,13 +405,21 @@ describe("OpenCodeRuntimeProvider", () => {
     const streamingUpdates: Array<RuntimeTurnUpdateEvent["result"]> = []
 
     const sendPromise = provider.sendTurn({
+      turnId: "turn-test",
       session,
       projectPath: "/tmp/project",
       text: "Build this",
+      modelVariant: "high",
       onUpdate: (result) => {
         streamingUpdates.push(result)
       },
     })
+    await Bun.sleep(0)
+    expect(sessionPromptAsyncMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        variant: "high",
+      })
+    )
 
     liveEventStream.emit({
       directory: "/tmp/project",
@@ -466,6 +586,9 @@ describe("OpenCodeRuntimeProvider", () => {
     expect(result.messages?.some((message) =>
       message.parts.some((part) => part.type === "text" && part.text === "Final answer")
     )).toBe(true)
+    expect(result.messages?.find((message) =>
+      message.parts.some((part) => part.type === "text" && part.text === "Final answer")
+    )?.info.turnId).toBe("turn-test")
   })
 
   test("streams text from message.part.delta events before the final snapshot arrives", async () => {
@@ -513,6 +636,7 @@ describe("OpenCodeRuntimeProvider", () => {
     const streamingUpdates: Array<RuntimeTurnUpdateEvent["result"]> = []
 
     const sendPromise = provider.sendTurn({
+      turnId: "turn-test",
       session,
       projectPath: "/tmp/project",
       text: "Build this",

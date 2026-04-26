@@ -339,6 +339,7 @@ describe("ClaudeRuntimeProvider", () => {
     const session = await provider.createSession("/tmp/project")
 
     const result = await provider.sendTurn({
+      turnId: "turn-test",
       session,
       projectPath: "/tmp/project",
       text: "Say hello",
@@ -351,6 +352,7 @@ describe("ClaudeRuntimeProvider", () => {
         text: "Hello world",
       })
     )
+    expect(result.messages?.[0]?.info.turnId).toBe("turn-test")
     expect(persistence.get(session.remoteId!)?.state?.claudeSessionId).toBe("claude-session-1")
   })
 
@@ -378,6 +380,7 @@ describe("ClaudeRuntimeProvider", () => {
     const session = await provider.createSession("/tmp/project")
 
     await provider.sendTurn({
+      turnId: "turn-test",
       session,
       projectPath: "/tmp/project",
       text: "Use fast mode",
@@ -414,6 +417,7 @@ describe("ClaudeRuntimeProvider", () => {
     const session = await provider.createSession("/tmp/project")
 
     await provider.sendTurn({
+      turnId: "turn-test",
       session,
       projectPath: "/tmp/project",
       text: "Do not use fast mode",
@@ -462,6 +466,7 @@ describe("ClaudeRuntimeProvider", () => {
     const session = await provider.createSession("/tmp/project")
 
     const sendPromise = provider.sendTurn({
+      turnId: "turn-test",
       session,
       projectPath: "/tmp/project",
       text: "Run bash",
@@ -521,6 +526,7 @@ describe("ClaudeRuntimeProvider", () => {
     const session = await provider.createSession("/tmp/project")
 
     const sendPromise = provider.sendTurn({
+      turnId: "turn-test",
       session,
       projectPath: "/tmp/project",
       text: "Start and interrupt",

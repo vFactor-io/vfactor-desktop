@@ -422,6 +422,7 @@ export interface RuntimeSearchFilesInput {
 export interface RuntimeSendTurnInput {
   harnessId: HarnessId
   session: RuntimeSession
+  turnId: string
   projectPath?: string
   text: string
   agent?: string
@@ -429,6 +430,7 @@ export interface RuntimeSendTurnInput {
   runtimeMode?: RuntimeModeKind
   model?: string
   reasoningEffort?: RuntimeReasoningEffort | null
+  modelVariant?: string | null
   fastMode?: boolean
 }
 

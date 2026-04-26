@@ -92,6 +92,7 @@ interface ChatInputProps {
       runtimeMode?: RuntimeModeKind
       model?: string
       reasoningEffort?: string | null
+      modelVariant?: string | null
       fastMode?: boolean
     }
   ) => void
@@ -199,15 +200,19 @@ export function ChatInput({
   const isDraftSession = !!activeSession && !activeSession.remoteId
   const persistedHarnessId = activeSession?.harnessId ?? projectChat?.selectedHarnessId ?? null
   const {
+    availableModelVariants,
     availableReasoningEfforts,
     effectiveModel,
     fastMode,
     fastModeTooltipLabel,
+    handleSelectModelVariant,
     handleSelectReasoningEffort,
     isLoadingModels,
+    modelVariant,
     modelPickerProps,
     reasoningEffort,
     selectedHarnessId,
+    showModelVariantSelector,
     showReasoningEffortSelector,
     supportsFastMode,
     toggleFastMode,
@@ -917,6 +922,7 @@ export function ChatInput({
           runtimeMode,
           model: effectiveModel?.id ?? undefined,
           reasoningEffort: collaborationMode ? reasoningEffort : null,
+          modelVariant,
           fastMode: collaborationMode ? fastMode : false,
         })
       } else {
@@ -927,6 +933,7 @@ export function ChatInput({
           runtimeMode,
           model: effectiveModel?.id ?? undefined,
           reasoningEffort: collaborationMode ? reasoningEffort : null,
+          modelVariant,
           fastMode: collaborationMode ? fastMode : false,
         })
       }
@@ -942,6 +949,7 @@ export function ChatInput({
       runtimeMode,
       effectiveModel?.id,
       reasoningEffort,
+      modelVariant,
       fastMode,
       commands,
       onExecuteCommand,
@@ -1206,6 +1214,7 @@ export function ChatInput({
             ) : null}
 
             <ComposerToolbar
+              availableModelVariants={availableModelVariants}
               availableReasoningEfforts={availableReasoningEfforts}
               canSubmit={canSubmit}
               fastMode={fastMode}
@@ -1213,14 +1222,17 @@ export function ChatInput({
               isLoadingModels={isLoadingModels}
               isPlanModeAvailable={isPlanModeAvailable}
               isPlanModeEnabled={isPlanModeEnabled}
+              modelVariant={modelVariant}
               modelPickerProps={modelPickerProps}
               onAbort={onAbort}
               onAttachFiles={handleAttachFiles}
+              onSelectModelVariant={handleSelectModelVariant}
               onSelectReasoningEffort={handleSelectReasoningEffort}
               onToggleFastMode={toggleFastMode}
               onTogglePlanMode={togglePlanMode}
               planModeShortcutLabel={planModeShortcutLabel}
               reasoningEffort={reasoningEffort}
+              shouldShowModelVariantSelector={showModelVariantSelector}
               shouldShowReasoningEffortSelector={showReasoningEffortSelector}
               shouldShowSendAction={shouldShowSendAction}
               showAtMenu={showAtMenu}

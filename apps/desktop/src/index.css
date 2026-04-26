@@ -255,6 +255,14 @@
     border-radius: var(--radius-xl);
   }
 
+  .composer-layer-surface {
+    background-color: var(--card);
+    border: 1px solid color-mix(in oklab, var(--border) 84%, transparent);
+    box-shadow:
+      0 1px 0 color-mix(in oklab, var(--foreground) 6%, transparent) inset,
+      0 18px 54px color-mix(in oklab, black 16%, transparent);
+  }
+
   .searchable-select-surface {
     border-radius: var(--radius-xl);
   }
@@ -285,6 +293,13 @@
   }
 
   html[data-appearance="light"] .app-modal-surface {
+    border-color: color-mix(in oklab, var(--border) 92%, transparent);
+    box-shadow:
+      0 1px 0 color-mix(in oklab, white 82%, transparent) inset,
+      0 18px 54px color-mix(in oklab, black 10%, transparent);
+  }
+
+  html[data-appearance="light"] .composer-layer-surface {
     border-color: color-mix(in oklab, var(--border) 92%, transparent);
     box-shadow:
       0 1px 0 color-mix(in oklab, white 82%, transparent) inset,

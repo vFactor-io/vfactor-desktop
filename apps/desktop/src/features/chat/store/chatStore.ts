@@ -20,6 +20,7 @@ import {
   createRuntimeApprovalResponse,
   isRuntimeApprovalPrompt,
 } from "../domain/runtimePrompts"
+import { createRuntimeNoticeMessages } from "../domain/runtimeNotices"
 import {
   createDefaultProjectChat,
   createOptimisticRuntimeSession,
@@ -50,6 +51,7 @@ import {
   type RuntimeCommand,
   type RuntimeFileSearchResult,
   type RuntimeModel,
+  type RuntimeNotice,
   type QueuedChatMessage,
   type RuntimePrompt,
   type RuntimePromptResponse,
@@ -108,6 +110,15 @@ interface ChatState {
   selectHarness: (worktreeId: string, harnessId: HarnessId) => Promise<void>
   setSessionHarness: (sessionId: string, harnessId: HarnessId) => Promise<void>
   setSessionModel: (sessionId: string, model: string | null) => Promise<void>
+  setSessionModelPreferences: (
+    sessionId: string,
+    preferences: {
+      model?: string | null
+      reasoningEffort?: string | null
+      modelVariant?: string | null
+      fastMode?: boolean | null
+    }
+  ) => Promise<void>
   setSessionRuntimeMode: (sessionId: string, runtimeMode: RuntimeModeKind) => Promise<void>
   listAgents: (worktreeId: string) => Promise<RuntimeAgent[]>
   listCommands: (worktreeId: string) => Promise<RuntimeCommand[]>
@@ -132,6 +143,7 @@ interface ChatState {
       runtimeMode?: RuntimeModeKind
       model?: string
       reasoningEffort?: string | null
+      modelVariant?: string | null
       fastMode?: boolean
     }
   ) => Promise<void>
@@ -333,14 +345,32 @@ function getSessionActivityState(
   return sessionActivityById[sessionId] ?? { status: "idle", unread: false }
 }
 
+function getActiveWorkStartedAt(
+  previousActivity: SessionActivityState | undefined,
+  nextStatus: ChatStatus,
+  fallbackStartedAt = Date.now()
+): number | undefined {
+  if (nextStatus !== "connecting" && nextStatus !== "streaming") {
+    return undefined
+  }
+
+  return previousActivity?.workStartedAt ?? fallbackStartedAt
+}
+
 function replaceSessionActivity(
   sessionActivityById: Record<string, SessionActivityState>,
   sessionId: string,
   nextActivity: SessionActivityState
 ): Record<string, SessionActivityState> {
+  const previousActivity = sessionActivityById[sessionId]
+  const workStartedAt = getActiveWorkStartedAt(previousActivity, nextActivity.status)
+
   return {
     ...sessionActivityById,
-    [sessionId]: nextActivity,
+    [sessionId]: {
+      ...nextActivity,
+      ...(workStartedAt == null ? {} : { workStartedAt }),
+    },
   }
 }
 
@@ -428,6 +458,44 @@ function mergeSessionMessages(
       ...incomingMessages,
     ])
   )
+}
+
+function stampMessagesWithTurnId(
+  messages: MessageWithParts[] | undefined,
+  turnId: string
+): MessageWithParts[] | undefined {
+  if (!messages?.length) {
+    return messages
+  }
+
+  return messages.map((message) => {
+    if (message.info.role !== "assistant" || message.info.turnId) {
+      return message
+    }
+
+    return {
+      ...message,
+      info: {
+        ...message.info,
+        turnId,
+      },
+    }
+  })
+}
+
+function createTurnUpdateMessages(
+  sessionId: string,
+  turnId: string,
+  result: { messages?: MessageWithParts[]; notices?: RuntimeNotice[] }
+): MessageWithParts[] | undefined {
+  const messages = stampMessagesWithTurnId(result.messages, turnId) ?? []
+  const notices = createRuntimeNoticeMessages(sessionId, turnId, result.notices)
+
+  if (messages.length === 0 && notices.length === 0) {
+    return undefined
+  }
+
+  return [...notices, ...messages]
 }
 
 function replacePromptState(
@@ -970,6 +1038,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ...liveSessionMatch.session,
         harnessId,
         model: null,
+        reasoningEffort: null,
+        modelVariant: undefined,
+        fastMode: null,
       }
 
       return {
@@ -988,13 +1059,32 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   setSessionModel: async (sessionId, model) => {
+    await get().setSessionModelPreferences(sessionId, { model })
+  },
+
+  setSessionModelPreferences: async (sessionId, preferences) => {
     const sessionMatch = findProjectForSession(get().chatByWorktree, sessionId)
     if (!sessionMatch) {
       return
     }
 
-    const normalizedModel = model?.trim() || null
-    if ((sessionMatch.session.model?.trim() || null) === normalizedModel) {
+    const hasModel = Object.prototype.hasOwnProperty.call(preferences, "model")
+    const hasReasoningEffort = Object.prototype.hasOwnProperty.call(preferences, "reasoningEffort")
+    const hasModelVariant = Object.prototype.hasOwnProperty.call(preferences, "modelVariant")
+    const hasFastMode = Object.prototype.hasOwnProperty.call(preferences, "fastMode")
+    const normalizedModel = preferences.model?.trim() || null
+    const normalizedReasoningEffort = preferences.reasoningEffort?.trim() || null
+    const normalizedModelVariant = preferences.modelVariant?.trim() || null
+    const normalizedFastMode = preferences.fastMode ?? null
+
+    if (
+      (!hasModel || (sessionMatch.session.model?.trim() || null) === normalizedModel) &&
+      (!hasReasoningEffort ||
+        (sessionMatch.session.reasoningEffort?.trim() || null) === normalizedReasoningEffort) &&
+      (!hasModelVariant ||
+        (sessionMatch.session.modelVariant?.trim() || null) === normalizedModelVariant) &&
+      (!hasFastMode || (sessionMatch.session.fastMode ?? null) === normalizedFastMode)
+    ) {
       return
     }
 
@@ -1006,7 +1096,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       const nextSession: RuntimeSession = {
         ...liveSessionMatch.session,
-        model: normalizedModel,
+        ...(hasModel ? { model: normalizedModel } : {}),
+        ...(hasReasoningEffort ? { reasoningEffort: normalizedReasoningEffort } : {}),
+        ...(hasModelVariant ? { modelVariant: normalizedModelVariant } : {}),
+        ...(hasFastMode ? { fastMode: normalizedFastMode } : {}),
       }
 
       return {
@@ -1376,15 +1469,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
         session.title?.trim() ? session.title : deriveSessionTitle(trimmedText, attachments)
       const nextSessionHarnessId = options?.harnessId ?? session.harnessId
       const nextSessionModel = options?.model?.trim() || session.model?.trim() || null
+      const nextSessionReasoningEffort =
+        options?.reasoningEffort?.trim() || session.reasoningEffort?.trim() || null
+      const nextSessionModelVariant =
+        options && Object.prototype.hasOwnProperty.call(options, "modelVariant")
+          ? options.modelVariant?.trim() || null
+          : session.modelVariant
+      const nextSessionFastMode =
+        options && Object.prototype.hasOwnProperty.call(options, "fastMode")
+          ? options.fastMode ?? null
+          : session.fastMode
       const nextSessionRuntimeMode =
         options?.runtimeMode ?? session.runtimeMode ?? DEFAULT_RUNTIME_MODE
       let nextSession: RuntimeSession = {
         ...touchSession(session, nextSessionTitle),
         harnessId: nextSessionHarnessId,
         model: nextSessionModel,
+        reasoningEffort: nextSessionReasoningEffort,
+        modelVariant: nextSessionModelVariant,
+        fastMode: nextSessionFastMode,
         runtimeMode: nextSessionRuntimeMode,
       }
       const adapter = getHarnessAdapter(nextSession.harnessId)
+      const turnId = `turn-${nanoid()}`
       const nextTurnStatus =
         nextSession.harnessId === "codex" || nextSession.harnessId === "opencode"
           ? "connecting"
@@ -1449,6 +1556,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const handleStreamingUpdate = (partialResult: {
         messages?: MessageWithParts[]
         prompt?: RuntimePrompt | null
+        notices?: RuntimeNotice[]
       }) => {
         set((state) => {
           if (!getProjectSessionMatch(state.chatByWorktree, worktreeId, sessionId)) {
@@ -1456,7 +1564,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }
 
           const previousMessages = getSessionMessages(state.messagesBySession, sessionId)
-          const sessionMessages = mergeSessionMessages(previousMessages, partialResult.messages)
+          const sessionMessages = mergeSessionMessages(
+            previousMessages,
+            createTurnUpdateMessages(sessionId, turnId, partialResult)
+          )
           const nextPromptState =
             partialResult.prompt === undefined
               ? state.activePromptBySession
@@ -1490,10 +1601,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
         messages?: MessageWithParts[]
         childSessions?: ChildSessionState[]
         prompt?: RuntimePrompt | null
+        notices?: RuntimeNotice[]
       }) => {
         const sessionMessages = mergeSessionMessages(
           getSessionMessages(get().messagesBySession, sessionId),
-          result.messages
+          createTurnUpdateMessages(sessionId, turnId, result)
         )
         const normalizedPromptState = getNormalizedPromptState(result.prompt)
 
@@ -1528,6 +1640,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const runSend = async (sessionToSend: RuntimeSession) =>
         adapter.sendMessage({
           session: sessionToSend,
+          turnId,
           projectPath: projectChat.worktreePath,
           text: transportText,
           agent: options?.agent,
@@ -1535,6 +1648,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           runtimeMode: options?.runtimeMode ?? sessionToSend.runtimeMode ?? DEFAULT_RUNTIME_MODE,
           model: options?.model,
           reasoningEffort: options?.reasoningEffort,
+          modelVariant: options?.modelVariant,
           fastMode: options?.fastMode,
           onUpdate: handleStreamingUpdate,
         })
