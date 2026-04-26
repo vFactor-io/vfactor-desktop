@@ -8,7 +8,7 @@ import {
   getCornerStyleRadius,
   isCornerStyle,
   getThemeDefinition,
-  isThemeId,
+  normalizeThemeId,
   resolveThemeIdForAppearance,
 } from "./themeRegistry"
 import type { AppearanceSnapshot, ConcreteThemeId, CornerStyle, ResolvedAppearance, ThemeId } from "./types"
@@ -183,7 +183,7 @@ export async function bootstrapAppearance(): Promise<AppearanceSnapshot> {
 
   return setAppearanceState(
     {
-      themeId: isThemeId(persistedThemeId) ? persistedThemeId : DEFAULT_THEME_ID,
+      themeId: normalizeThemeId(persistedThemeId),
       textSizePx: clampTextSizePx(persistedTextSizePx),
       cornerStyle: isCornerStyle(persistedCornerStyle) ? persistedCornerStyle : DEFAULT_CORNER_STYLE,
       systemAppearance: getSystemAppearance(),

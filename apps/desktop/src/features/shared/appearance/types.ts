@@ -4,8 +4,8 @@ export type CornerStyle = "square" | "soft" | "rounded"
 
 export type ThemeId =
   | "system"
-  | "nucleus-light"
-  | "nucleus-dark"
+  | "vfactor-light"
+  | "vfactor-dark"
   | "tokyonight"
   | "everforest"
   | "ayu"

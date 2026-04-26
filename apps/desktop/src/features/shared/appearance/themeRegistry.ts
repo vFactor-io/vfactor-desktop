@@ -257,59 +257,69 @@ function createTheme(seed: ThemeSeed): ThemeDefinition {
 }
 
 export const THEME_REGISTRY: Record<ConcreteThemeId, ThemeDefinition> = {
-  "nucleus-light": createTheme({
-    id: "nucleus-light",
-    label: "Nucleus Light",
+  "vfactor-light": createTheme({
+    id: "vfactor-light",
+    label: "vFactor Light",
     appearance: "light",
-    background: "#fcfcfd",
-    surface: "#f7f7f8",
+    background: "#f5f7fb",
+    surface: "#edf1f7",
     surfaceElevated: "#ffffff",
-    foreground: "#1c1d20",
-    mutedForeground: "#6b6d76",
-    border: "#dedfe3",
-    input: "#f2f3f5",
-    ring: "#7a7d88",
-    primary: "#2f3f7f",
-    primaryForeground: "#f8f9ff",
-    destructive: "#c34a64",
-    success: "#2d8a57",
-    warning: "#bf7a2e",
-    info: "#2f6ca8",
-    renamed: "#7760c9",
-    ignored: "#818491",
-    skillAccent: "#6d53cf",
-    skillSurface: "#ede8ff",
-    chart: ["#6c8fe5", "#7f5af0", "#48a7a0", "#f29f67", "#a87ae8"],
-    chatFileAccent: "#4a73c9",
-    chatPlanAccent: "#5369d9",
-    chatApprovalEmphasis: "#b67a20",
+    foreground: "#0b0f14",
+    mutedForeground: "#657284",
+    border: "#d8dee8",
+    input: "#e9eef6",
+    ring: "#4d7cfe",
+    primary: "#4d7cfe",
+    primaryForeground: "#ffffff",
+    accent: "#e9ddff",
+    accentForeground: "#24133f",
+    cta: "#4d7cfe",
+    ctaForeground: "#ffffff",
+    toggleOn: "#a855f7",
+    destructive: "#d94666",
+    success: "#20865a",
+    warning: "#b57419",
+    info: "#4d7cfe",
+    renamed: "#a855f7",
+    ignored: "#7b8594",
+    skillAccent: "#a855f7",
+    skillSurface: "#efe6ff",
+    chart: ["#4d7cfe", "#a855f7", "#3dbb91", "#f0a94a", "#7b8594"],
+    chatFileAccent: "#4d7cfe",
+    chatPlanAccent: "#a855f7",
+    chatApprovalEmphasis: "#b57419",
   }),
-  "nucleus-dark": createTheme({
-    id: "nucleus-dark",
-    label: "Nucleus Dark",
+  "vfactor-dark": createTheme({
+    id: "vfactor-dark",
+    label: "vFactor Dark",
     appearance: "dark",
-    background: "#16171a",
-    surface: "#1c1d22",
-    surfaceElevated: "#23252b",
-    foreground: "#f4f5f8",
-    mutedForeground: "#9b9faa",
-    border: "#2f3138",
-    input: "#23252b",
-    ring: "#777c88",
-    primary: "#b8c4ff",
-    primaryForeground: "#14161d",
-    destructive: "#ef6f8a",
-    success: "#64c18d",
-    warning: "#d7a35b",
-    info: "#6fb1ff",
-    renamed: "#b493ff",
-    ignored: "#8a8f99",
-    skillAccent: "#c3b1ff",
-    skillSurface: "#2a2241",
-    chart: ["#7ea2ff", "#8b6dff", "#5ec8bf", "#f4a96b", "#c398ff"],
-    chatFileAccent: "#8db3ff",
-    chatPlanAccent: "#8ba0ff",
-    chatApprovalEmphasis: "#f0b95d",
+    background: "#0b0f14",
+    surface: "#151b23",
+    surfaceElevated: "#212833",
+    foreground: "#e6e9ef",
+    mutedForeground: "#7b8594",
+    border: "#26313d",
+    input: "#151b23",
+    ring: "#4d7cfe",
+    primary: "#4d7cfe",
+    primaryForeground: "#ffffff",
+    accent: "#39304f",
+    accentForeground: "#f4f0ff",
+    cta: "#4d7cfe",
+    ctaForeground: "#ffffff",
+    toggleOn: "#a855f7",
+    destructive: "#ff6b8a",
+    success: "#55d18d",
+    warning: "#f0b45b",
+    info: "#4d7cfe",
+    renamed: "#a855f7",
+    ignored: "#7b8594",
+    skillAccent: "#a855f7",
+    skillSurface: "#261a38",
+    chart: ["#4d7cfe", "#a855f7", "#55d18d", "#f0b45b", "#7b8594"],
+    chatFileAccent: "#4d7cfe",
+    chatPlanAccent: "#a855f7",
+    chatApprovalEmphasis: "#f0b45b",
   }),
   tokyonight: createTheme({
     id: "tokyonight",
@@ -1166,6 +1176,18 @@ export function isThemeId(value: string | null | undefined): value is ThemeId {
   return value === "system" || value in THEME_REGISTRY
 }
 
+export function normalizeThemeId(value: string | null | undefined): ThemeId {
+  if (value === "nucleus-light") {
+    return "vfactor-light"
+  }
+
+  if (value === "nucleus-dark") {
+    return "vfactor-dark"
+  }
+
+  return isThemeId(value) ? value : DEFAULT_THEME_ID
+}
+
 export function isCornerStyle(value: string | null | undefined): value is CornerStyle {
   return value === "square" || value === "soft" || value === "rounded"
 }
@@ -1183,7 +1205,7 @@ export function clampTextSizePx(value: number | null | undefined): number {
 }
 
 export function resolveThemeIdForAppearance(appearance: ResolvedAppearance): ConcreteThemeId {
-  return appearance === "dark" ? "nucleus-dark" : "nucleus-light"
+  return appearance === "dark" ? "vfactor-dark" : "vfactor-light"
 }
 
 export function getThemeDefinition(themeId: ConcreteThemeId): ThemeDefinition {

@@ -6,6 +6,7 @@ import {
   MAX_TEXT_SIZE_PX,
   MIN_TEXT_SIZE_PX,
   clampTextSizePx,
+  normalizeThemeId,
   resolveThemeIdForAppearance,
 } from "./themeRegistry"
 import { THEME_TOKEN_NAMES } from "./types"
@@ -149,10 +150,17 @@ describe("themeRegistry", () => {
     )
   })
 
-  test("system defaults map to the nucleus light and dark pair", () => {
+  test("system defaults map to the vFactor light and dark pair", () => {
     expect(DEFAULT_THEME_ID).toBe("system")
-    expect(resolveThemeIdForAppearance("light")).toBe("nucleus-light")
-    expect(resolveThemeIdForAppearance("dark")).toBe("nucleus-dark")
+    expect(resolveThemeIdForAppearance("light")).toBe("vfactor-light")
+    expect(resolveThemeIdForAppearance("dark")).toBe("vfactor-dark")
+  })
+
+  test("legacy nucleus theme ids normalize to the vFactor replacements", () => {
+    expect(normalizeThemeId("nucleus-light")).toBe("vfactor-light")
+    expect(normalizeThemeId("nucleus-dark")).toBe("vfactor-dark")
+    expect(normalizeThemeId("vfactor-dark")).toBe("vfactor-dark")
+    expect(normalizeThemeId("missing-theme")).toBe(DEFAULT_THEME_ID)
   })
 
   test("text size is clamped to the supported interface range", () => {

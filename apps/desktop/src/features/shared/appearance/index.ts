@@ -11,6 +11,7 @@ export {
   isThemeId,
   MAX_TEXT_SIZE_PX,
   MIN_TEXT_SIZE_PX,
+  normalizeThemeId,
   TEXT_SIZE_STEP_PX,
   THEME_OPTIONS,
   THEME_REGISTRY,

@@ -1,7 +1,6 @@
 import {
-  DEFAULT_THEME_ID,
   getThemeDefinition,
-  isThemeId,
+  normalizeThemeId,
   resolveThemeIdForAppearance,
 } from "../../src/features/shared/appearance/themeRegistry"
 import type { ResolvedAppearance } from "../../src/features/shared/appearance/types"
@@ -39,7 +38,7 @@ export function resolveWindowThemeState(
   themeId: string | null | undefined,
   shouldUseDarkColors: boolean
 ): WindowThemeState {
-  const normalizedThemeId = isThemeId(themeId) ? themeId : DEFAULT_THEME_ID
+  const normalizedThemeId = normalizeThemeId(themeId)
 
   if (normalizedThemeId === "system") {
     const resolvedAppearance = getSystemResolvedAppearance(shouldUseDarkColors)

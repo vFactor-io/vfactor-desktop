@@ -11,13 +11,13 @@ describe("windowTheme", () => {
     expect(resolveWindowThemeState("system", false)).toEqual({
       themeSource: "system",
       resolvedAppearance: "light",
-      backgroundColor: "#fcfcfd",
+      backgroundColor: "#f5f7fb",
     })
 
     expect(resolveWindowThemeState("system", true)).toEqual({
       themeSource: "system",
       resolvedAppearance: "dark",
-      backgroundColor: "#16171a",
+      backgroundColor: "#0b0f14",
     })
   })
 
@@ -48,29 +48,29 @@ describe("windowTheme", () => {
     ).toEqual({
       themeSource: "system",
       resolvedAppearance: "dark",
-      backgroundColor: "#16171a",
+      backgroundColor: "#0b0f14",
     })
   })
 
   test("uses contrasting symbol colors for light and dark overlays", () => {
     expect(
       getWindowControlsOverlayStyle({
-        backgroundColor: "#fcfcfd",
+        backgroundColor: "#f5f7fb",
         resolvedAppearance: "light",
       })
     ).toEqual({
-      color: "#fcfcfd",
+      color: "#f5f7fb",
       symbolColor: "#6b6d76",
       height: 44,
     })
 
     expect(
       getWindowControlsOverlayStyle({
-        backgroundColor: "#16171a",
+        backgroundColor: "#0b0f14",
         resolvedAppearance: "dark",
       })
     ).toEqual({
-      color: "#16171a",
+      color: "#0b0f14",
       symbolColor: "#9ca3af",
       height: 44,
     })
@@ -82,12 +82,12 @@ describe("windowTheme", () => {
         {
           themeSource: "system",
           resolvedAppearance: "dark",
-          backgroundColor: "#16171a",
+          backgroundColor: "#0b0f14",
         },
         {
           themeSource: "system",
           resolvedAppearance: "dark",
-          backgroundColor: "#16171a",
+          backgroundColor: "#0b0f14",
         }
       )
     ).toBe(true)
@@ -97,12 +97,12 @@ describe("windowTheme", () => {
         {
           themeSource: "system",
           resolvedAppearance: "dark",
-          backgroundColor: "#16171a",
+          backgroundColor: "#0b0f14",
         },
         {
           themeSource: "system",
           resolvedAppearance: "light",
-          backgroundColor: "#fcfcfd",
+          backgroundColor: "#f5f7fb",
         }
       )
     ).toBe(false)
