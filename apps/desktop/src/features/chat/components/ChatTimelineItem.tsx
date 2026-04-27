@@ -93,8 +93,13 @@ function UserMessageCopyButton({ text }: { text: string }) {
           return
         }
 
-        await navigator.clipboard.writeText(text)
-        setIsCopied(true)
+        try {
+          await navigator.clipboard.writeText(text)
+          setIsCopied(true)
+        } catch (error) {
+          console.warn("[chat] Failed to copy user message to clipboard:", error)
+          setIsCopied(false)
+        }
       }}
       className={cn(
         "relative inline-flex h-5 w-5 items-center justify-center self-end overflow-hidden rounded-sm p-0.5 text-muted-foreground/78 opacity-0",

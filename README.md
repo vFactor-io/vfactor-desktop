@@ -142,7 +142,9 @@ xattr -dr com.apple.quarantine release/mac-arm64/vFactor.app
 ```text
 vfactor/
 ├── apps/
-│   ├── desktop/          # Electron app, renderer, CLI, packaging assets
+│   ├── desktop/
+│   │   ├── electron/     # Electron shell, IPC, native services
+│   │   └── src/          # Renderer UI, runtime integrations, shared features
 │   └── site/             # Marketing website package
 ├── docs/                 # Product and implementation notes
 ├── scripts/              # Workspace and packaging helpers
@@ -198,4 +200,4 @@ The near-term direction is to keep turning the desktop shell into a capable ADE:
 
 ## License
 
-License details are not yet documented in this repository.
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for full terms.

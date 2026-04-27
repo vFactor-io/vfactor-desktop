@@ -90,7 +90,7 @@ export function FileViewer({ filename, filePath }: FileViewerProps) {
     )
   }
 
-  if (isImage) {
+  if (isImage && filePath) {
     return (
       <div className="h-full overflow-auto bg-background p-6">
         {imageDataUrl ? (
