@@ -35,7 +35,7 @@ export function getUpdateReleaseUrl(version: string | null): string | null {
     return null
   }
 
-  return `https://github.com/bradleygibsongit/vfactor-desktop/releases/tag/v${version}`
+  return `https://github.com/vFactor-io/vfactor-desktop/releases/tag/v${version}`
 }
 
 export function getUpdateStatusLabel(updateState: AppUpdateState): string {

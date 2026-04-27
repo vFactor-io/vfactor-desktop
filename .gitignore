@@ -20,9 +20,11 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 /CLAUDE.md
 /MIGRATION.md
 /RELEASING.md
+/docs/
 /posthog-setup-report.md
 
 # local agent/tooling state
+/.agents/
 /.claude/
 /.codex/
 /.conductor/
@@ -32,6 +34,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 /.superset/
 /.vfactor/
 /apps/desktop/.playwright-mcp/
+/skill.lock
 
 # dotenv environment variable files
 .env

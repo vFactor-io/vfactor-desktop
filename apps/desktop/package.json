@@ -4,7 +4,7 @@
   "description": "Desktop ADE for local-first coding projects",
   "repository": {
     "type": "git",
-    "url": "https://github.com/bradleygibsongit/vfactor-desktop.git"
+    "url": "https://github.com/vFactor-io/vfactor-desktop.git"
   },
   "type": "module",
   "main": "out/main/main.js",
@@ -107,7 +107,7 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "bradleygibsongit",
+        "owner": "vFactor-io",
         "repo": "vfactor-desktop"
       }
     ],

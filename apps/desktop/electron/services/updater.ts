@@ -14,7 +14,7 @@ import { capture, captureException } from "./analytics"
 const { autoUpdater } = electronUpdater
 
 const UPDATE_FEED_URL =
-  "https://github.com/bradleygibsongit/vfactor-desktop/releases/latest/download"
+  "https://github.com/vFactor-io/vfactor-desktop/releases/latest/download"
 const AUTO_CHECK_DELAY_MS = 30_000
 const AUTO_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1_000
 const INSTALL_HANDOFF_TIMEOUT_MS = 15_000

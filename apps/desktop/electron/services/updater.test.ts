@@ -129,7 +129,7 @@ describe("UpdaterService", () => {
     expect(autoUpdater.disableDifferentialDownload).toBe(true)
     expect(autoUpdater.setFeedURL).toHaveBeenCalledWith({
       provider: "generic",
-      url: "https://github.com/bradleygibsongit/vfactor-desktop/releases/latest/download",
+      url: "https://github.com/vFactor-io/vfactor-desktop/releases/latest/download",
     })
     expect(snapshots.some((snapshot) => snapshot.status === "downloading")).toBe(true)
   })
