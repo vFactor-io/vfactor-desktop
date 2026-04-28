@@ -73,6 +73,25 @@ export async function flushAnalytics(): Promise<void> {
   await client.flush()
 }
 
+export async function flushAnalyticsWithTimeout(timeoutMs = 2_000): Promise<void> {
+  if (!client) return
+
+  let timeout: ReturnType<typeof setTimeout> | null = null
+
+  try {
+    await Promise.race([
+      client.flush(),
+      new Promise<void>((resolve) => {
+        timeout = setTimeout(resolve, timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout)
+    }
+  }
+}
+
 export async function shutdownAnalytics(timeoutMs = 2_000): Promise<void> {
   if (!client) return
 
