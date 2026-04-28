@@ -70,6 +70,7 @@ import {
   GitCommit as PhosphorGitCommit,
   GitDiff as PhosphorGitDiff,
   GitPullRequest as PhosphorGitPullRequest,
+  GithubLogo as PhosphorGithubLogo,
   Globe as PhosphorGlobe,
   Heart as PhosphorHeart,
   Image as PhosphorImage,
@@ -231,6 +232,7 @@ export const GearSix = createIcon("GearSix", PhosphorGearSix)
 export const GitBranch = createIcon("GitBranch", PhosphorGitBranch)
 export const GitDiff = createIcon("GitDiff", PhosphorGitDiff)
 export const GitPullRequest = createIcon("GitPullRequest", PhosphorGitPullRequest)
+export const GithubLogo = createIcon("GithubLogo", PhosphorGithubLogo)
 export const Globe = createIcon("Globe", PhosphorGlobe)
 export const Heart = createIcon("Heart", PhosphorHeart)
 export const Image = createIcon("Image", PhosphorImage)

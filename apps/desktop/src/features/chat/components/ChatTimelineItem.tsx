@@ -2,12 +2,15 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { vcsTextClassNames } from "@/features/shared/appearance"
 import {
   Bash,
+  Brain,
   CaretDown,
   CaretRight,
   Check,
   Compass,
   Copy,
   Eye,
+  GitBranch,
+  GithubLogo,
   Globe,
   Image,
   InformationCircle,
@@ -39,6 +42,7 @@ import {
 import type { ChildSessionData } from "./agent-activity/AgentActivitySubagent"
 import { getFileChangeEntries, getToolPart } from "./timelineActivity"
 import { UploadChip } from "./UploadChip"
+import { getCommandCliKind, getCommandLabel } from "./commandToolClassification"
 import {
   useViewportAnchorToggle,
 } from "./useViewportAnchorToggle"
@@ -142,13 +146,13 @@ function TimelineTextBlock({
 }: {
   eyebrow?: string
   text: string
-  tone?: "default" | "muted" | "accent" | "reasoning"
+  tone?: "default" | "muted" | "accent"
   isStreaming?: boolean
   withinGroup?: boolean
 }) {
   if (withinGroup) {
     const toneClass =
-      tone === "muted" || tone === "reasoning"
+      tone === "muted"
         ? "text-muted-foreground"
         : tone === "accent"
           ? "text-secondary-foreground/80"
@@ -171,16 +175,13 @@ function TimelineTextBlock({
     )
   }
 
-  if (tone === "default" || tone === "reasoning") {
+  if (tone === "default") {
     return (
       <MessageComponent from="assistant">
         <MessageContent>
           <MessageResponse
             isStreaming={isStreaming}
-            className={cn(
-              "leading-relaxed [&>p]:mb-4 last:[&>p]:mb-0",
-              tone === "reasoning" && "text-muted-foreground"
-            )}
+            className="leading-relaxed [&>p]:mb-4 last:[&>p]:mb-0"
           >
             {text}
           </MessageResponse>
@@ -405,15 +406,18 @@ function countDiffLines(diff: string | undefined): { added: number; removed: num
   )
 }
 
-function getCommandLabel(command: unknown): string {
-  if (typeof command !== "string" || !command.trim()) {
-    return "command"
+function getCommandCliIcon(input: Record<string, unknown>): Icon | null {
+  const cliKind = getCommandCliKind(input)
+
+  if (cliKind === "github") {
+    return GithubLogo
   }
 
-  const quoted = command.match(/'([^']+)'/)
-  const raw = quoted?.[1] ?? command
-  const normalized = raw.replace(/^\/bin\/\w+\s+-lc\s+/, "").trim()
-  return normalized || raw
+  if (cliKind === "git") {
+    return GitBranch
+  }
+
+  return null
 }
 
 function truncateInlineSummary(value: string, maxLength = 52): string {
@@ -422,6 +426,19 @@ function truncateInlineSummary(value: string, maxLength = 52): string {
   }
 
   return `${value.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`
+}
+
+function truncateMiddle(value: string, maxLength = 44): string {
+  if (value.length <= maxLength) {
+    return value
+  }
+
+  const marker = "..."
+  const available = Math.max(0, maxLength - marker.length)
+  const startLength = Math.ceil(available * 0.6)
+  const endLength = available - startLength
+
+  return `${value.slice(0, startLength)}${marker}${value.slice(value.length - endLength)}`
 }
 
 function renderInlineCode(value: string, title?: string, className?: string) {
@@ -439,7 +456,14 @@ function renderInlineCode(value: string, title?: string, className?: string) {
 }
 
 function renderInlinePath(value: string) {
-  return <span className="font-mono text-[var(--color-chat-file-accent)]">{value}</span>
+  return (
+    <span
+      title={value}
+      className="inline-block min-w-0 max-w-full truncate align-bottom font-mono text-[var(--color-chat-file-accent)]"
+    >
+      {truncateMiddle(value)}
+    </span>
+  )
 }
 
 function getToolFileChanges(toolPart: RuntimeToolPart) {
@@ -470,6 +494,19 @@ function prettyValue(value: unknown): string {
 
 function renderCommandSummary(toolPart: RuntimeToolPart) {
   const input = toolPart.state.input
+  const commandSummary = getReadableCommandSummary(input)
+
+  if (commandSummary) {
+    return (
+      <span className="inline-flex min-w-0 max-w-full items-center gap-1.5">
+        <span className="shrink-0">{commandSummary.label}</span>
+        {commandSummary.kind === "read"
+          ? renderInlinePath(getCommandSummaryPathLabel(commandSummary.path))
+          : null}
+      </span>
+    )
+  }
+
   const commandLabel = getCommandLabel(input.command ?? toolPart.state.title)
   const displayCommandLabel = truncateInlineSummary(commandLabel)
 
@@ -483,6 +520,364 @@ function renderCommandSummary(toolPart: RuntimeToolPart) {
       )}
     </span>
   )
+}
+
+function getCommandActions(input: Record<string, unknown>): Record<string, unknown>[] {
+  const actions = input.commandActions
+
+  if (!Array.isArray(actions)) {
+    return []
+  }
+
+  return actions.filter(
+    (action): action is Record<string, unknown> =>
+      action != null && typeof action === "object" && !Array.isArray(action)
+  )
+}
+
+function getStringField(source: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = source[key]
+
+    if (typeof value === "string" && value.trim()) {
+      return value.trim()
+    }
+  }
+
+  return null
+}
+
+function getNumberField(source: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = source[key]
+
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value
+    }
+
+    if (typeof value === "string" && value.trim()) {
+      const parsed = Number.parseInt(value, 10)
+
+      if (Number.isFinite(parsed)) {
+        return parsed
+      }
+    }
+  }
+
+  return null
+}
+
+function formatLineRange(startLine: number | null, endLine: number | null): string | null {
+  if (startLine == null && endLine == null) {
+    return null
+  }
+
+  if (startLine != null && endLine != null) {
+    return startLine === endLine ? `L${startLine}` : `L${startLine}-${endLine}`
+  }
+
+  return startLine != null ? `L${startLine}+` : `L-${endLine}`
+}
+
+type ReadableCommandSummary = {
+  kind: "read" | "search"
+  label: "Read" | "Searched"
+  path: string
+  lines: string | null
+}
+
+function getReadableCommandSummary(input: Record<string, unknown>): ReadableCommandSummary | null {
+  const readAction = getCommandActions(input).find((action) => action.type === "read")
+  const searchAction = getCommandActions(input).find((action) => action.type === "search")
+  const command = typeof input.command === "string" ? input.command : ""
+
+  if (readAction) {
+    const path = getStringField(readAction, ["path", "file", "filePath", "relativePath"])
+
+    if (path) {
+      return {
+        kind: "read",
+        label: "Read",
+        path,
+        lines: formatLineRange(
+          getNumberField(readAction, ["startLine", "start_line", "lineStart", "from", "start"]),
+          getNumberField(readAction, ["endLine", "end_line", "lineEnd", "to", "end"])
+        ) ?? getSedLineRange(command),
+      }
+    }
+  }
+
+  if (searchAction) {
+    const target =
+      getStringField(searchAction, ["query", "q", "pattern", "path", "directory", "dir", "search"]) ??
+      "workspace"
+
+    return {
+      kind: "search",
+      label: "Searched",
+      path: target,
+      lines: null,
+    }
+  }
+
+  const findRead = parseFindSearchCommand(command)
+
+  if (findRead) {
+    return {
+      kind: "search",
+      label: "Searched",
+      ...findRead,
+    }
+  }
+
+  const lsSearch = parseLsSearchCommand(command)
+
+  if (lsSearch) {
+    return {
+      kind: "search",
+      label: "Searched",
+      ...lsSearch,
+    }
+  }
+
+  const sedRead = parseSedReadCommand(command)
+
+  if (sedRead) {
+    return {
+      kind: "read",
+      label: "Read",
+      ...sedRead,
+    }
+  }
+
+  return null
+}
+
+function getSedLineRange(command: string): string | null {
+  const match = command.match(/sed\s+-n\s+['"]?(\d+)\s*,\s*(\d+)p['"]?/)
+
+  if (!match) {
+    return null
+  }
+
+  return formatLineRange(Number.parseInt(match[1], 10), Number.parseInt(match[2], 10))
+}
+
+function parseSedReadCommand(command: string): { path: string; lines: string | null } | null {
+  const normalizedCommand = getCommandLabel(command)
+  const match = normalizedCommand.match(/sed\s+-n\s+['"]?(\d+)\s*,\s*(\d+)p['"]?\s+(.+)$/)
+
+  if (!match) {
+    return null
+  }
+
+  const rawPath = match[3].trim().replace(/^['"](.+)['"]$/, "$1")
+
+  if (!rawPath) {
+    return null
+  }
+
+  return {
+    path: rawPath,
+    lines: formatLineRange(Number.parseInt(match[1], 10), Number.parseInt(match[2], 10)),
+  }
+}
+
+function parseFindSearchCommand(command: string): { path: string; lines: string | null } | null {
+  const normalizedCommand = getCommandLabel(command)
+  const match = normalizedCommand.match(
+    /find\s+(?:(['"])(.+?)\1|([^\s|]+))(?:\s|$)(?:.*?\|\s*sort\b)?(?:.*?\|\s*sed\s+-n\s+['"]?(\d+)\s*,\s*(\d+)p['"]?)?/
+  )
+
+  if (!match) {
+    return null
+  }
+
+  const rawPath = (match[2] ?? match[3] ?? "").trim()
+
+  if (!rawPath) {
+    return null
+  }
+
+  return {
+    path: rawPath,
+    lines:
+      match[4] && match[5]
+        ? formatLineRange(Number.parseInt(match[4], 10), Number.parseInt(match[5], 10))
+        : null,
+  }
+}
+
+function parseLsSearchCommand(command: string): { path: string; lines: string | null } | null {
+  const normalizedCommand = getCommandLabel(command)
+  const match = normalizedCommand.match(/^ls(?:\s+(.+))?$/)
+
+  if (!match) {
+    return null
+  }
+
+  const rawPath = (match[1] ?? "workspace").trim().replace(/^['"](.+)['"]$/, "$1")
+
+  return {
+    path: rawPath || "workspace",
+    lines: null,
+  }
+}
+
+function getCommandSummaryPathLabel(path: string): string {
+  if (path === "." || path === "./") {
+    return "workspace"
+  }
+
+  return getBaseName(path)
+}
+
+type SemanticToolSummary = {
+  kind: "read" | "search" | "edit" | "execute" | "web" | "task" | "todo"
+  label:
+    | "Read"
+    | "Searched"
+    | "Edited"
+    | "Ran"
+    | "Fetched"
+    | "Started"
+    | "Updated"
+  target?: string
+}
+
+function getDynamicToolSummary(toolPart: RuntimeToolPart): SemanticToolSummary | null {
+  const normalizedTool = toolPart.tool.toLowerCase()
+  const input = toolPart.state.input
+  const title = toolPart.state.title?.trim()
+
+  if (normalizedTool === "read" || normalizedTool.endsWith("/read")) {
+    const target =
+      getStringField(input, ["filePath", "filepath", "path", "file", "relativePath"]) ??
+      title ??
+      toolPart.tool
+
+    return {
+      kind: "read",
+      label: "Read",
+      target: getCommandSummaryPathLabel(target),
+    }
+  }
+
+  if (
+    normalizedTool === "list" ||
+    normalizedTool.endsWith("/list") ||
+    normalizedTool === "glob" ||
+    normalizedTool.endsWith("/glob") ||
+    normalizedTool === "grep" ||
+    normalizedTool.endsWith("/grep") ||
+    normalizedTool === "codesearch" ||
+    normalizedTool.endsWith("/codesearch")
+  ) {
+    return {
+      kind: "search",
+      label: "Searched",
+    }
+  }
+
+  if (normalizedTool === "edit" || normalizedTool.endsWith("/edit")) {
+    const target =
+      getStringField(input, ["filePath", "filepath", "path", "file", "relativePath"]) ??
+      title ??
+      toolPart.tool
+
+    return {
+      kind: "edit",
+      label: "Edited",
+      target: getCommandSummaryPathLabel(target),
+    }
+  }
+
+  if (normalizedTool === "bash" || normalizedTool.endsWith("/bash")) {
+    const target =
+      getStringField(input, ["command", "cmd", "description"]) ??
+      title ??
+      toolPart.tool
+
+    return {
+      kind: "execute",
+      label: "Ran",
+      target: truncateInlineSummary(target),
+    }
+  }
+
+  if (
+    normalizedTool === "webfetch" ||
+    normalizedTool.endsWith("/webfetch") ||
+    normalizedTool === "websearch" ||
+    normalizedTool.endsWith("/websearch")
+  ) {
+    const target =
+      getStringField(input, ["url", "query", "search", "description"]) ??
+      title ??
+      toolPart.tool
+
+    return {
+      kind: "web",
+      label: normalizedTool.includes("search") ? "Searched" : "Fetched",
+      target: truncateInlineSummary(target),
+    }
+  }
+
+  if (normalizedTool === "task" || normalizedTool.endsWith("/task")) {
+    const target =
+      getStringField(input, ["description", "prompt", "task", "agent"]) ??
+      title ??
+      toolPart.tool
+
+    return {
+      kind: "task",
+      label: "Started",
+      target: truncateInlineSummary(target),
+    }
+  }
+
+  if (
+    normalizedTool === "todoread" ||
+    normalizedTool.endsWith("/todoread") ||
+    normalizedTool === "todowrite" ||
+    normalizedTool.endsWith("/todowrite")
+  ) {
+    return {
+      kind: "todo",
+      label: normalizedTool.includes("write") ? "Updated" : "Read",
+      target: "todos",
+    }
+  }
+
+  return null
+}
+
+function renderSemanticToolSummary(summary: SemanticToolSummary) {
+  return (
+    <span className="inline-flex min-w-0 max-w-full items-center gap-1.5">
+      <span className="shrink-0">{summary.label}</span>
+      {summary.target ? renderInlinePath(summary.target) : null}
+    </span>
+  )
+}
+
+function getCommandIcon(toolPart: RuntimeToolPart): Icon {
+  const commandSummary = getReadableCommandSummary(toolPart.state.input)
+  const cliIcon = getCommandCliIcon(toolPart.state.input)
+
+  if (cliIcon) {
+    return cliIcon
+  }
+
+  if (commandSummary?.kind === "read") {
+    return Eye
+  }
+
+  if (commandSummary?.kind === "search") {
+    return MagnifyingGlass
+  }
+
+  return Bash
 }
 
 function AttachmentImagePreview({
@@ -604,7 +999,39 @@ function renderFileChangeSummary(
   })}</span>
 }
 
-function getGenericToolIcon(itemType?: string): Icon {
+function getGenericToolIcon(itemType?: string, toolPart?: RuntimeToolPart): Icon {
+  if (itemType === "dynamicToolCall" && toolPart) {
+    const semanticSummary = getDynamicToolSummary(toolPart)
+
+    if (semanticSummary?.kind === "read") {
+      return Eye
+    }
+
+    if (semanticSummary?.kind === "search") {
+      return MagnifyingGlass
+    }
+
+    if (semanticSummary?.kind === "edit") {
+      return PencilSimple
+    }
+
+    if (semanticSummary?.kind === "execute") {
+      return Bash
+    }
+
+    if (semanticSummary?.kind === "web") {
+      return Globe
+    }
+
+    if (semanticSummary?.kind === "task") {
+      return Robot
+    }
+
+    if (semanticSummary?.kind === "todo") {
+      return Check
+    }
+  }
+
   switch (itemType) {
     case "webSearch":
       return Globe
@@ -636,8 +1063,15 @@ function renderGenericToolSummary(message: MessageWithParts, toolPart: RuntimeTo
       )
     case "mcpToolCall":
       return <span>Called {renderInlineCode(toolPart.state.title ?? toolPart.tool)}</span>
-    case "dynamicToolCall":
+    case "dynamicToolCall": {
+      const semanticSummary = getDynamicToolSummary(toolPart)
+
+      if (semanticSummary) {
+        return renderSemanticToolSummary(semanticSummary)
+      }
+
       return <span>Used {renderInlineCode(toolPart.state.title ?? toolPart.tool)}</span>
+    }
     case "collabAgentToolCall":
       return <span>Started subagent work</span>
     case "imageGeneration":
@@ -790,6 +1224,23 @@ function renderToolDetails(
   )
 }
 
+function renderThoughtDetails(text: string, isStreaming: boolean): ReactNode {
+  if (!text.trim()) {
+    return null
+  }
+
+  return (
+    <div className="rounded-2xl bg-muted/35 px-3 py-2.5 text-muted-foreground">
+      <MessageResponse
+        isStreaming={isStreaming}
+        className="leading-relaxed [&>p]:mb-4 last:[&>p]:mb-0"
+      >
+        {text}
+      </MessageResponse>
+    </div>
+  )
+}
+
 function InlineActivityRow({
   icon: IconComponent,
   summary,
@@ -933,7 +1384,7 @@ export function ToolTimelineRow({
   if (message.info.itemType === "commandExecution") {
     return (
       <InlineActivityRow
-        icon={Bash}
+        icon={getCommandIcon(toolPart)}
         summary={renderCommandSummary(toolPart)}
         details={details}
         withinGroup={withinGroup}
@@ -979,10 +1430,10 @@ export function ToolTimelineRow({
   }
 
   return (
-    <InlineActivityRow
-      icon={getGenericToolIcon(message.info.itemType)}
-      summary={renderGenericToolSummary(message, toolPart)}
-      details={details}
+      <InlineActivityRow
+        icon={getGenericToolIcon(message.info.itemType, toolPart)}
+        summary={renderGenericToolSummary(message, toolPart)}
+        details={details}
       withinGroup={withinGroup}
       approvalState={approvalState}
     />
@@ -998,6 +1449,30 @@ export function InlineSubagentActivity({
 
   return (
     <InlineActivityRow icon={Robot} summary={<span>Subagent {description}</span>} />
+  )
+}
+
+function ThoughtTimelineRow({
+  text,
+  isStreaming,
+  withinGroup = false,
+}: {
+  text: string
+  isStreaming?: boolean
+  withinGroup?: boolean
+}) {
+  const details = useMemo(
+    () => renderThoughtDetails(text, Boolean(isStreaming)),
+    [isStreaming, text]
+  )
+
+  return (
+    <InlineActivityRow
+      icon={Brain}
+      summary={<span>Thought</span>}
+      details={details}
+      withinGroup={withinGroup}
+    />
   )
 }
 
@@ -1073,9 +1548,8 @@ export function ChatTimelineItem({
 
   if (itemType === "reasoning") {
     return (
-      <TimelineTextBlock
+      <ThoughtTimelineRow
         text={text}
-        tone="reasoning"
         isStreaming={isStreaming}
         withinGroup={withinGroup}
       />

@@ -77,6 +77,10 @@ function inferToolKind(toolName: string): ToolKind {
  * Get human-readable tool label.
  */
 function getToolLabel(kind: ToolKind, state: RuntimeToolState): string {
+  if (kind === "search") {
+    return "Searched"
+  }
+
   if (state.title) {
     return state.title
   }
@@ -90,8 +94,6 @@ function getToolLabel(kind: ToolKind, state: RuntimeToolState): string {
       return "Delete"
     case "move":
       return "Move"
-    case "search":
-      return "Search"
     case "execute":
       return "Shell"
     case "think":
@@ -139,6 +141,19 @@ function ToolKindIcon({ kind, className }: { kind: ToolKind; className?: string 
   }
 }
 
+function truncateMiddle(value: string, maxLength = 44): string {
+  if (value.length <= maxLength) {
+    return value
+  }
+
+  const marker = "..."
+  const available = Math.max(0, maxLength - marker.length)
+  const startLength = Math.ceil(available * 0.6)
+  const endLength = available - startLength
+
+  return `${value.slice(0, startLength)}${marker}${value.slice(value.length - endLength)}`
+}
+
 /**
  * Extract a short summary chip from input (e.g. file path, URL, command).
  */
@@ -152,10 +167,10 @@ function getInputChip(input: Record<string, unknown>): string | null {
       if (key.toLowerCase().includes("path") || key === "file_path") {
         const parts = val.split("/")
         if (parts.length > 2) {
-          return parts.slice(-2).join("/")
+          return truncateMiddle(parts.slice(-2).join("/"))
         }
       }
-      return val
+      return truncateMiddle(val)
     }
   }
   return null
@@ -188,7 +203,7 @@ export function AgentActivityToolSDK({
   const input = toolPart.state.input
   // Only show input chip if label doesn't already contain path info (from title)
   const hasPathInLabel = label.includes("/") || label.includes("\\")
-  const inputChip = hasPathInLabel ? null : getInputChip(input)
+  const inputChip = hasPathInLabel || kind === "search" ? null : getInputChip(input)
 
   // Output only on completed/error
   const output =
@@ -217,11 +232,13 @@ export function AgentActivityToolSDK({
         <ToolKindIcon kind={kind} className="text-muted-foreground" />
 
         {/* Label - split into action and path if label contains a path */}
-        {hasPathInLabel ? (
-          <span className={cn("flex items-center gap-2", isFailed && "text-destructive")}>
-              <span className="font-medium">{getToolLabel(kind, { ...toolPart.state, title: undefined })}</span>
-            <code className="text-xs text-muted-foreground font-mono truncate max-w-[300px]">
-              {label}
+        {hasPathInLabel && kind !== "search" ? (
+          <span className={cn("flex min-w-0 items-center gap-2", isFailed && "text-destructive")}>
+            <span className="font-medium">
+              {getToolLabel(kind, { ...toolPart.state, title: undefined })}
+            </span>
+            <code className="min-w-0 max-w-full truncate text-xs text-muted-foreground font-mono">
+              {truncateMiddle(label)}
             </code>
           </span>
         ) : (
