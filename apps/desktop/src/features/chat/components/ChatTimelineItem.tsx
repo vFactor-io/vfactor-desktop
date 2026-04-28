@@ -9,6 +9,8 @@ import {
   Compass,
   Copy,
   Eye,
+  GitBranch,
+  GithubLogo,
   Globe,
   Image,
   InformationCircle,
@@ -40,6 +42,7 @@ import {
 import type { ChildSessionData } from "./agent-activity/AgentActivitySubagent"
 import { getFileChangeEntries, getToolPart } from "./timelineActivity"
 import { UploadChip } from "./UploadChip"
+import { getCommandCliKind, getCommandLabel } from "./commandToolClassification"
 import {
   useViewportAnchorToggle,
 } from "./useViewportAnchorToggle"
@@ -403,17 +406,18 @@ function countDiffLines(diff: string | undefined): { added: number; removed: num
   )
 }
 
-function getCommandLabel(command: unknown): string {
-  if (typeof command !== "string" || !command.trim()) {
-    return "command"
+function getCommandCliIcon(input: Record<string, unknown>): Icon | null {
+  const cliKind = getCommandCliKind(input)
+
+  if (cliKind === "github") {
+    return GithubLogo
   }
 
-  const normalized = command
-    .replace(/^\/bin\/\w+\s+-lc\s+/, "")
-    .replace(/^["'](.+)["']$/, "$1")
-    .trim()
+  if (cliKind === "git") {
+    return GitBranch
+  }
 
-  return normalized || command
+  return null
 }
 
 function truncateInlineSummary(value: string, maxLength = 52): string {
@@ -422,6 +426,19 @@ function truncateInlineSummary(value: string, maxLength = 52): string {
   }
 
   return `${value.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`
+}
+
+function truncateMiddle(value: string, maxLength = 44): string {
+  if (value.length <= maxLength) {
+    return value
+  }
+
+  const marker = "..."
+  const available = Math.max(0, maxLength - marker.length)
+  const startLength = Math.ceil(available * 0.6)
+  const endLength = available - startLength
+
+  return `${value.slice(0, startLength)}${marker}${value.slice(value.length - endLength)}`
 }
 
 function renderInlineCode(value: string, title?: string, className?: string) {
@@ -439,7 +456,14 @@ function renderInlineCode(value: string, title?: string, className?: string) {
 }
 
 function renderInlinePath(value: string) {
-  return <span className="font-mono text-[var(--color-chat-file-accent)]">{value}</span>
+  return (
+    <span
+      title={value}
+      className="inline-block min-w-0 max-w-full truncate align-bottom font-mono text-[var(--color-chat-file-accent)]"
+    >
+      {truncateMiddle(value)}
+    </span>
+  )
 }
 
 function getToolFileChanges(toolPart: RuntimeToolPart) {
@@ -476,10 +500,9 @@ function renderCommandSummary(toolPart: RuntimeToolPart) {
     return (
       <span className="inline-flex min-w-0 max-w-full items-center gap-1.5">
         <span className="shrink-0">{commandSummary.label}</span>
-        {renderInlinePath(getCommandSummaryPathLabel(commandSummary.path))}
-        {commandSummary.lines ? (
-          <span className="shrink-0 text-muted-foreground/72">{commandSummary.lines}</span>
-        ) : null}
+        {commandSummary.kind === "read"
+          ? renderInlinePath(getCommandSummaryPathLabel(commandSummary.path))
+          : null}
       </span>
     )
   }
@@ -719,7 +742,7 @@ type SemanticToolSummary = {
     | "Fetched"
     | "Started"
     | "Updated"
-  target: string
+  target?: string
 }
 
 function getDynamicToolSummary(toolPart: RuntimeToolPart): SemanticToolSummary | null {
@@ -750,15 +773,9 @@ function getDynamicToolSummary(toolPart: RuntimeToolPart): SemanticToolSummary |
     normalizedTool === "codesearch" ||
     normalizedTool.endsWith("/codesearch")
   ) {
-    const target =
-      getStringField(input, ["path", "directory", "dir", "pattern", "query", "search", "include"]) ??
-      title ??
-      toolPart.tool
-
     return {
       kind: "search",
       label: "Searched",
-      target: getCommandSummaryPathLabel(target),
     }
   }
 
@@ -839,13 +856,18 @@ function renderSemanticToolSummary(summary: SemanticToolSummary) {
   return (
     <span className="inline-flex min-w-0 max-w-full items-center gap-1.5">
       <span className="shrink-0">{summary.label}</span>
-      {renderInlinePath(summary.target)}
+      {summary.target ? renderInlinePath(summary.target) : null}
     </span>
   )
 }
 
 function getCommandIcon(toolPart: RuntimeToolPart): Icon {
   const commandSummary = getReadableCommandSummary(toolPart.state.input)
+  const cliIcon = getCommandCliIcon(toolPart.state.input)
+
+  if (cliIcon) {
+    return cliIcon
+  }
 
   if (commandSummary?.kind === "read") {
     return Eye
