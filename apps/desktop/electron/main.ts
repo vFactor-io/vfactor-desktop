@@ -668,7 +668,11 @@ app.on("before-quit", (event) => {
 void bootstrap().catch((error) => {
   console.error("[electron] Failed to bootstrap application:", error)
   captureCrashTelemetry("bootstrap_failed", error, getCrashTelemetryContext())
-  void flushAnalyticsWithTimeout(1_500).finally(() => {
-    app.quit()
-  })
+  void flushAnalyticsWithTimeout(1_500)
+    .catch((flushError) => {
+      console.warn("[posthog] Failed to flush bootstrap failure telemetry:", flushError)
+    })
+    .finally(() => {
+      app.quit()
+    })
 })
