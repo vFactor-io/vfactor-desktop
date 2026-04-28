@@ -24,11 +24,13 @@ interface FakePty {
   write: ReturnType<typeof mock>
   onData: (listener: (data: string) => void) => { dispose: () => void }
   onExit: (listener: (event: { exitCode: number }) => void) => { dispose: () => void }
+  emitData: (data: string) => void
 }
 
 const fakePtys: FakePty[] = []
 
 function createFakePty(cwd: string): FakePty {
+  let dataListener: ((data: string) => void) | null = null
   let exitListener: ((event: { exitCode: number }) => void) | null = null
 
   const pty: FakePty = {
@@ -38,7 +40,16 @@ function createFakePty(cwd: string): FakePty {
     }),
     resize: mock(() => {}),
     write: mock(() => {}),
-    onData: () => ({ dispose: () => {} }),
+    onData: (listener) => {
+      dataListener = listener
+      return {
+        dispose: () => {
+          if (dataListener === listener) {
+            dataListener = null
+          }
+        },
+      }
+    },
     onExit: (listener) => {
       exitListener = listener
       return {
@@ -48,6 +59,9 @@ function createFakePty(cwd: string): FakePty {
           }
         },
       }
+    },
+    emitData: (data) => {
+      dataListener?.(data)
     },
   }
 
@@ -138,6 +152,51 @@ describe("TerminalService", () => {
         process.env.SHELL = originalShell
       }
 
+      await rm(rootDir, { recursive: true, force: true })
+    }
+  })
+
+  test("keeps terminal data callback errors from escaping through node-pty", async () => {
+    const rootDir = await mkdtemp(path.join(tmpdir(), "vfactor-terminal-test-"))
+    const sendEvent = mock(() => {
+      throw new Error("renderer is unavailable")
+    })
+
+    try {
+      const service = new TerminalService(sendEvent)
+
+      await service.createSession("session-1", rootDir, 80, 24)
+
+      expect(() => fakePtys[0]?.emitData("hello")).not.toThrow()
+      expect(sendEvent).toHaveBeenCalledTimes(1)
+    } finally {
+      await rm(rootDir, { recursive: true, force: true })
+    }
+  })
+
+  test("disposes old terminal listeners before replacing a session cwd", async () => {
+    const rootDir = await mkdtemp(path.join(tmpdir(), "vfactor-terminal-test-"))
+    const firstDir = path.join(rootDir, "first")
+    const secondDir = path.join(rootDir, "second")
+    const sendEvent = mock(() => {})
+
+    await mkdir(firstDir, { recursive: true })
+    await mkdir(secondDir, { recursive: true })
+
+    try {
+      const service = new TerminalService(sendEvent)
+
+      await service.createSession("session-1", firstDir, 80, 24)
+      const oldPty = fakePtys[0]
+      await service.createSession("session-1", secondDir, 80, 24)
+
+      oldPty?.emitData("stale")
+
+      expect(sendEvent).not.toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+        sessionId: "session-1",
+        data: "stale",
+      }))
+    } finally {
       await rm(rootDir, { recursive: true, force: true })
     }
   })

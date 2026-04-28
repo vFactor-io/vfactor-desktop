@@ -7,7 +7,7 @@ import type {
   TerminalStartResponse,
 } from "../../src/desktop/contracts"
 import { EVENT_CHANNELS } from "../ipc/channels"
-import { capture } from "./analytics"
+import { capture, captureException } from "./analytics"
 
 const TERMINAL_SCROLLBACK_LIMIT = 200_000
 
@@ -15,6 +15,7 @@ type EventSender = (channel: string, payload: unknown) => void
 
 interface TerminalSession {
   pty: IPty
+  eventDisposables: Array<{ dispose: () => void }>
   buffer: string
   cwd: string
   exited: boolean
@@ -160,6 +161,41 @@ export class TerminalService {
 
   constructor(private readonly sendEvent: EventSender) {}
 
+  private sendTerminalEvent(channel: string, payload: unknown): void {
+    try {
+      this.sendEvent(channel, payload)
+    } catch (error) {
+      console.warn("[terminal] Failed to send terminal event:", error)
+      capture("terminal_event_delivery_failed", { channel })
+      captureException(error, {
+        context: "terminal_event_delivery",
+        channel,
+      })
+    }
+  }
+
+  private disposeSessionEvents(session: TerminalSession): void {
+    for (const disposable of session.eventDisposables.splice(0)) {
+      try {
+        disposable.dispose()
+      } catch (error) {
+        console.warn("[terminal] Failed to dispose terminal listener:", error)
+        captureException(error, { context: "terminal_listener_dispose" })
+      }
+    }
+  }
+
+  private killSession(session: TerminalSession): void {
+    this.disposeSessionEvents(session)
+
+    try {
+      session.pty.kill()
+    } catch (error) {
+      console.warn("[terminal] Failed to kill terminal session:", error)
+      captureException(error, { context: "terminal_session_kill" })
+    }
+  }
+
   async createSession(
     sessionId: string,
     cwd: string,
@@ -184,14 +220,23 @@ export class TerminalService {
     const existing = this.sessions.get(sessionId)
     if (existing && !existing.exited) {
       if (existing.cwd === trimmedCwd) {
-        existing.pty.resize(Math.max(1, cols), Math.max(1, rows))
-        return { initialData: existing.buffer, shellKind: existing.shellKind }
+        try {
+          existing.pty.resize(Math.max(1, cols), Math.max(1, rows))
+          return { initialData: existing.buffer, shellKind: existing.shellKind }
+        } catch (error) {
+          console.warn("[terminal] Failed to resize existing terminal session, recreating:", error)
+          captureException(error, { context: "terminal_existing_session_resize" })
+          existing.suppressExitEvent = true
+          existing.exited = true
+          this.killSession(existing)
+          this.sessions.delete(sessionId)
+        }
+      } else {
+        existing.suppressExitEvent = true
+        existing.exited = true
+        this.killSession(existing)
+        this.sessions.delete(sessionId)
       }
-
-      existing.suppressExitEvent = true
-      existing.exited = true
-      existing.pty.kill()
-      this.sessions.delete(sessionId)
     }
 
     const { terminal, shellKind } = createTerminalPty(
@@ -203,6 +248,7 @@ export class TerminalService {
 
     const session: TerminalSession = {
       pty: terminal,
+      eventDisposables: [],
       buffer: "",
       cwd: trimmedCwd,
       exited: false,
@@ -210,30 +256,51 @@ export class TerminalService {
       shellKind,
     }
 
-    terminal.onData((data) => {
-      session.buffer = trimScrollback(`${session.buffer}${data}`)
+    const dataDisposable = terminal.onData((data) => {
+      try {
+        if (session.exited || this.sessions.get(sessionId) !== session) {
+          return
+        }
 
-      const payload: TerminalDataEvent = {
-        sessionId,
-        data,
+        session.buffer = trimScrollback(`${session.buffer}${data}`)
+
+        const payload: TerminalDataEvent = {
+          sessionId,
+          data,
+        }
+
+        this.sendTerminalEvent(EVENT_CHANNELS.terminalData, payload)
+      } catch (error) {
+        console.warn("[terminal] Failed to handle terminal data:", error)
+        captureException(error, { context: "terminal_data_handler" })
       }
-
-      this.sendEvent(EVENT_CHANNELS.terminalData, payload)
     })
 
-    terminal.onExit((event) => {
-      session.exited = true
-      if (session.suppressExitEvent) {
-        return
-      }
+    const exitDisposable = terminal.onExit((event) => {
+      try {
+        if (this.sessions.get(sessionId) !== session) {
+          return
+        }
 
-      const payload: TerminalExitEvent = {
-        sessionId,
-        exitCode: event.exitCode,
+        session.exited = true
+        this.disposeSessionEvents(session)
+        if (session.suppressExitEvent) {
+          return
+        }
+
+        const payload: TerminalExitEvent = {
+          sessionId,
+          exitCode: event.exitCode,
+        }
+
+        this.sendTerminalEvent(EVENT_CHANNELS.terminalExit, payload)
+      } catch (error) {
+        console.warn("[terminal] Failed to handle terminal exit:", error)
+        captureException(error, { context: "terminal_exit_handler" })
       }
-      this.sendEvent(EVENT_CHANNELS.terminalExit, payload)
     })
 
+    session.eventDisposables.push(dataDisposable, exitDisposable)
     this.sessions.set(sessionId, session)
     capture("terminal_session_created", { shell_kind: shellKind, has_initial_command: Boolean(initialCommand) })
 
@@ -261,7 +328,7 @@ export class TerminalService {
     }
 
     session.exited = true
-    session.pty.kill()
+    this.killSession(session)
     this.sessions.delete(sessionId)
   }
 

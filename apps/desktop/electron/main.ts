@@ -21,8 +21,15 @@ import {
   isAnalyticsExplicitlyEnabled,
   initAnalytics,
   capture,
+  flushAnalyticsWithTimeout,
   shutdownAnalytics,
 } from "./services/analytics"
+import {
+  attachWindowCrashTelemetry,
+  captureCrashTelemetry,
+  registerElectronCrashTelemetry,
+  registerProcessCrashTelemetry,
+} from "./services/crashTelemetry"
 import type { AppWindowThemeSyncInput } from "../src/desktop/contracts"
 import {
   APPEARANCE_THEME_ID_KEY,
@@ -181,6 +188,16 @@ function getActiveUpdateWork() {
   }
 }
 
+function getCrashTelemetryContext(): Record<string, unknown> {
+  const activeWork = getActiveUpdateWork()
+
+  return {
+    quit_reason: quitReason,
+    active_turns: activeWork?.activeTurns ?? 0,
+    active_terminal_sessions: activeWork?.activeTerminalSessions ?? 0,
+  }
+}
+
 async function cleanupForQuit(options: { includeAnalytics: boolean }): Promise<void> {
   await projectWatcherService.stop().catch((error) => {
     console.warn("[watcher] Failed to stop project watcher:", error)
@@ -221,6 +238,9 @@ const updaterService = new UpdaterService(sendToRenderer, {
   prepareForInstall: prepareForUpdateInstall,
   restoreAfterInstallFailure: restoreAfterFailedUpdateInstall,
 })
+
+registerProcessCrashTelemetry(getCrashTelemetryContext)
+registerElectronCrashTelemetry(getCrashTelemetryContext)
 
 function applyWindowThemeState(nextThemeState: WindowThemeState): void {
   const previousThemeState = windowThemeState
@@ -304,6 +324,8 @@ function createWindow(): BrowserWindow {
       window.webContents.openDevTools({ mode: "detach" })
     })
   }
+
+  attachWindowCrashTelemetry(window, getCrashTelemetryContext)
 
   window.on("closed", () => {
     if (mainWindow === window) {
@@ -645,5 +667,12 @@ app.on("before-quit", (event) => {
 
 void bootstrap().catch((error) => {
   console.error("[electron] Failed to bootstrap application:", error)
-  app.quit()
+  captureCrashTelemetry("bootstrap_failed", error, getCrashTelemetryContext())
+  void flushAnalyticsWithTimeout(1_500)
+    .catch((flushError) => {
+      console.warn("[posthog] Failed to flush bootstrap failure telemetry:", flushError)
+    })
+    .finally(() => {
+      app.quit()
+    })
 })
