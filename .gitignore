@@ -31,6 +31,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 /.cursor/
 /.entire/
 /.opencode/
+/.playwright-mcp/
 /.superset/
 /.vfactor/
 /apps/desktop/.playwright-mcp/

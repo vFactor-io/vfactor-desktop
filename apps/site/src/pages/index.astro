@@ -3,542 +3,1404 @@ import BaseLayout from "../layouts/BaseLayout.astro"
 
 const GITHUB_REPO_URL = "https://github.com/vFactor-io/vfactor-desktop"
 const LATEST_RELEASE_URL = `${GITHUB_REPO_URL}/releases/latest`
-const LATEST_RELEASE_API_URL =
-  "https://api.github.com/repos/vFactor-io/vfactor-desktop/releases/latest"
+const currentYear = new Date().getFullYear()
 ---
 
-<BaseLayout>
-  {/* ── Navigation ── */}
-  <nav class="nav">
-    <div class="container" style="display: flex; align-items: center; justify-content: space-between; height: 56px;">
-      <a href="#" class="font-display" style="font-size: 1.1rem; color: var(--text); text-decoration: none; letter-spacing: 0.02em;">
-        VFACTOR
-      </a>
-      <div style="display: flex; align-items: center; gap: 32px;">
-        <a href="#features" class="nav-link hidden-sm">Features</a>
-        <a href="#harnesses" class="nav-link hidden-sm">Harnesses</a>
-        <a href={GITHUB_REPO_URL} class="nav-link" target="_blank" rel="noopener">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
-          </svg>
+<BaseLayout title="vFactor — Blueprint Grid">
+  <Fragment slot="head">
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Fragment+Mono:ital@0;1&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  </Fragment>
+
+  <div class="bp-wrapper" id="bp-wrapper">
+    {/* ── Persistent Grid Overlay ── */}
+    <div class="bp-grid" aria-hidden="true"></div>
+
+    {/* ── Navigation ── */}
+    <nav class="bp-nav">
+      <div class="bp-container" style="display: flex; align-items: center; justify-content: space-between; height: 64px;">
+        <a href="/" class="bp-logo">
+          <img src="/vfactor-logo.png" alt="vFactor" class="bp-logo-img" />
+          <span>vFactor</span>
         </a>
-      </div>
-    </div>
-  </nav>
-
-  {/* ── Hero ── */}
-  <section class="grid-bg" style="position: relative; overflow: hidden;">
-    <div class="container" style="padding-top: clamp(80px, 14vh, 160px); padding-bottom: clamp(60px, 10vh, 120px); text-align: center; position: relative; z-index: 1;">
-      <div style="opacity: 0; animation: fadeUp 1s cubic-bezier(0.16, 1, 0.3, 1) 0.1s forwards;">
-        <div class="section-label" style="margin-bottom: 24px;">Open Source &middot; Desktop &middot; Local First</div>
-        <h1 class="font-display" style="font-size: clamp(3rem, 10vw, 7.5rem); line-height: 0.95; letter-spacing: -0.02em; color: var(--text);">
-          VFACTOR
-        </h1>
-        <p class="font-body" style="margin-top: 28px; font-size: clamp(1.1rem, 2vw, 1.4rem); font-weight: 400; color: var(--text-muted); max-width: 560px; margin-left: auto; margin-right: auto; font-style: italic;">
-          The desktop environment for agentic software development. Bring your own models. Own your code.
-        </p>
-
-        <div style="margin-top: 40px; display: flex; gap: 16px; justify-content: center; flex-wrap: wrap;">
-          <a href={LATEST_RELEASE_URL} class="btn btn-primary" id="download-btn" data-download-primary>
-            <span id="download-icon"></span>
-            <span id="download-label">Download</span>
-          </a>
-          <a href={GITHUB_REPO_URL} target="_blank" rel="noopener" class="btn btn-ghost">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
-            </svg>
-            View on GitHub
-          </a>
+        <div style="display: flex; align-items: center; gap: 40px;">
+          <a href="#workflow" class="bp-nav-link">Workflow</a>
+          <a href="#harnesses" class="bp-nav-link">Harnesses</a>
+          <a href="#supervised" class="bp-nav-link">Supervision</a>
+          <a href={GITHUB_REPO_URL} class="bp-nav-link" target="_blank" rel="noopener noreferrer">GitHub</a>
+          <button class="bp-theme-toggle" id="theme-toggle" aria-label="Toggle theme">
+            <svg class="bp-icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2"/><path d="M12 21v2"/><path d="M4.22 4.22l1.42 1.42"/><path d="M18.36 18.36l1.42 1.42"/><path d="M1 12h2"/><path d="M21 12h2"/><path d="M4.22 19.78l1.42-1.42"/><path d="M18.36 5.64l1.42-1.42"/></svg>
+            <svg class="bp-icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          </button>
         </div>
       </div>
+    </nav>
 
-      {/* Screenshot */}
-      <div style="margin-top: clamp(48px, 8vh, 80px); position: relative; opacity: 0; animation: fadeUp 1.2s cubic-bezier(0.16, 1, 0.3, 1) 0.4s forwards;">
-        <div class="screenshot-glow"></div>
-        <div class="screenshot-container">
-          <img
-            src="/app-screenshot.png"
-            alt="vFactor — Multi-agent workspace with chat, file browser, terminal, and built-in browser"
-            style="display: block; width: 100%; height: auto;"
-            loading="eager"
-          />
+    {/* ── Hero ── */}
+    <section class="bp-hero">
+      <div class="bp-container">
+        <div class="bp-hero-text">
+          <div class="bp-harness-row">
+            <div class="bp-harness-pill">
+              <svg class="bp-harness-logo" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M9.205 8.658v-2.26c0-.19.072-.333.238-.428l4.543-2.616c.619-.357 1.356-.523 2.117-.523 2.854 0 4.662 2.212 4.662 4.566 0 .167 0 .357-.024.547l-4.71-2.759a.797.797 0 00-.856 0l-5.97 3.473zm10.609 8.8V12.06c0-.333-.143-.57-.429-.737l-5.97-3.473 1.95-1.118a.433.433 0 01.476 0l4.543 2.617c1.309.76 2.189 2.378 2.189 3.948 0 1.808-1.07 3.473-2.76 4.163zM7.802 12.703l-1.95-1.142c-.167-.095-.239-.238-.239-.428V5.899c0-2.545 1.95-4.472 4.591-4.472 1 0 1.927.333 2.712.928L8.23 5.067c-.285.166-.428.404-.428.737v6.898zM12 15.128l-2.795-1.57v-3.33L12 8.658l2.795 1.57v3.33L12 15.128zm1.796 7.23c-1 0-1.927-.332-2.712-.927l4.686-2.712c.285-.166.428-.404.428-.737v-6.898l1.974 1.142c.167.095.238.238.238.428v5.233c0 2.545-1.974 4.472-4.614 4.472zm-5.637-5.303l-4.544-2.617c-1.308-.761-2.188-2.378-2.188-3.948A4.482 4.482 0 014.21 6.327v5.423c0 .333.143.571.428.738l5.947 3.449-1.95 1.118a.432.432 0 01-.476 0zm-.262 3.9c-2.688 0-4.662-2.021-4.662-4.519 0-.19.024-.38.047-.57l4.686 2.71c.286.167.571.167.856 0l5.97-3.448v2.26c0 .19-.07.333-.237.428l-4.543 2.616c-.619.357-1.356.523-2.117.523zm5.899 2.83a5.947 5.947 0 005.827-4.756C22.287 18.339 24 15.84 24 13.296c0-1.665-.713-3.282-1.998-4.448.119-.5.19-.999.19-1.498 0-3.401-2.759-5.947-5.946-5.947-.642 0-1.26.095-1.88.31A5.962 5.962 0 0010.205 0a5.947 5.947 0 00-5.827 4.757C1.713 5.447 0 7.945 0 10.49c0 1.666.713 3.283 1.998 4.448-.119.5-.19 1-.19 1.499 0 3.401 2.759 5.946 5.946 5.946.642 0 1.26-.095 1.88-.309a5.96 5.96 0 004.162 1.713z"/></svg>
+              <span>Codex</span>
+            </div>
+            <div class="bp-harness-pill">
+              <svg class="bp-harness-logo" viewBox="0 0 256 257" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="m50.228 170.321 50.357-28.257.843-2.463-.843-1.361h-2.462l-8.426-.518-28.775-.778-24.952-1.037-24.175-1.296-6.092-1.297L0 125.796l.583-3.759 5.12-3.434 7.324.648 16.202 1.101 24.304 1.685 17.629 1.037 26.118 2.722h4.148l.583-1.685-1.426-1.037-1.101-1.037-25.147-17.045-27.22-18.017-14.258-10.37-7.713-5.25-3.888-4.925-1.685-10.758 7-7.713 9.397.649 2.398.648 9.527 7.323 20.35 15.75L94.817 91.9l3.889 3.24 1.555-1.102.195-.777-1.75-2.917-14.453-26.118-15.425-26.572-6.87-11.018-1.814-6.61c-.648-2.723-1.102-4.991-1.102-7.778l7.972-10.823L71.42 0 82.05 1.426l4.472 3.888 6.61 15.101 10.694 23.786 16.591 32.34 4.861 9.592 2.592 8.879.973 2.722h1.685v-1.556l1.36-18.211 2.528-22.36 2.463-28.776.843-8.1 4.018-9.722 7.971-5.25 6.222 2.981 5.12 7.324-.713 4.73-3.046 19.768-5.962 30.98-3.889 20.739h2.268l2.593-2.593 10.499-13.934 17.628-22.036 7.778-8.749 9.073-9.657 5.833-4.601h11.018l8.1 12.055-3.628 12.443-11.342 14.388-9.398 12.184-13.48 18.147-8.426 14.518.778 1.166 2.01-.194 30.46-6.481 16.462-2.982 19.637-3.37 8.88 4.148.971 4.213-3.5 8.62-20.998 5.184-24.628 4.926-36.682 8.685-.454.324.519.648 16.526 1.555 7.065.389h17.304l32.21 2.398 8.426 5.574 5.055 6.805-.843 5.184-12.962 6.611-17.498-4.148-40.83-9.721-14-3.5h-1.944v1.167l11.666 11.406 21.387 19.314 26.767 24.887 1.36 6.157-3.434 4.86-3.63-.518-23.526-17.693-9.073-7.972-20.545-17.304h-1.36v1.814l4.73 6.935 25.017 37.59 1.296 11.536-1.814 3.76-6.481 2.268-7.13-1.297-14.647-20.544-15.1-23.138-12.185-20.739-1.49.843-7.194 77.448-3.37 3.953-7.778 2.981-6.48-4.925-3.436-7.972 3.435-15.749 4.148-20.544 3.37-16.333 3.046-20.285 1.815-6.74-.13-.454-1.49.194-15.295 20.999-23.267 31.433-18.406 19.702-4.407 1.75-7.648-3.954.713-7.064 4.277-6.286 25.47-32.405 15.36-20.092 9.917-11.6-.065-1.686h-.583L44.07 198.125l-12.055 1.555-5.185-4.86.648-7.972 2.463-2.593 20.35-13.999-.064.065Z"/></svg>
+              <span>Claude Code</span>
+            </div>
+            <div class="bp-harness-pill">
+              <svg class="bp-harness-logo" viewBox="0 0 512 512" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M320 224V352H192V224H320Z"/><path fill-rule="evenodd" clip-rule="evenodd" d="M384 416H128V96H384V416ZM320 160H192V352H320V160Z"/></svg>
+              <span>OpenCode</span>
+            </div>
+          </div>
+          <h1 class="bp-hero-title">
+            A workspace for<br />
+            orchestrating<br />
+            AI agents.
+          </h1>
+          <p class="bp-hero-sub">
+            Bring your own models. Keep your code local. From prompt to pull request.
+          </p>
+          <div class="bp-hero-actions">
+            <a href={LATEST_RELEASE_URL} class="bp-btn bp-btn-primary">Download vFactor</a>
+            <a href={GITHUB_REPO_URL} target="_blank" rel="noopener noreferrer" class="bp-btn bp-btn-outline">View on GitHub</a>
+          </div>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <hr class="divider" />
+    {/* ── Workflow ── */}
+    <section id="workflow" class="bp-section">
+      <div class="bp-container">
+        <div class="bp-section-header">
+          <h2 class="bp-section-title">From prompt to pull request.</h2>
+          <p class="bp-section-desc">The full agentic development lifecycle, contained in one desktop workspace.</p>
+        </div>
 
-  {/* ── Download ── */}
-  <section id="download" class="section">
-    <div class="container">
-      <div class="reveal" style="text-align: center; margin-bottom: 48px;">
-        <div class="section-label">Download</div>
-        <h2 class="font-display" style="font-size: clamp(1.8rem, 4vw, 2.8rem); line-height: 1.1; margin-bottom: 16px;">
-          GET VFACTOR<br />DESKTOP
-        </h2>
-        <p class="font-body" style="color: var(--text-muted); max-width: 500px; margin: 0 auto; font-style: italic;">
-          Install the latest signed release for your machine.
-        </p>
-      </div>
+        <div class="bp-workflow">
+          <div class="bp-workflow-console" aria-label="Workflow command preview">
+            <div class="bp-console-bar">
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+            <div class="bp-console-line"><span class="bp-console-muted">workspace</span> open ~/code/product</div>
+            <div class="bp-console-line"><span class="bp-console-muted">worktree</span> create fix-checkout-flow</div>
+            <div class="bp-console-line bp-console-active"><span class="bp-console-muted">agent</span> run codex --reviewable</div>
+            <div class="bp-console-output">
+              <span>files changed</span>
+              <strong>12</strong>
+            </div>
+            <div class="bp-console-output">
+              <span>checks passing</span>
+              <strong>8/8</strong>
+            </div>
+          </div>
 
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px;">
-        <a href={LATEST_RELEASE_URL} class="feature-card reveal reveal-delay-1 download-card" data-download-card data-platform="mac-arm64" target="_blank" rel="noopener">
-          <div class="feature-icon" data-download-card-icon></div>
-          <h3 class="font-mono" style="font-size: 0.9rem; font-weight: 700; margin-bottom: 10px; letter-spacing: 0.02em;">MAC APPLE SILICON</h3>
-          <p class="font-body" style="color: var(--text-muted); font-size: 0.95rem; line-height: 1.6;">
-            For M-series Macs. Downloads the latest arm64 DMG.
-          </p>
-        </a>
-
-        <a href={LATEST_RELEASE_URL} class="feature-card reveal reveal-delay-2 download-card" data-download-card data-platform="mac-x64" target="_blank" rel="noopener">
-          <div class="feature-icon" data-download-card-icon></div>
-          <h3 class="font-mono" style="font-size: 0.9rem; font-weight: 700; margin-bottom: 10px; letter-spacing: 0.02em;">MAC INTEL</h3>
-          <p class="font-body" style="color: var(--text-muted); font-size: 0.95rem; line-height: 1.6;">
-            For Intel Macs. Downloads the latest x64 DMG.
-          </p>
-        </a>
-
-        <a href={LATEST_RELEASE_URL} class="feature-card reveal reveal-delay-3 download-card" data-download-card data-platform="windows-x64" target="_blank" rel="noopener">
-          <div class="feature-icon" data-download-card-icon></div>
-          <h3 class="font-mono" style="font-size: 0.9rem; font-weight: 700; margin-bottom: 10px; letter-spacing: 0.02em;">WINDOWS</h3>
-          <p class="font-body" style="color: var(--text-muted); font-size: 0.95rem; line-height: 1.6;">
-            For Windows PCs. Downloads the latest x64 installer.
-          </p>
-        </a>
-      </div>
-    </div>
-  </section>
-
-  <hr class="divider" />
-
-  {/* ── Harnesses ── */}
-  <section id="harnesses" class="section">
-    <div class="container">
-      <div class="reveal">
-        <div class="section-label">Integrations</div>
-        <h2 class="font-display" style="font-size: clamp(1.8rem, 4vw, 2.8rem); line-height: 1.1; margin-bottom: 16px;">
-          CHOOSE YOUR<br />CO-PILOT
-        </h2>
-        <p class="font-body" style="color: var(--text-muted); max-width: 480px; font-style: italic;">
-          vFactor adapts to the runtime you prefer. Switch between models without leaving your workspace.
-        </p>
-      </div>
-
-      <div style="margin-top: 56px; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px;">
-        {/* Codex */}
-        <div class="harness-card reveal reveal-delay-1">
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
-            <div style="display: flex; align-items: center; gap: 12px;">
-              <div style="width: 40px; height: 40px; border: 1px solid var(--border); border-radius: var(--radius); display: flex; align-items: center; justify-content: center; background: rgba(25, 195, 125, 0.08);">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#19c37d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-                  <path d="M2 17l10 5 10-5"/>
-                  <path d="M2 12l10 5 10-5"/>
-                </svg>
+          <div class="bp-workflow-list">
+            <div class="bp-workflow-step">
+              <div class="bp-step-num">01</div>
+              <div>
+                <div class="bp-step-title">Open the project</div>
+                <p class="bp-step-desc">Start from the local folder where the work already lives.</p>
               </div>
-              <span class="font-mono" style="font-size: 1rem; font-weight: 700;">Codex</span>
             </div>
-            <span class="badge badge-experimental">Experimental</span>
-          </div>
-          <p class="font-body" style="color: var(--text-muted); font-size: 0.95rem; line-height: 1.6;">
-            OpenAI's Codex App Server harness. Deep reasoning, code generation, and multi-file editing powered by GPT-4o and o3.
-          </p>
-          <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); display: flex; gap: 16px; flex-wrap: wrap;">
-            <span class="font-mono" style="font-size: 0.7rem; color: var(--text-dim);">JSON-RPC</span>
-            <span class="font-mono" style="font-size: 0.7rem; color: var(--text-dim);">Streaming</span>
-            <span class="font-mono" style="font-size: 0.7rem; color: var(--text-dim);">Tool Calls</span>
-          </div>
-        </div>
-
-        {/* Claude Code */}
-        <div class="harness-card reveal reveal-delay-2">
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
-            <div style="display: flex; align-items: center; gap: 12px;">
-              <div style="width: 40px; height: 40px; border: 1px solid var(--border); border-radius: var(--radius); display: flex; align-items: center; justify-content: center; background: rgba(207, 100, 60, 0.08);">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#cf643c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <circle cx="12" cy="12" r="10"/>
-                  <path d="M12 6v6l4 2"/>
-                </svg>
+            <div class="bp-workflow-step">
+              <div class="bp-step-num">02</div>
+              <div>
+                <div class="bp-step-title">Branch into a worktree</div>
+                <p class="bp-step-desc">Spin up isolated task space without losing your main context.</p>
               </div>
-              <span class="font-mono" style="font-size: 1rem; font-weight: 700;">Claude Code</span>
             </div>
-            <span class="badge badge-experimental">Experimental</span>
-          </div>
-          <p class="font-body" style="color: var(--text-muted); font-size: 0.95rem; line-height: 1.6;">
-            Anthropic's Claude Code CLI harness. Thoughtful analysis, debugging, and architecture decisions powered by Claude 3.7 Sonnet.
-          </p>
-          <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); display: flex; gap: 16px; flex-wrap: wrap;">
-            <span class="font-mono" style="font-size: 0.7rem; color: var(--text-dim);">Agent Loop</span>
-            <span class="font-mono" style="font-size: 0.7rem; color: var(--text-dim);">Permissions</span>
-            <span class="font-mono" style="font-size: 0.7rem; color: var(--text-dim);">Subagents</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="reveal reveal-delay-3" style="margin-top: 32px; text-align: center;">
-        <p class="font-mono" style="font-size: 0.75rem; color: var(--text-dim);">
-          More harnesses coming. OpenCode, local LLMs, and custom adapters.
-        </p>
-      </div>
-    </div>
-  </section>
-
-  <hr class="divider" />
-
-  {/* ── Features ── */}
-  <section id="features" class="section">
-    <div class="container">
-      <div class="reveal" style="text-align: center; margin-bottom: 64px;">
-        <div class="section-label">Capabilities</div>
-        <h2 class="font-display" style="font-size: clamp(1.8rem, 4vw, 2.8rem); line-height: 1.1; margin-bottom: 16px;">
-          BUILT FOR<br />OUTCOMES
-        </h2>
-        <p class="font-body" style="color: var(--text-muted); max-width: 500px; margin: 0 auto; font-style: italic;">
-          Not just chat. A complete environment for building software with agents.
-        </p>
-      </div>
-
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">
-        {/* Feature 1 */}
-        <div class="feature-card reveal reveal-delay-1">
-          <div class="feature-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="2" y="3" width="20" height="14" rx="2"/>
-              <line x1="8" y1="21" x2="16" y2="21"/>
-              <line x1="12" y1="17" x2="12" y2="21"/>
-            </svg>
-          </div>
-          <h3 class="font-mono" style="font-size: 0.9rem; font-weight: 700; margin-bottom: 10px; letter-spacing: 0.02em;">BUILT-IN BROWSER</h3>
-          <p class="font-body" style="color: var(--text-muted); font-size: 0.95rem; line-height: 1.6;">
-            Test, preview, and iterate without leaving the app. Your agent can browse, screenshot, and interact with live pages.
-          </p>
-        </div>
-
-        {/* Feature 2 */}
-        <div class="feature-card reveal reveal-delay-2">
-          <div class="feature-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="10"/>
-              <polyline points="12 6 12 12 16 14"/>
-            </svg>
-          </div>
-          <h3 class="font-mono" style="font-size: 0.9rem; font-weight: 700; margin-bottom: 10px; letter-spacing: 0.02em;">ONE-CLICK PR</h3>
-          <p class="font-body" style="color: var(--text-muted); font-size: 0.95rem; line-height: 1.6;">
-            When your agent finishes, review the diff and open a pull request in seconds. Ship without switching to your terminal.
-          </p>
-        </div>
-
-        {/* Feature 3 */}
-        <div class="feature-card reveal reveal-delay-3">
-          <div class="feature-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-              <polyline points="14 2 14 8 20 8"/>
-              <line x1="16" y1="13" x2="8" y2="13"/>
-              <line x1="16" y1="17" x2="8" y2="17"/>
-              <polyline points="10 9 9 9 8 9"/>
-            </svg>
-          </div>
-          <h3 class="font-mono" style="font-size: 0.9rem; font-weight: 700; margin-bottom: 10px; letter-spacing: 0.02em;">PROJECT SCOPED</h3>
-          <p class="font-body" style="color: var(--text-muted); font-size: 0.95rem; line-height: 1.6;">
-            Every folder is a workspace. Chats, files, and terminal sessions are scoped to the project you have open. Context stays where it belongs.
-          </p>
-        </div>
-
-        {/* Feature 4 */}
-        <div class="feature-card reveal reveal-delay-1">
-          <div class="feature-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-              <path d="m9 12 2 2 4-4"/>
-            </svg>
-          </div>
-          <h3 class="font-mono" style="font-size: 0.9rem; font-weight: 700; margin-bottom: 10px; letter-spacing: 0.02em;">SUPERVISED WORKFLOWS</h3>
-          <p class="font-body" style="color: var(--text-muted); font-size: 0.95rem; line-height: 1.6;">
-            See plans before execution. Approve file changes, commands, and destructive actions. Stay in control while the agent does the work.
-          </p>
-        </div>
-
-        {/* Feature 5 */}
-        <div class="feature-card reveal reveal-delay-2">
-          <div class="feature-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
-              <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
-              <line x1="6" y1="6" x2="6.01" y2="6"/>
-              <line x1="6" y1="18" x2="6.01" y2="18"/>
-            </svg>
-          </div>
-          <h3 class="font-mono" style="font-size: 0.9rem; font-weight: 700; margin-bottom: 10px; letter-spacing: 0.02em;">MULTI-AGENT</h3>
-          <p class="font-body" style="color: var(--text-muted); font-size: 0.95rem; line-height: 1.6;">
-            Run different models side by side. Compare approaches, delegate sub-tasks, and let specialists handle what they do best.
-          </p>
-        </div>
-
-        {/* Feature 6 */}
-        <div class="feature-card reveal reveal-delay-3">
-          <div class="feature-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-            </svg>
-          </div>
-          <h3 class="font-mono" style="font-size: 0.9rem; font-weight: 700; margin-bottom: 10px; letter-spacing: 0.02em;">LOCAL FIRST</h3>
-          <p class="font-body" style="color: var(--text-muted); font-size: 0.95rem; line-height: 1.6;">
-            Your code never leaves your machine unless you choose. Data, context, and history stay local. Fully portable and self-managed.
-          </p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <hr class="divider" />
-
-  {/* ── Terminal Demo ── */}
-  <section class="section" style="position: relative; overflow: hidden;">
-    <div class="container" style="position: relative; z-index: 1;">
-      <div class="reveal" style="text-align: center; margin-bottom: 56px;">
-        <div class="section-label">Workflow</div>
-        <h2 class="font-display" style="font-size: clamp(1.8rem, 4vw, 2.8rem); line-height: 1.1; margin-bottom: 16px;">
-          FROM IDEA TO<br />PULL REQUEST
-        </h2>
-        <p class="font-body" style="color: var(--text-muted); max-width: 480px; margin: 0 auto; font-style: italic;">
-          Describe what you want. Watch the agent plan, execute, and ship. You supervise every step.
-        </p>
-      </div>
-
-      <div class="reveal reveal-delay-1" style="max-width: 720px; margin: 0 auto;">
-        <div class="terminal">
-          <div class="terminal-header">
-            <div class="terminal-dot red"></div>
-            <div class="terminal-dot yellow"></div>
-            <div class="terminal-dot green"></div>
-            <span class="font-mono" style="font-size: 0.7rem; color: var(--text-dim); margin-left: 8px;">vfactor — zsh</span>
-          </div>
-          <div class="terminal-body">
-            <div class="terminal-line">
-              <span class="prompt">$</span> <span class="command">vfactor init landing-page</span>
+            <div class="bp-workflow-step">
+              <div class="bp-step-num">03</div>
+              <div>
+                <div class="bp-step-title">Choose a harness</div>
+                <p class="bp-step-desc">Run Codex, Claude Code, OpenCode, or the next agent from one surface.</p>
+              </div>
             </div>
-            <div class="terminal-line">
-              <span class="success">✓</span> <span class="output">Project initialized in ./landing-page</span>
+            <div class="bp-workflow-step">
+              <div class="bp-step-num">04</div>
+              <div>
+                <div class="bp-step-title">Watch the work happen</div>
+                <p class="bp-step-desc">Chat, terminal output, file changes, browser preview, and checks stay visible.</p>
+              </div>
             </div>
-            <div class="terminal-line" style="margin-top: 8px;">
-              <span class="prompt">$</span> <span class="command">vfactor chat "Build a responsive landing page with a hero, features grid, and CTA"</span>
-            </div>
-            <div class="terminal-line">
-              <span class="output">→ Using harness: codex</span>
-            </div>
-            <div class="terminal-line">
-              <span class="output">→ Analyzing requirements...</span>
-            </div>
-            <div class="terminal-line">
-              <span class="output">→ Planning file structure</span>
-            </div>
-            <div class="terminal-line" style="margin-top: 8px;">
-              <span class="output">  [1/4] Creating index.html</span>
-            </div>
-            <div class="terminal-line">
-              <span class="output">  [2/4] Writing styles.css</span>
-            </div>
-            <div class="terminal-line">
-              <span class="output">  [3/4] Adding responsive breakpoints</span>
-            </div>
-            <div class="terminal-line">
-              <span class="output">  [4/4] Implementing scroll animations</span>
-            </div>
-            <div class="terminal-line" style="margin-top: 8px;">
-              <span class="success">✓</span> <span class="output">Changes complete. 4 files modified.</span>
-            </div>
-            <div class="terminal-line">
-              <span class="prompt">$</span> <span class="command">vfactor pr --title "Add landing page"</span>
-            </div>
-            <div class="terminal-line">
-              <span class="success">✓</span> <span class="output">Pull request opened: #42</span>
-            </div>
-            <div class="terminal-line" style="margin-top: 12px;">
-              <span class="cursor"></span>
+            <div class="bp-workflow-step">
+              <div class="bp-step-num">05</div>
+              <div>
+                <div class="bp-step-title">Review and ship</div>
+                <p class="bp-step-desc">Inspect the diff, keep the discussion attached, and open the pull request.</p>
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <hr class="divider" />
+    {/* ── Harnesses ── */}
+    <section id="harnesses" class="bp-section">
+      <div class="bp-container">
+        <div class="bp-section-header">
+          <h2 class="bp-section-title">Use the harness you prefer.</h2>
+          <p class="bp-section-desc">No vendor lock-in. One interface, any agent.</p>
+        </div>
 
-  {/* ── Open Source ── */}
-  <section class="section grid-bg" style="position: relative;">
-    <div class="container" style="text-align: center; position: relative; z-index: 1;">
-      <div class="reveal">
-        <div class="section-label">Community</div>
-        <h2 class="font-display" style="font-size: clamp(1.8rem, 4vw, 3rem); line-height: 1.1; margin-bottom: 20px;">
-          BUILT IN THE OPEN
-        </h2>
-        <p class="font-body" style="color: var(--text-muted); max-width: 520px; margin: 0 auto 40px; font-style: italic;">
-          vFactor is open source and community-driven. No black boxes, no vendor lock-in. Inspect the code, contribute, or fork it for your own needs.
-        </p>
-        <div style="display: flex; gap: 16px; justify-content: center; flex-wrap: wrap;">
-          <a href={GITHUB_REPO_URL} target="_blank" rel="noopener" class="btn btn-primary">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
-            </svg>
-            Star on GitHub
-          </a>
-          <a href={LATEST_RELEASE_URL} class="btn btn-ghost" data-download-primary>
-            Download vFactor
-          </a>
+        <div class="bp-harness-grid">
+          <div class="bp-harness-card">
+            <div class="bp-harness-top"></div>
+            <div class="bp-harness-card-logo" aria-hidden="true">
+              <img class="bp-logo-theme bp-logo-theme-openai" src="/brands/openai-symbol-dark.svg" alt="" loading="lazy" />
+            </div>
+            <div class="bp-harness-name">Codex</div>
+            <p class="bp-harness-desc">OpenAI's Codex App Server. Deep reasoning, code generation, and multi-file editing.</p>
+          </div>
+          <div class="bp-harness-card">
+            <div class="bp-harness-top"></div>
+            <div class="bp-harness-card-logo" aria-hidden="true">
+              <img src="/brands/claude-color.svg" alt="" loading="lazy" />
+            </div>
+            <div class="bp-harness-name">Claude Code</div>
+            <p class="bp-harness-desc">Anthropic's CLI harness. Thoughtful analysis, debugging, and architecture decisions.</p>
+          </div>
+          <div class="bp-harness-card">
+            <div class="bp-harness-top"></div>
+            <div class="bp-harness-card-logo bp-harness-card-logo-opencode" aria-hidden="true">
+              <img class="bp-logo-theme bp-logo-theme-opencode" src="/brands/opencode-dark.svg" alt="" loading="lazy" />
+            </div>
+            <div class="bp-harness-name">OpenCode</div>
+            <p class="bp-harness-desc">Community-driven harnesses and local LLM adapters. Open and extensible.</p>
+          </div>
+          <div class="bp-harness-card bp-harness-more">
+            <div class="bp-harness-top"></div>
+            <div class="bp-harness-more-logos" aria-label="Upcoming harness logos">
+              <span aria-label="Gemini">
+                <img src="/brands/gemini.svg" alt="" loading="lazy" />
+              </span>
+              <span aria-label="Cursor">
+                <img class="bp-logo-theme bp-logo-theme-cursor" src="/brands/cursor-dark.svg" alt="" loading="lazy" />
+              </span>
+            </div>
+            <div class="bp-harness-name">More coming soon</div>
+            <p class="bp-harness-desc">Gemini, Cursor, and additional adapters are on the way.</p>
+          </div>
+        </div>
+
+        <div class="bp-subscription-callout">
+          <span>Bring your own subscriptions</span>
+          <p>Use the Codex, Claude, OpenCode, and model accounts you already pay for.</p>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  {/* ── Footer ── */}
-  <footer class="footer">
-    <div class="container" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
-      <span class="font-display" style="font-size: 0.9rem; color: var(--text-dim);">VFACTOR</span>
-      <div style="display: flex; gap: 24px;">
-        <a href={GITHUB_REPO_URL} class="link-effect font-mono" style="font-size: 0.75rem; color: var(--text-muted);" target="_blank" rel="noopener">GitHub</a>
-        <a href="#" class="link-effect font-mono" style="font-size: 0.75rem; color: var(--text-muted);">Documentation</a>
-        <a href="#" class="link-effect font-mono" style="font-size: 0.75rem; color: var(--text-muted);">Discord</a>
+    {/* ── Pricing ── */}
+    <section id="pricing" class="bp-section bp-section-pricing">
+      <div class="bp-container">
+        <div class="bp-section-header">
+          <h2 class="bp-section-title">Pricing.</h2>
+          <p class="bp-section-desc">Start with the full local desktop workspace. Bring your own agent subscriptions.</p>
+        </div>
+
+        <div class="bp-pricing-grid">
+          <div class="bp-pricing-card">
+            <div class="bp-pricing-card-top">
+              <h3 class="bp-pricing-title">vFactor Core</h3>
+              <p class="bp-pricing-copy">Everything currently available in the app.</p>
+            </div>
+            <div class="bp-pricing-price">
+              <span>Free</span>
+              <small>open source</small>
+            </div>
+            <ul class="bp-pricing-features" aria-label="vFactor Core features">
+              <li>Local desktop workspace</li>
+              <li>Codex, Claude Code, and OpenCode harnesses</li>
+              <li>Chat, planning, and tool-call timeline</li>
+              <li>Built-in browser, terminal, and file viewer</li>
+              <li>Project and workspace management</li>
+              <li>Git diffs and pull request flow</li>
+              <li>Approval controls and supervised agent work</li>
+              <li>Bring your own model subscriptions</li>
+            </ul>
+          </div>
+
+          <div class="bp-pricing-card bp-pricing-card-pro">
+            <div class="bp-pricing-card-top">
+              <div class="bp-pricing-title-row">
+                <h3 class="bp-pricing-title">vFactor Pro</h3>
+                <span class="bp-pricing-status">Coming soon</span>
+              </div>
+              <p class="bp-pricing-copy">Team and cloud features for heavier agent workflows.</p>
+            </div>
+            <div class="bp-pricing-price">
+              <span>$20</span>
+              <small>per user / month</small>
+            </div>
+            <ul class="bp-pricing-features" aria-label="vFactor Pro features">
+              <li>Custom sandboxes</li>
+              <li>Multiple team members</li>
+              <li>Shared workspaces and permissions</li>
+              <li>Code review</li>
+              <li>Mobile app access</li>
+              <li>Third-party integrations</li>
+              <li>Team-level agent settings</li>
+              <li>Usage and activity history</li>
+              <li>Priority product updates</li>
+            </ul>
+          </div>
+        </div>
       </div>
-      <span class="font-mono" style="font-size: 0.7rem; color: var(--text-dim);">MIT License &middot; 2025</span>
-    </div>
-  </footer>
+    </section>
 
-  {/* ── Scripts ── */}
+    {/* ── Supervised Autonomy ── */}
+    <section id="supervised" class="bp-section">
+      <div class="bp-container">
+        <div class="bp-section-header">
+          <h2 class="bp-section-title">You stay in control.</h2>
+          <p class="bp-section-desc">Agents do the work. You see every plan, tool call, file change, and approval.</p>
+        </div>
+
+        <div class="bp-super-grid">
+          <div class="bp-super-card">
+            <div class="bp-super-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/></svg>
+            </div>
+            <div class="bp-super-title">File Changes</div>
+            <p class="bp-super-desc">Inspect every file an agent reads or modifies. Transparent and reviewable.</p>
+          </div>
+          <div class="bp-super-card">
+            <div class="bp-super-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            </div>
+            <div class="bp-super-title">Terminal Output</div>
+            <p class="bp-super-desc">See commands as they run. Output streams live in the workspace panel.</p>
+          </div>
+          <div class="bp-super-card">
+            <div class="bp-super-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <div class="bp-super-title">Plans & Approvals</div>
+            <p class="bp-super-desc">Review agent plans before execution. Approve or reject destructive actions.</p>
+          </div>
+          <div class="bp-super-card">
+            <div class="bp-super-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </div>
+            <div class="bp-super-title">Built-in Browser</div>
+            <p class="bp-super-desc">Preview local apps, inspect UI changes, and let agents interact with running software.</p>
+          </div>
+          <div class="bp-super-card">
+            <div class="bp-super-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            </div>
+            <div class="bp-super-title">Checks Panel</div>
+            <p class="bp-super-desc">CI status in the app. Know if the code is actually ready before shipping.</p>
+          </div>
+          <div class="bp-super-card">
+            <div class="bp-super-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+            </div>
+            <div class="bp-super-title">Git State</div>
+            <p class="bp-super-desc">Branches, diffs, commits, worktrees, and PR flow. Fully git-aware.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    {/* ── Open Source ── */}
+    <section class="bp-section bp-section-oss">
+      <div class="bp-container">
+        <div class="bp-oss-grid">
+          <div class="bp-oss-main">
+            <h2 class="bp-section-title">Own your code.<br />Inspect the app.</h2>
+            <p class="bp-section-desc">vFactor is open source and community-driven. No black boxes, no vendor lock-in. Fork it, hack it, or contribute back.</p>
+            <div class="bp-oss-actions">
+              <a href={GITHUB_REPO_URL} target="_blank" rel="noopener noreferrer" class="bp-btn bp-btn-primary">View on GitHub</a>
+              <a href={LATEST_RELEASE_URL} class="bp-btn bp-btn-outline">Download vFactor</a>
+            </div>
+          </div>
+          <div class="bp-oss-stats">
+            <div class="bp-stat">
+              <div class="bp-stat-value">100%</div>
+              <div class="bp-stat-label">Open Source</div>
+            </div>
+            <div class="bp-stat">
+              <div class="bp-stat-value">Local</div>
+              <div class="bp-stat-label">First</div>
+            </div>
+            <div class="bp-stat">
+              <div class="bp-stat-value">MIT</div>
+              <div class="bp-stat-label">License</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    {/* ── Footer ── */}
+    <footer class="bp-footer">
+      <div class="bp-container" style="display: flex; justify-content: space-between; align-items: center; height: 80px;">
+        <span style="font-family: 'Fragment Mono', monospace; font-size: 0.9rem; color: var(--bp-muted);">vFactor</span>
+        <span style="font-family: 'Fragment Mono', monospace; font-size: 0.7rem; color: var(--bp-muted);">MIT License &middot; {currentYear}</span>
+      </div>
+    </footer>
+  </div>
+
   <script>
-    // Download button platform detection
-    const icon = document.getElementById('download-icon')!
-    const label = document.getElementById('download-label')!
-    const primaryDownloadLinks = document.querySelectorAll<HTMLAnchorElement>('[data-download-primary]')
-    const downloadCards = document.querySelectorAll<HTMLAnchorElement>('[data-download-card]')
-    const ua = navigator.userAgent
+    (function () {
+      const wrapper = document.getElementById('bp-wrapper')
+      const toggle = document.getElementById('theme-toggle')
+      const stored = localStorage.getItem('vfactor-theme')
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
 
-    const apple = `<svg width="16" height="20" viewBox="0 0 170 170" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.2-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.28 2.13-9.54 3.24-12.8 3.35-4.93.21-9.84-1.96-14.75-6.52-3.13-2.73-7.04-7.41-11.75-14.04-5.03-7.08-9.17-15.29-12.41-24.65-3.47-10.2-5.21-20.07-5.21-29.61 0-10.95 2.36-20.38 7.09-28.28 3.72-6.33 8.67-11.33 14.86-14.99 6.19-3.66 12.88-5.53 20.08-5.64 3.92 0 9.06 1.21 15.43 3.59 6.35 2.39 10.43 3.61 12.22 3.61 1.34 0 5.87-1.43 13.56-4.27 7.27-2.64 13.41-3.73 18.44-3.29 13.63 1.1 23.87 6.47 30.68 16.15-12.19 7.39-18.22 17.73-18.1 31 .12 10.33 3.86 18.93 11.2 25.77 3.33 3.17 7.05 5.61 11.19 7.35-.9 2.61-1.85 5.11-2.86 7.51zM119.11 7.24c0 8.1-2.96 15.66-8.86 22.67-7.12 8.32-15.73 13.13-25.07 12.37a25.2 25.2 0 0 1-.19-3.07c0-7.78 3.38-16.1 9.39-22.89 3-3.44 6.82-6.31 11.45-8.6 4.62-2.26 8.99-3.51 13.1-3.72.12 1.1.18 2.2.18 3.24z"/></svg>`
-    const windows = `<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M6.555 1.375 0 2.237v5.45h6.555zM0 8.313v5.45l6.555.862V8.313zm7.278-7.06L16 0v7.687H7.278zM16 8.313v7.687l-8.722-1.252V8.313z"/></svg>`
-    const linux = `<svg width="16" height="18" viewBox="0 0 448 512" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M236.9 .2c-40 0-77.9 16.5-97.1 53.3C121.5 87.2 116 133.5 120.4 175c-25.8 31.4-45.2 67.2-55.6 105.7-6.3 23.2-9.7 47.3-4.1 70.8 5.5 23.1 20.2 43.3 44.1 54.5l2.9 1.4c-3.2 10.3-3.4 21.5-.2 32.1 5.1 17 18 30 34.6 35.2 16.5 5.1 34.3 1.7 48.1-8.9l.5-.4.4.5c13.9 10.6 31.7 14 48.1 8.9 16.5-5.2 29.5-18.2 34.6-35.2 3.2-10.6 3-21.8-.2-32.1l2.9-1.4c23.8-11.3 38.6-31.5 44.1-54.5 5.6-23.5 2.2-47.6-4.1-70.8-10.4-38.6-29.8-74.3-55.6-105.7 4.4-41.5-1.1-87.8-19.4-121.5C222.6 16.7 276.9.2 236.9.2zm0 32c14 0 38.9 9.3 53.9 39.9 12.5 25.5 17.8 59 16 93.7-5.6-5.9-11.5-11.5-17.8-16.8 1.8-22.8-.2-46.5-8.7-66.1-4.7-10.8-15.7-16.2-26.7-16.2h-33.5c-11 0-22 5.4-26.7 16.2-8.5 19.6-10.5 43.3-8.7 66.1-6.2 5.3-12.2 10.9-17.8 16.8-1.8-34.7 3.5-68.2 16-93.7 15-30.6 39.9-39.9 53.9-39.9z"/></svg>`
-
-    const releaseApiUrl = "https://api.github.com/repos/vFactor-io/vfactor-desktop/releases/latest"
-    const fallbackReleaseUrl = "https://github.com/vFactor-io/vfactor-desktop/releases/latest"
-    const cardIcons = {
-      'mac-arm64': apple,
-      'mac-x64': apple,
-      'windows-x64': windows,
-    }
-
-    if (/Mac|iPhone|iPad|iPod/.test(ua)) {
-      icon.innerHTML = apple
-      label.textContent = 'Download for Mac'
-    } else if (/Win/.test(ua)) {
-      icon.innerHTML = windows
-      label.textContent = 'Download for Windows'
-    } else if (/Linux/.test(ua)) {
-      icon.innerHTML = linux
-      label.textContent = 'Download for Linux'
-    } else {
-      icon.innerHTML = apple
-      label.textContent = 'Download'
-    }
-
-    downloadCards.forEach((card) => {
-      const iconSlot = card.querySelector<HTMLElement>('[data-download-card-icon]')
-      const platform = card.dataset.platform as keyof typeof cardIcons | undefined
-      if (iconSlot && platform) {
-        iconSlot.innerHTML = cardIcons[platform]
-      }
-    })
-
-    const resolvePreferredPlatform = () => {
-      if (/Mac|iPhone|iPad|iPod/.test(ua)) return 'mac-arm64'
-      if (/Win/.test(ua)) return 'windows-x64'
-      return 'mac-arm64'
-    }
-
-    const assetPatterns = {
-      'mac-arm64': /vFactor-.+-arm64\.dmg$/i,
-      'mac-x64': /vFactor-.+-x64\.dmg$/i,
-      'windows-x64': /vFactor-.+-x64\.exe$/i,
-    }
-
-    async function hydrateDownloadLinks() {
-      try {
-        const response = await fetch(releaseApiUrl, {
-          headers: { Accept: 'application/vnd.github+json' },
-        })
-        if (!response.ok) return
-
-        const release = await response.json()
-        const assets = Array.isArray(release.assets) ? release.assets : []
-        const links = Object.fromEntries(
-          Object.entries(assetPatterns).map(([platform, pattern]) => {
-            const asset = assets.find((candidate: { name?: string }) =>
-              typeof candidate.name === 'string' && pattern.test(candidate.name)
-            )
-            return [platform, asset?.browser_download_url ?? fallbackReleaseUrl]
-          })
-        )
-
-        downloadCards.forEach((card) => {
-          const platform = card.dataset.platform
-          if (platform && typeof links[platform] === 'string') {
-            card.href = links[platform]
-          }
-        })
-
-        const preferredLink = links[resolvePreferredPlatform()] ?? fallbackReleaseUrl
-        primaryDownloadLinks.forEach((link) => {
-          link.href = preferredLink
-        })
-      } catch {
-        primaryDownloadLinks.forEach((link) => {
-          link.href = fallbackReleaseUrl
-        })
-      }
-    }
-
-    void hydrateDownloadLinks()
-
-    // Scroll reveal
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          entry.target.classList.add('visible')
+      function apply(theme) {
+        if (theme === 'light') {
+          wrapper.classList.add('light')
+        } else {
+          wrapper.classList.remove('light')
         }
-      })
-    }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' })
+      }
 
-    document.querySelectorAll('.reveal').forEach((el) => observer.observe(el))
+      apply(stored || (prefersDark ? 'dark' : 'light'))
+
+      toggle.addEventListener('click', () => {
+        const isLight = wrapper.classList.toggle('light')
+        localStorage.setItem('vfactor-theme', isLight ? 'light' : 'dark')
+      })
+    })()
   </script>
 
   <style>
-    .hidden-sm {
-      display: none;
+    /* ── Dark (default) ── */
+    .bp-wrapper {
+      --bp-bg: #050505;
+      --bp-surface: #0a0a0a;
+      --bp-surface-2: #111111;
+      --bp-surface-3: #1a1a1a;
+      --bp-text: #e5e5e5;
+      --bp-text-bright: #ffffff;
+      --bp-muted: #666666;
+      --bp-border: rgba(255, 255, 255, 0.06);
+      --bp-border-strong: rgba(255, 255, 255, 0.12);
+      --bp-border-hover: rgba(255, 255, 255, 0.2);
+      --bp-btn-primary-hover-bg: #ccc;
+      --bp-btn-primary-hover-border: #ccc;
+      --bp-btn-outline-hover-bg: rgba(255, 255, 255, 0.04);
+      --bp-grid-line: rgba(255, 255, 255, 0.03);
+      --bp-nav-bg: rgba(5, 5, 5, 0.85);
+      --bp-logo-filter: none;
     }
-    @media (min-width: 640px) {
-      .hidden-sm {
-        display: inline-flex;
+
+    /* ── Light ── */
+    .bp-wrapper.light {
+      --bp-bg: #f5f5f5;
+      --bp-surface: #ffffff;
+      --bp-surface-2: #f0f0f0;
+      --bp-surface-3: #e8e8e8;
+      --bp-text: #333333;
+      --bp-text-bright: #000000;
+      --bp-muted: #888888;
+      --bp-border: rgba(0, 0, 0, 0.08);
+      --bp-border-strong: rgba(0, 0, 0, 0.14);
+      --bp-border-hover: rgba(0, 0, 0, 0.25);
+      --bp-btn-primary-hover-bg: #e0e0e0;
+      --bp-btn-primary-hover-border: #e0e0e0;
+      --bp-btn-outline-hover-bg: rgba(0, 0, 0, 0.03);
+      --bp-grid-line: rgba(0, 0, 0, 0.05);
+      --bp-nav-bg: rgba(245, 245, 245, 0.85);
+      --bp-logo-filter: invert(1);
+    }
+
+    .bp-wrapper {
+      background: var(--bp-bg);
+      color: var(--bp-text);
+      font-family: 'Manrope', sans-serif;
+      position: relative;
+      min-height: 100vh;
+      overflow-x: hidden;
+      transition: background 0.3s ease, color 0.3s ease;
+    }
+
+    /* Grid overlay */
+    .bp-grid {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      background-image:
+        linear-gradient(var(--bp-grid-line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--bp-grid-line) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: linear-gradient(180deg, rgba(0,0,0,1) 0%, rgba(0,0,0,0.3) 100%);
+      -webkit-mask-image: linear-gradient(180deg, rgba(0,0,0,1) 0%, rgba(0,0,0,0.3) 100%);
+    }
+
+    .bp-container {
+      width: 100%;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 48px;
+      position: relative;
+      z-index: 1;
+    }
+
+    @media (max-width: 768px) {
+      .bp-container { padding: 0 24px; }
+    }
+
+    /* Nav */
+    .bp-nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      border-bottom: 1px solid var(--bp-border);
+      background: var(--bp-nav-bg);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      transition: background 0.3s ease, border-color 0.3s ease;
+    }
+
+    .bp-logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-family: 'Fragment Mono', monospace;
+      font-size: 1rem;
+      color: var(--bp-text-bright);
+      text-decoration: none;
+      letter-spacing: 0.02em;
+    }
+
+    .bp-logo-img {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      object-fit: contain;
+      filter: var(--bp-logo-filter);
+      transition: filter 0.3s ease;
+    }
+
+    .bp-nav-link {
+      font-family: 'Fragment Mono', monospace;
+      font-size: 0.8rem;
+      color: var(--bp-muted);
+      text-decoration: none;
+      transition: color 0.2s ease;
+      letter-spacing: 0.02em;
+    }
+
+    .bp-nav-link:hover { color: var(--bp-text-bright); }
+
+    @media (max-width: 768px) {
+      .bp-nav .bp-nav-link:not([target]) { display: none; }
+    }
+
+    /* Theme toggle */
+    .bp-theme-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      padding: 0;
+      border: 1px solid var(--bp-border);
+      border-radius: 4px;
+      background: var(--bp-surface);
+      color: var(--bp-text);
+      cursor: pointer;
+      transition: all 0.25s ease;
+    }
+
+    .bp-theme-toggle:hover {
+      border-color: var(--bp-border-hover);
+      background: var(--bp-surface-2);
+    }
+
+    .bp-icon-sun,
+    .bp-icon-moon {
+      position: absolute;
+      transition: opacity 0.25s ease, transform 0.25s ease;
+    }
+
+    .bp-wrapper .bp-icon-sun { opacity: 0; transform: rotate(90deg) scale(0.5); }
+    .bp-wrapper .bp-icon-moon { opacity: 1; transform: rotate(0) scale(1); }
+
+    .bp-wrapper.light .bp-icon-sun { opacity: 1; transform: rotate(0) scale(1); }
+    .bp-wrapper.light .bp-icon-moon { opacity: 0; transform: rotate(-90deg) scale(0.5); }
+
+    /* Hero */
+    .bp-hero {
+      padding: 140px 0 180px;
+      position: relative;
+      text-align: center;
+    }
+
+    .bp-hero-text {
+      max-width: 720px;
+      margin: 0 auto;
+    }
+
+    .bp-harness-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 32px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .bp-harness-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 16px;
+      border: 1px solid var(--bp-border);
+      border-radius: 4px;
+      background: var(--bp-surface);
+      font-family: 'Fragment Mono', monospace;
+      font-size: 0.75rem;
+      color: var(--bp-text);
+      transition: all 0.25s ease;
+    }
+
+    .bp-harness-pill:hover {
+      border-color: var(--bp-border-hover);
+      background: var(--bp-surface-2);
+    }
+
+    .bp-harness-logo {
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+      color: var(--bp-text-bright);
+    }
+
+    .bp-label {
+      font-family: 'Fragment Mono', monospace;
+      font-size: 0.75rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--bp-text);
+      margin-bottom: 24px;
+    }
+
+    .bp-hero-title {
+      font-family: 'Fragment Mono', monospace;
+      font-size: clamp(2rem, 5vw, 3.6rem);
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+      font-weight: 400;
+      margin-bottom: 24px;
+      color: var(--bp-text-bright);
+      transition: color 0.3s ease;
+    }
+
+    .bp-hero-sub {
+      font-size: 1.1rem;
+      color: var(--bp-muted);
+      max-width: 480px;
+      line-height: 1.6;
+      margin: 0 auto 40px;
+      transition: color 0.3s ease;
+    }
+
+    .bp-hero-actions {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .bp-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 28px;
+      font-family: 'Fragment Mono', monospace;
+      font-size: 0.8rem;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      text-decoration: none;
+      border: 1px solid var(--bp-border-strong);
+      border-radius: 4px;
+      background: var(--bp-surface);
+      color: var(--bp-text);
+      cursor: pointer;
+      transition: all 0.25s ease;
+      white-space: nowrap;
+    }
+
+    .bp-btn:hover {
+      border-color: var(--bp-border-hover);
+      background: var(--bp-surface-2);
+      transform: translateY(-1px);
+    }
+
+    .bp-btn-primary {
+      background: var(--bp-text-bright);
+      border-color: var(--bp-text-bright);
+      color: var(--bp-bg);
+      font-weight: 600;
+    }
+
+    .bp-btn-primary:hover {
+      background: var(--bp-btn-primary-hover-bg);
+      border-color: var(--bp-btn-primary-hover-border);
+      color: var(--bp-bg);
+      box-shadow: 0 0 30px rgba(0, 0, 0, 0.06);
+    }
+
+    .bp-btn-outline {
+      background: transparent;
+      border-color: var(--bp-border);
+    }
+
+    .bp-btn-outline:hover {
+      background: var(--bp-btn-outline-hover-bg);
+      border-color: var(--bp-border-strong);
+      color: var(--bp-text-bright);
+    }
+
+    /* Sections */
+    .bp-section {
+      padding: 120px 0;
+      position: relative;
+    }
+
+    @media (max-width: 768px) {
+      .bp-section { padding: 80px 0; }
+    }
+
+    .bp-section-header {
+      margin-bottom: 72px;
+      max-width: 640px;
+    }
+
+    .bp-section-title {
+      font-family: 'Fragment Mono', monospace;
+      font-size: clamp(1.8rem, 4vw, 2.8rem);
+      line-height: 1.15;
+      margin-bottom: 16px;
+      font-weight: 400;
+      color: var(--bp-text-bright);
+      transition: color 0.3s ease;
+    }
+
+    .bp-section-desc {
+      font-size: 1.05rem;
+      color: var(--bp-muted);
+      line-height: 1.6;
+      transition: color 0.3s ease;
+    }
+
+    /* Workflow */
+    .bp-workflow {
+      display: grid;
+      grid-template-columns: minmax(320px, 0.92fr) minmax(0, 1.08fr);
+      gap: 48px;
+      align-items: stretch;
+      border: 1px solid var(--bp-border);
+      background:
+        linear-gradient(135deg, var(--bp-surface) 0%, transparent 52%),
+        var(--bp-bg);
+      padding: 28px;
+      transition: border-color 0.3s ease;
+    }
+
+    @media (max-width: 1024px) {
+      .bp-workflow {
+        grid-template-columns: 1fr;
+        gap: 28px;
       }
     }
 
-    .terminal-line {
-      opacity: 0;
-      animation: fadeIn 0.3s ease forwards;
+    @media (max-width: 640px) {
+      .bp-workflow {
+        padding: 16px;
+      }
     }
 
-    .terminal-line:nth-child(1) { animation-delay: 0.2s; }
-    .terminal-line:nth-child(2) { animation-delay: 0.6s; }
-    .terminal-line:nth-child(3) { animation-delay: 1.0s; }
-    .terminal-line:nth-child(4) { animation-delay: 1.3s; }
-    .terminal-line:nth-child(5) { animation-delay: 1.6s; }
-    .terminal-line:nth-child(6) { animation-delay: 1.9s; }
-    .terminal-line:nth-child(7) { animation-delay: 2.2s; }
-    .terminal-line:nth-child(8) { animation-delay: 2.5s; }
-    .terminal-line:nth-child(9) { animation-delay: 2.8s; }
-    .terminal-line:nth-child(10) { animation-delay: 3.1s; }
-    .terminal-line:nth-child(11) { animation-delay: 3.4s; }
-    .terminal-line:nth-child(12) { animation-delay: 3.7s; }
-    .terminal-line:nth-child(13) { animation-delay: 4.0s; }
-    .terminal-line:nth-child(14) { animation-delay: 4.3s; }
-    .terminal-line:nth-child(15) { animation-delay: 4.6s; }
+    .bp-workflow-console {
+      min-height: 440px;
+      border: 1px solid var(--bp-border-strong);
+      background: color-mix(in srgb, var(--bp-bg) 82%, var(--bp-surface));
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      padding: 24px;
+      position: relative;
+      overflow: hidden;
+      transition: background 0.3s ease, border-color 0.3s ease;
+    }
+
+    .bp-workflow-console::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(var(--bp-grid-line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--bp-grid-line) 1px, transparent 1px);
+      background-size: 24px 24px;
+      opacity: 0.7;
+    }
+
+    .bp-workflow-console::after {
+      content: "";
+      position: absolute;
+      width: 180px;
+      height: 180px;
+      right: -72px;
+      top: -72px;
+      border: 1px solid var(--bp-border-strong);
+      transform: rotate(18deg);
+      opacity: 0.8;
+    }
+
+    .bp-console-bar,
+    .bp-console-line,
+    .bp-console-output {
+      position: relative;
+      z-index: 1;
+    }
+
+    .bp-console-bar {
+      display: flex;
+      gap: 8px;
+      position: absolute;
+      top: 18px;
+      left: 18px;
+    }
+
+    .bp-console-bar span {
+      width: 7px;
+      height: 7px;
+      border: 1px solid var(--bp-border-hover);
+      border-radius: 999px;
+    }
+
+    .bp-console-line {
+      font-family: 'Fragment Mono', monospace;
+      font-size: 0.82rem;
+      line-height: 1.8;
+      color: var(--bp-text);
+      border-bottom: 1px solid var(--bp-border);
+      padding: 10px 0;
+    }
+
+    .bp-console-active {
+      color: var(--bp-text-bright);
+    }
+
+    .bp-console-muted {
+      color: var(--bp-muted);
+      display: inline-block;
+      min-width: 82px;
+    }
+
+    .bp-console-output {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 20px;
+      margin-top: 16px;
+      padding: 16px 0 0;
+      font-family: 'Fragment Mono', monospace;
+      border-top: 1px solid var(--bp-border);
+    }
+
+    .bp-console-output span {
+      font-size: 0.72rem;
+      color: var(--bp-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .bp-console-output strong {
+      font-size: 1.35rem;
+      font-weight: 400;
+      color: var(--bp-text-bright);
+    }
+
+    .bp-workflow-list {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+
+    .bp-workflow-step {
+      padding: 24px;
+      border: 1px solid var(--bp-border);
+      display: grid;
+      grid-template-columns: 52px 1fr;
+      gap: 20px;
+      align-items: start;
+      background: color-mix(in srgb, var(--bp-bg) 92%, var(--bp-surface));
+      transition: background 0.3s ease, border-color 0.3s ease, transform 0.3s ease;
+    }
+
+    .bp-workflow-step:hover {
+      background: var(--bp-surface);
+      border-color: var(--bp-border-hover);
+      transform: translateX(4px);
+    }
+
+    @media (max-width: 1024px) {
+      .bp-workflow-console { min-height: 320px; }
+    }
+
+    @media (max-width: 640px) {
+      .bp-workflow-step {
+        grid-template-columns: 1fr;
+        gap: 12px;
+        padding: 20px;
+      }
+    }
+
+    .bp-step-num {
+      font-family: 'Fragment Mono', monospace;
+      font-size: 0.78rem;
+      color: var(--bp-bg);
+      background: var(--bp-text-bright);
+      display: inline-flex;
+      width: 36px;
+      height: 36px;
+      align-items: center;
+      justify-content: center;
+      letter-spacing: 0.02em;
+    }
+
+    .bp-step-title {
+      font-family: 'Fragment Mono', monospace;
+      font-size: 1rem;
+      font-weight: 500;
+      color: var(--bp-text-bright);
+      margin-bottom: 8px;
+      transition: color 0.3s ease;
+    }
+
+    .bp-step-desc {
+      font-size: 0.92rem;
+      color: var(--bp-muted);
+      line-height: 1.5;
+      transition: color 0.3s ease;
+    }
+
+    /* Harnesses */
+    .bp-section-pricing {
+      padding-top: 0;
+    }
+
+    .bp-subscription-callout {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 32px;
+      border: 1px solid var(--bp-border-strong);
+      background: color-mix(in srgb, var(--bp-surface) 72%, transparent);
+      padding: 22px 28px;
+      margin: 32px 0 0;
+      transition: background 0.3s ease, border-color 0.3s ease;
+    }
+
+    .bp-subscription-callout span {
+      font-family: 'Fragment Mono', monospace;
+      font-size: 0.95rem;
+      color: var(--bp-text-bright);
+      white-space: nowrap;
+    }
+
+    .bp-subscription-callout p {
+      color: var(--bp-muted);
+      font-size: 0.92rem;
+      line-height: 1.5;
+      text-align: right;
+      max-width: 520px;
+    }
+
+    @media (max-width: 768px) {
+      .bp-subscription-callout {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .bp-subscription-callout p {
+        text-align: left;
+      }
+    }
+
+    .bp-pricing-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1px;
+      width: 100%;
+      margin: 0 auto;
+      border: 1px solid var(--bp-border);
+      background: var(--bp-border);
+      position: relative;
+      transition: background 0.3s ease, border-color 0.3s ease;
+    }
+
+    .bp-pricing-grid::before {
+      content: '';
+      position: absolute;
+      top: 28px;
+      bottom: 28px;
+      left: 50%;
+      width: 1px;
+      background: var(--bp-border-strong);
+      transform: translateX(-0.5px);
+      pointer-events: none;
+    }
+
+    .bp-pricing-card {
+      min-height: 520px;
+      display: flex;
+      flex-direction: column;
+      border: 1px solid var(--bp-border);
+      border-width: 0;
+      background:
+        linear-gradient(180deg, color-mix(in srgb, var(--bp-surface) 55%, transparent), var(--bp-bg) 42%),
+        var(--bp-bg);
+      padding: 34px;
+      transition: background 0.3s ease, border-color 0.3s ease;
+    }
+
+    .bp-pricing-card:hover {
+      background:
+        linear-gradient(180deg, color-mix(in srgb, var(--bp-surface-2) 64%, transparent), var(--bp-surface) 46%),
+        var(--bp-surface);
+    }
+
+    .bp-pricing-card-pro {
+      background:
+        repeating-linear-gradient(
+          -45deg,
+          transparent 0,
+          transparent 12px,
+          color-mix(in srgb, var(--bp-border) 42%, transparent) 12px,
+          color-mix(in srgb, var(--bp-border) 42%, transparent) 13px
+        ),
+        linear-gradient(180deg, color-mix(in srgb, var(--bp-surface-2) 48%, transparent), var(--bp-bg) 42%),
+        var(--bp-bg);
+    }
+
+    .bp-pricing-card-pro:hover {
+      background:
+        repeating-linear-gradient(
+          -45deg,
+          transparent 0,
+          transparent 12px,
+          color-mix(in srgb, var(--bp-border) 42%, transparent) 12px,
+          color-mix(in srgb, var(--bp-border) 42%, transparent) 13px
+        ),
+        linear-gradient(180deg, color-mix(in srgb, var(--bp-surface-2) 48%, transparent), var(--bp-bg) 42%),
+        var(--bp-bg);
+    }
+
+    .bp-pricing-card-pro .bp-pricing-price,
+    .bp-pricing-card-pro .bp-pricing-features {
+      opacity: 0.62;
+    }
+
+    .bp-pricing-card-top {
+      min-height: 116px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: flex-start;
+    }
+
+    .bp-pricing-title-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+
+    .bp-pricing-title {
+      font-family: 'Fragment Mono', monospace;
+      font-size: clamp(1.35rem, 3vw, 1.8rem);
+      line-height: 1.2;
+      color: var(--bp-text-bright);
+      font-weight: 400;
+      margin-bottom: 0;
+    }
+
+    .bp-pricing-card:not(.bp-pricing-card-pro) .bp-pricing-title {
+      margin-bottom: 14px;
+    }
+
+    .bp-pricing-status {
+      display: inline-flex;
+      align-items: center;
+      min-height: 22px;
+      padding: 4px 7px;
+      border: 1px solid var(--bp-border-strong);
+      font-family: 'Fragment Mono', monospace;
+      font-size: 0.62rem;
+      line-height: 1;
+      color: var(--bp-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      background: color-mix(in srgb, var(--bp-bg) 78%, transparent);
+    }
+
+    .bp-pricing-copy {
+      color: var(--bp-muted);
+      font-size: 0.92rem;
+      line-height: 1.5;
+      max-width: 320px;
+    }
+
+    .bp-pricing-price {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: flex-start;
+      font-family: 'Fragment Mono', monospace;
+      color: var(--bp-text-bright);
+      text-align: left;
+      padding: 28px 0;
+      margin: 26px 0 0;
+      border-top: 1px solid var(--bp-border);
+      border-bottom: 1px solid var(--bp-border);
+    }
+
+    .bp-pricing-price span {
+      font-size: clamp(2.35rem, 5vw, 4rem);
+      line-height: 1;
+      letter-spacing: 0;
+    }
+
+    .bp-pricing-price small {
+      color: var(--bp-muted);
+      font-size: 0.78rem;
+      margin-top: 10px;
+    }
+
+    .bp-pricing-features {
+      list-style: none;
+      margin: 28px 0 0;
+      padding: 0;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 13px;
+    }
+
+    .bp-pricing-features li {
+      position: relative;
+      padding-left: 20px;
+      color: var(--bp-text);
+      font-size: 0.92rem;
+      line-height: 1.45;
+    }
+
+    .bp-pricing-features li::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0.58em;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--bp-text-bright);
+    }
+
+    @media (max-width: 768px) {
+      .bp-pricing-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .bp-pricing-grid::before {
+        display: none;
+      }
+
+      .bp-pricing-card {
+        padding: 28px 24px;
+        min-height: auto;
+      }
+    }
+
+    .bp-harness-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      background: var(--bp-border);
+      border: 1px solid var(--bp-border);
+      transition: background 0.3s ease, border-color 0.3s ease;
+    }
+
+    @media (max-width: 1024px) {
+      .bp-harness-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    @media (max-width: 640px) {
+      .bp-harness-grid { grid-template-columns: 1fr; }
+    }
+
+    .bp-harness-card {
+      background: var(--bp-bg);
+      padding: 36px 32px;
+      position: relative;
+      transition: background 0.3s ease;
+    }
+
+    .bp-harness-card:hover {
+      background: var(--bp-surface);
+    }
+
+    .bp-harness-top {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: var(--bp-text-bright);
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .bp-harness-card:hover .bp-harness-top {
+      opacity: 1;
+    }
+
+    .bp-harness-card-logo {
+      width: 32px;
+      height: 32px;
+      margin-bottom: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .bp-harness-card-logo img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    .bp-harness-card-logo-opencode {
+      border: 1px solid var(--bp-border-strong);
+    }
+
+    .bp-logo-theme {
+      display: block;
+    }
+
+    .bp-wrapper.light .bp-logo-theme-openai {
+      content: url('/brands/openai-symbol-light.svg');
+    }
+
+    .bp-wrapper.light .bp-logo-theme-opencode {
+      content: url('/brands/opencode-light.svg');
+    }
+
+    .bp-wrapper.light .bp-logo-theme-cursor {
+      content: url('/brands/cursor-light.svg');
+    }
+
+    .bp-harness-name {
+      font-family: 'Fragment Mono', monospace;
+      font-size: 1.1rem;
+      margin-bottom: 12px;
+      color: var(--bp-text-bright);
+      transition: color 0.3s ease;
+    }
+
+    .bp-harness-desc {
+      font-size: 0.9rem;
+      color: var(--bp-muted);
+      line-height: 1.5;
+      transition: color 0.3s ease;
+    }
+
+    .bp-harness-more .bp-harness-name {
+      color: var(--bp-muted);
+    }
+
+    .bp-harness-more {
+      background:
+        linear-gradient(135deg, var(--bp-surface) 0%, var(--bp-bg) 64%),
+        var(--bp-bg);
+    }
+
+    .bp-harness-more:hover {
+      background:
+        linear-gradient(135deg, var(--bp-surface-2) 0%, var(--bp-surface) 64%),
+        var(--bp-surface);
+    }
+
+    .bp-harness-more-logos {
+      height: 32px;
+      margin-bottom: 18px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .bp-harness-more-logos span {
+      width: 32px;
+      height: 32px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .bp-harness-more-logos img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    /* Supervised */
+    .bp-super-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1px;
+      background: var(--bp-border);
+      border: 1px solid var(--bp-border);
+      transition: background 0.3s ease, border-color 0.3s ease;
+    }
+
+    @media (max-width: 1024px) {
+      .bp-super-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    @media (max-width: 640px) {
+      .bp-super-grid { grid-template-columns: 1fr; }
+    }
+
+    .bp-super-card {
+      background: var(--bp-bg);
+      padding: 40px 32px;
+      transition: background 0.3s ease;
+    }
+
+    .bp-super-card:hover {
+      background: var(--bp-surface);
+    }
+
+    .bp-super-icon {
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--bp-border-strong);
+      border-radius: 4px;
+      margin-bottom: 20px;
+      color: var(--bp-text);
+      transition: color 0.3s ease, border-color 0.3s ease;
+    }
+
+    .bp-super-title {
+      font-family: 'Fragment Mono', monospace;
+      font-size: 0.95rem;
+      font-weight: 500;
+      margin-bottom: 10px;
+      color: var(--bp-text-bright);
+      transition: color 0.3s ease;
+    }
+
+    .bp-super-desc {
+      font-size: 0.9rem;
+      color: var(--bp-muted);
+      line-height: 1.5;
+      transition: color 0.3s ease;
+    }
+
+    /* OSS */
+    .bp-section-oss {
+      background: var(--bp-surface);
+      border-top: 1px solid var(--bp-border);
+      border-bottom: 1px solid var(--bp-border);
+      transition: background 0.3s ease, border-color 0.3s ease;
+    }
+
+    .bp-oss-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 80px;
+      align-items: center;
+    }
+
+    @media (max-width: 1024px) {
+      .bp-oss-grid { grid-template-columns: 1fr; gap: 48px; }
+    }
+
+    .bp-oss-actions {
+      display: flex;
+      gap: 16px;
+      margin-top: 32px;
+      flex-wrap: wrap;
+    }
+
+    .bp-oss-stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1px;
+      background: var(--bp-border);
+      border: 1px solid var(--bp-border);
+      transition: background 0.3s ease, border-color 0.3s ease;
+    }
+
+    @media (max-width: 640px) {
+      .bp-oss-stats { grid-template-columns: 1fr; }
+    }
+
+    .bp-stat {
+      background: var(--bp-bg);
+      padding: 32px 24px;
+      text-align: center;
+      transition: background 0.3s ease;
+    }
+
+    .bp-stat-value {
+      font-family: 'Fragment Mono', monospace;
+      font-size: 1.6rem;
+      color: var(--bp-text-bright);
+      margin-bottom: 6px;
+      transition: color 0.3s ease;
+    }
+
+    .bp-stat-label {
+      font-family: 'Fragment Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--bp-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      transition: color 0.3s ease;
+    }
+
+    /* Footer */
+    .bp-footer {
+      border-top: 1px solid var(--bp-border);
+      transition: border-color 0.3s ease;
+    }
+
+    /* Reveal animation */
+    .bp-wrapper .bp-section-header,
+    .bp-wrapper .bp-workflow,
+    .bp-wrapper .bp-harness-grid,
+    .bp-wrapper .bp-super-grid,
+    .bp-wrapper .bp-oss-grid {
+      opacity: 0;
+      transform: translateY(24px);
+      animation: bpReveal 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    .bp-wrapper .bp-workflow { animation-delay: 0.1s; }
+    .bp-wrapper .bp-harness-grid { animation-delay: 0.1s; }
+    .bp-wrapper .bp-super-grid { animation-delay: 0.1s; }
+    .bp-wrapper .bp-oss-grid { animation-delay: 0.1s; }
+
+    @keyframes bpReveal {
+      to { opacity: 1; transform: translateY(0); }
+    }
   </style>
 </BaseLayout>

@@ -28,6 +28,12 @@
   --font-body: 'Newsreader', Georgia, serif;
 
   --radius: 2px;
+
+  --section-corner-color: var(--text);
+  --section-corner-size: 20px;
+  --section-corner-stroke: 2px;
+  --section-corner-offset: 10px;
+  --section-corner-opacity: 0.62;
 }
 
 * {
@@ -89,6 +95,43 @@ body::before {
 }
 .font-body {
   font-family: var(--font-body);
+}
+
+/* ── Shared section corner marks ── */
+:where(.bp-section > .bp-container) {
+  position: relative;
+  overflow: visible;
+}
+
+:where(.bp-section > .bp-container)::before,
+:where(.bp-section > .bp-container)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  opacity: var(--section-corner-opacity);
+  transition: opacity 0.3s ease;
+}
+
+:where(.bp-section > .bp-container)::before {
+  background:
+    linear-gradient(var(--section-corner-color), var(--section-corner-color)) left calc(var(--section-corner-offset) * -1) top calc(var(--section-corner-stroke) / -2) / var(--section-corner-size) var(--section-corner-stroke) no-repeat,
+    linear-gradient(var(--section-corner-color), var(--section-corner-color)) right calc(var(--section-corner-offset) * -1) top calc(var(--section-corner-stroke) / -2) / var(--section-corner-size) var(--section-corner-stroke) no-repeat,
+    linear-gradient(var(--section-corner-color), var(--section-corner-color)) left calc(var(--section-corner-offset) * -1) bottom calc(var(--section-corner-stroke) / -2) / var(--section-corner-size) var(--section-corner-stroke) no-repeat,
+    linear-gradient(var(--section-corner-color), var(--section-corner-color)) right calc(var(--section-corner-offset) * -1) bottom calc(var(--section-corner-stroke) / -2) / var(--section-corner-size) var(--section-corner-stroke) no-repeat;
+}
+
+:where(.bp-section > .bp-container)::after {
+  background:
+    linear-gradient(var(--section-corner-color), var(--section-corner-color)) left calc(var(--section-corner-stroke) / -2) top calc(var(--section-corner-offset) * -1) / var(--section-corner-stroke) var(--section-corner-size) no-repeat,
+    linear-gradient(var(--section-corner-color), var(--section-corner-color)) right calc(var(--section-corner-stroke) / -2) top calc(var(--section-corner-offset) * -1) / var(--section-corner-stroke) var(--section-corner-size) no-repeat,
+    linear-gradient(var(--section-corner-color), var(--section-corner-color)) left calc(var(--section-corner-stroke) / -2) bottom calc(var(--section-corner-offset) * -1) / var(--section-corner-stroke) var(--section-corner-size) no-repeat,
+    linear-gradient(var(--section-corner-color), var(--section-corner-color)) right calc(var(--section-corner-stroke) / -2) bottom calc(var(--section-corner-offset) * -1) / var(--section-corner-stroke) var(--section-corner-size) no-repeat;
+}
+
+.bp-wrapper {
+  --section-corner-color: var(--bp-text-bright);
 }
 
 /* ── Animations ── */

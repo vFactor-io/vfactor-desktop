@@ -11,13 +11,13 @@ describe("windowTheme", () => {
     expect(resolveWindowThemeState("system", false)).toEqual({
       themeSource: "system",
       resolvedAppearance: "light",
-      backgroundColor: "#f5f7fb",
+      backgroundColor: "#f5f5f5",
     })
 
     expect(resolveWindowThemeState("system", true)).toEqual({
       themeSource: "system",
       resolvedAppearance: "dark",
-      backgroundColor: "#0b0f14",
+      backgroundColor: "#050505",
     })
   })
 
@@ -48,7 +48,7 @@ describe("windowTheme", () => {
     ).toEqual({
       themeSource: "system",
       resolvedAppearance: "dark",
-      backgroundColor: "#0b0f14",
+      backgroundColor: "#050505",
     })
   })
 
