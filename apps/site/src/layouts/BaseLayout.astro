@@ -5,12 +5,18 @@ interface Props {
   title?: string
   description?: string
   image?: string
+  imageType?: string
+  imageWidth?: number
+  imageHeight?: number
 }
 
 const {
   title = "vFactor - AI Agent Workspace",
   description = "The open-source desktop workspace for orchestrating AI agents. Bring your own models, keep code local, and go from prompt to pull request.",
   image = "/og-image.png",
+  imageType = "image/png",
+  imageWidth = 1200,
+  imageHeight = 630,
 } = Astro.props
 
 const siteOrigin = Astro.site ?? Astro.url
@@ -62,9 +68,9 @@ const structuredData = {
     <meta property="og:locale" content="en_US" />
     <meta property="og:image" content={imageUrl} />
     <meta property="og:image:secure_url" content={imageUrl} />
-    <meta property="og:image:type" content="image/png" />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
+    <meta property="og:image:type" content={imageType} />
+    <meta property="og:image:width" content={String(imageWidth)} />
+    <meta property="og:image:height" content={String(imageHeight)} />
     <meta property="og:image:alt" content="vFactor desktop workspace with Codex, Claude Code, and OpenCode logos" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={title} />
