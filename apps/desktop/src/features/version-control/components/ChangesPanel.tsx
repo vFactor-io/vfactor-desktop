@@ -69,6 +69,49 @@ function splitFilePath(filePath: string): { name: string; parent: string | null 
   }
 }
 
+const COLLAPSED_KEYS_STORAGE_PREFIX = "vfactor:changes-panel-collapsed:"
+
+function getCollapsedKeysStorageKey(projectPath: string): string {
+  return `${COLLAPSED_KEYS_STORAGE_PREFIX}${projectPath}`
+}
+
+function readCollapsedKeysFromStorage(projectPath: string): Set<string> {
+  if (typeof window === "undefined") {
+    return new Set()
+  }
+
+  try {
+    const raw = window.localStorage.getItem(getCollapsedKeysStorageKey(projectPath))
+    if (!raw) {
+      return new Set()
+    }
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) {
+      return new Set()
+    }
+    return new Set(parsed.filter((value): value is string => typeof value === "string"))
+  } catch {
+    return new Set()
+  }
+}
+
+function writeCollapsedKeysToStorage(projectPath: string, keys: ReadonlySet<string>): void {
+  if (typeof window === "undefined") {
+    return
+  }
+
+  try {
+    const storageKey = getCollapsedKeysStorageKey(projectPath)
+    if (keys.size === 0) {
+      window.localStorage.removeItem(storageKey)
+      return
+    }
+    window.localStorage.setItem(storageKey, JSON.stringify(Array.from(keys)))
+  } catch {
+    // Ignore storage errors (private mode, quota, etc.)
+  }
+}
+
 function getChangeKey(change: FileChange) {
   return `${change.previousPath ?? ""}->${change.path}`
 }
@@ -274,11 +317,18 @@ export function ChangesPanel({ projectPath, changes }: ChangesPanelProps) {
         .sort((a, b) => a.path.localeCompare(b.path)),
     [changes]
   )
-  const [collapsedKeys, setCollapsedKeys] = useState<ReadonlySet<string>>(() => new Set())
+  const [collapsedKeys, setCollapsedKeys] = useState<ReadonlySet<string>>(() =>
+    readCollapsedKeysFromStorage(projectPath)
+  )
   const [diffsByKey, setDiffsByKey] = useState<Record<string, GitFileDiff>>({})
   const [diffErrorsByKey, setDiffErrorsByKey] = useState<Record<string, string>>({})
   const inFlightDiffsRef = useRef(new Map<string, Promise<void>>())
   const projectPathRef = useRef(projectPath)
+
+  // Persist collapsed keys per project so navigation away and back restores the exact state.
+  useEffect(() => {
+    writeCollapsedKeysToStorage(projectPath, collapsedKeys)
+  }, [projectPath, collapsedKeys])
 
   // Drop collapsed entries that are no longer in the visible list (e.g. file no longer changed).
   useEffect(() => {
@@ -355,11 +405,15 @@ export function ChangesPanel({ projectPath, changes }: ChangesPanelProps) {
 
   const toggleAll = useCallback(() => {
     setCollapsedKeys((current) => {
-      if (current.size > 0) {
-        // Mixed or all-collapsed → expand everything.
+      const visibleKeys = visibleChanges.map(getChangeKey)
+      const isEveryVisibleChangeCollapsed =
+        visibleKeys.length > 0 && visibleKeys.every((key) => current.has(key))
+
+      if (isEveryVisibleChangeCollapsed) {
         return new Set()
       }
-      return new Set(visibleChanges.map(getChangeKey))
+
+      return new Set(visibleKeys)
     })
   }, [visibleChanges])
 
@@ -368,6 +422,7 @@ export function ChangesPanel({ projectPath, changes }: ChangesPanelProps) {
     setDiffsByKey({})
     setDiffErrorsByKey({})
     inFlightDiffsRef.current.clear()
+    setCollapsedKeys(readCollapsedKeysFromStorage(projectPath))
   }, [projectPath])
 
   const totals = useMemo(() => {
