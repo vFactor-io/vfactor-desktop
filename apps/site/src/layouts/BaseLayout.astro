@@ -4,14 +4,44 @@ import "../styles/global.css"
 interface Props {
   title?: string
   description?: string
+  image?: string
+  imageType?: string
+  imageWidth?: number
+  imageHeight?: number
 }
 
 const {
-  title = "vFactor",
-  description = "The open-source desktop environment for agentic software development. Multi-agent, project-scoped, and fully local.",
+  title = "vFactor - AI Agent Workspace",
+  description = "The open-source desktop workspace for orchestrating AI agents. Bring your own models, keep code local, and go from prompt to pull request.",
+  image = "/og-image.png",
+  imageType = "image/png",
+  imageWidth = 1200,
+  imageHeight = 630,
 } = Astro.props
 
-const ogImageUrl = new URL("/vfactor-logo.png", Astro.site ?? Astro.url).href
+const siteOrigin = Astro.site ?? Astro.url
+const canonicalUrl = new URL(Astro.url.pathname, siteOrigin).href
+const imageUrl = new URL(image, siteOrigin).href
+const logoUrl = new URL("/vfactor-logo.png", siteOrigin).href
+const screenshotUrl = new URL("/app-screenshot.png", siteOrigin).href
+const structuredData = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "vFactor",
+  applicationCategory: "DeveloperApplication",
+  operatingSystem: "macOS, Windows",
+  description,
+  url: canonicalUrl,
+  logo: logoUrl,
+  image: imageUrl,
+  screenshot: screenshotUrl,
+  offers: {
+    "@type": "Offer",
+    price: "0",
+    priceCurrency: "USD",
+  },
+  sameAs: ["https://github.com/vFactor-io/vfactor-desktop"],
+}
 ---
 
 <!doctype html>
@@ -21,14 +51,34 @@ const ogImageUrl = new URL("/vfactor-logo.png", Astro.site ?? Astro.url).href
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{title}</title>
     <meta name="description" content={description} />
+    <meta name="application-name" content="vFactor" />
+    <meta name="apple-mobile-web-app-title" content="vFactor" />
+    <meta name="theme-color" content="#0a0a0a" />
+    <link rel="canonical" href={canonicalUrl} />
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
-    <slot name="head" />
+    <link rel="manifest" href="/site.webmanifest" />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:type" content="website" />
-    <meta property="og:image" content={ogImageUrl} />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:site_name" content="vFactor" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:image" content={imageUrl} />
+    <meta property="og:image:secure_url" content={imageUrl} />
+    <meta property="og:image:type" content={imageType} />
+    <meta property="og:image:width" content={String(imageWidth)} />
+    <meta property="og:image:height" content={String(imageHeight)} />
+    <meta property="og:image:alt" content="vFactor desktop workspace with Codex, Claude Code, and OpenCode logos" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={imageUrl} />
+    <meta name="twitter:image:alt" content="vFactor desktop workspace with Codex, Claude Code, and OpenCode logos" />
+    <script type="application/ld+json" set:html={JSON.stringify(structuredData)} />
+    <slot name="head" />
   </head>
   <body>
     <slot />
