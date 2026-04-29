@@ -59,18 +59,30 @@ export function WorkspaceSettingsModal({
       onOpenChange(false)
     } catch (error) {
       console.error("Failed to update workspace name:", error)
-      setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "Couldn't save this workspace name."
-      )
+      setErrorMessage("Could not save workspace name. Please try again.")
     } finally {
       setIsSaving(false)
     }
   }
 
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (isSaving) {
+      return
+    }
+
+    onOpenChange(nextOpen)
+  }
+
+  const handleCancel = () => {
+    if (isSaving) {
+      return
+    }
+
+    onOpenChange(false)
+  }
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
         className="w-[min(92vw,420px)] max-w-[420px] gap-0 overflow-hidden rounded-2xl border border-border/70 bg-card p-0 sm:max-w-[420px]"
         showCloseButton={false}
@@ -116,7 +128,13 @@ export function WorkspaceSettingsModal({
         </DialogBody>
 
         <div className="flex items-center justify-end gap-2 border-t border-border/60 px-5 py-3">
-          <Button type="button" variant="outline" size="sm" onClick={() => onOpenChange(false)}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleCancel}
+            disabled={isSaving}
+          >
             Cancel
           </Button>
           <Button
