@@ -318,17 +318,6 @@ export function resolveQuickAction(
   }
 
   if (hasOpenPr) {
-    if (pullRequest.checksError) {
-      return {
-        label: "Checks unavailable",
-        disabled: false,
-        icon: "pr",
-        kind: "open_pr",
-        hint: pullRequest.checksError,
-        tone: "warning",
-      }
-    }
-
     if (pullRequest.checksStatus === "pending") {
       return {
         label: "Checks pending",
@@ -336,6 +325,17 @@ export function resolveQuickAction(
         icon: "pr",
         kind: "open_checks",
         hint: getChecksPendingHint(branchData),
+        tone: "warning",
+      }
+    }
+
+    if (pullRequest.checksError) {
+      return {
+        label: "Checks unavailable",
+        disabled: false,
+        icon: "pr",
+        kind: "open_pr",
+        hint: pullRequest.checksError,
         tone: "warning",
       }
     }

@@ -297,6 +297,56 @@ describe("resolveQuickAction", () => {
     expect(quickAction.tone).toBe("warning")
   })
 
+  test("keeps pending checks ahead of a transient checks error", () => {
+    const quickAction = resolveQuickAction(
+      createBranchData({
+        openPullRequest: {
+          number: 42,
+          title: "Header polish",
+          url: "https://example.com/pr/42",
+          state: "open",
+          baseBranch: "main",
+          headBranch: "feature/header",
+          checksStatus: "pending",
+          mergeStatus: "blocked",
+          isMergeable: false,
+          checksError: "Unable to load pull request checks from GitHub.",
+          pendingChecksCount: 1,
+        },
+      }),
+      false,
+      false,
+      { preferredRemoteName: "origin", canArchiveWorktree: true }
+    )
+
+    expect(quickAction.label).toBe("Checks pending")
+    expect(quickAction.kind).toBe("open_checks")
+  })
+
+  test("falls through to merge state when a PR has no checks", () => {
+    const quickAction = resolveQuickAction(
+      createBranchData({
+        openPullRequest: {
+          number: 42,
+          title: "Header polish",
+          url: "https://example.com/pr/42",
+          state: "open",
+          baseBranch: "main",
+          headBranch: "feature/header",
+          checksStatus: "none",
+          mergeStatus: "mergeable",
+          isMergeable: true,
+        },
+      }),
+      false,
+      false,
+      { preferredRemoteName: "origin", canArchiveWorktree: true }
+    )
+
+    expect(quickAction.label).toBe("Merge PR")
+    expect(quickAction.kind).toBe("merge_pr")
+  })
+
   test("shows Archive for merged PRs on managed worktrees", () => {
     const quickAction = resolveQuickAction(
       createBranchData({

@@ -1442,15 +1442,13 @@ async function getRawPullRequestChecks(
     )
 
     if (!output.trim()) {
-      const errorMessage = "GitHub returned no pull request check data."
-      console.warn("[git] getRawPullRequestChecks:empty", {
+      console.debug("[git] getRawPullRequestChecks:empty", {
         projectPath,
         pullRequestNumber,
-        errorMessage,
       })
       return {
         checks: [],
-        error: errorMessage,
+        error: null,
       }
     }
 

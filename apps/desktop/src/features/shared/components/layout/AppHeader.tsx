@@ -351,6 +351,31 @@ export function SourceControlActionGroup({
     }, 2_000)
   }
 
+  const seedOptimisticPendingChecks = (nextBranchData: GitBranchesResponse | null) => {
+    const nextPullRequest = nextBranchData?.openPullRequest ?? branchStatus?.openPullRequest ?? null
+    const base = nextBranchData ?? branchStatus
+
+    if (!base || nextPullRequest?.state !== "open") {
+      return
+    }
+
+    setBranchData({
+      ...base,
+      openPullRequest: {
+        ...nextPullRequest,
+        checksStatus: "pending",
+        checksError: null,
+        pendingChecksCount: Math.max(nextPullRequest.pendingChecksCount ?? 0, 1),
+        failedChecksCount: 0,
+        failedCheckNames: [],
+        resolveReason:
+          nextPullRequest.resolveReason === "failed_checks"
+            ? undefined
+            : nextPullRequest.resolveReason,
+      },
+    })
+  }
+
   const openPullRequest = async () => {
     const prUrl = branchStatus?.openPullRequest?.url
     if (!prUrl) {
@@ -476,6 +501,14 @@ export function SourceControlActionGroup({
         }
         setFeedbackTone("neutral")
         setFeedbackMessage(null)
+      } else if (
+        (action === "commit_push" || action === "commit_push_pr") &&
+        (nextBranchData?.openPullRequest?.state === "open" ||
+          branchStatus?.openPullRequest?.state === "open")
+      ) {
+        seedOptimisticPendingChecks(nextBranchData)
+        setFeedbackTone("neutral")
+        setFeedbackMessage(summarizeGitResult(result))
       } else {
         setFeedbackTone("neutral")
         setFeedbackMessage(summarizeGitResult(result))
