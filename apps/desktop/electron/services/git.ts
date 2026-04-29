@@ -252,7 +252,7 @@ async function runGhCommandWithAllowedExitCodes(
 
 function formatGhError(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim()) {
-    return error.message.trim()
+    return error.message.trim().replace(/^GraphQL:\s*/i, "")
   }
 
   return fallback

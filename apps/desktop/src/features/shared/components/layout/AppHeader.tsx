@@ -116,6 +116,7 @@ function formatGitActionError(error: unknown, fallback: string): string {
   return message
     .replace(/^Error invoking remote method '[^']+':\s*/i, "")
     .replace(/^Error:\s*/i, "")
+    .replace(/^GraphQL:\s*/i, "")
     .trim()
 }
 
