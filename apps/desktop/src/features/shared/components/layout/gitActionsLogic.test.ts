@@ -347,6 +347,31 @@ describe("resolveQuickAction", () => {
     expect(quickAction.kind).toBe("merge_pr")
   })
 
+  test("falls through to merge state for benign no-checks messages", () => {
+    const quickAction = resolveQuickAction(
+      createBranchData({
+        openPullRequest: {
+          number: 42,
+          title: "Header polish",
+          url: "https://example.com/pr/42",
+          state: "open",
+          baseBranch: "main",
+          headBranch: "feature/header",
+          checksStatus: "none",
+          mergeStatus: "mergeable",
+          isMergeable: true,
+          checksError: "GitHub returned no pull request check data.",
+        },
+      }),
+      false,
+      false,
+      { preferredRemoteName: "origin", canArchiveWorktree: true }
+    )
+
+    expect(quickAction.label).toBe("Merge PR")
+    expect(quickAction.kind).toBe("merge_pr")
+  })
+
   test("shows Archive for merged PRs on managed worktrees", () => {
     const quickAction = resolveQuickAction(
       createBranchData({

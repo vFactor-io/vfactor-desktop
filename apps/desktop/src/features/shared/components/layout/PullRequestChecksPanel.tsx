@@ -33,7 +33,7 @@ import {
 } from "@/features/shared/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { useEffect, useState, type ReactNode } from "react"
-import { sortPullRequestChecks } from "./pullRequestChecks"
+import { sortPullRequestChecks, summarizePullRequestChecks } from "./pullRequestChecks"
 import {
   buildReviewPatch,
   getReviewDiffLineRange,
@@ -499,6 +499,9 @@ export function PullRequestChecksPanel({
   const sortedComments = sortPullRequestComments(normalizedComments)
   const sortedReviews = sortPullRequestReviews(normalizedReviews)
   const sortedReviewComments = sortPullRequestReviewComments(normalizedReviewComments)
+  const checksSummary = summarizePullRequestChecks(pullRequest, normalizedChecks)
+  const shouldShowWaitingForChecks =
+    sortedChecks.length === 0 && (isLoading || checksSummary.tone === "waiting")
 
   if (!isOpenPullRequest || !pullRequest) {
     return (
@@ -557,13 +560,17 @@ export function PullRequestChecksPanel({
           ) : null}
         </div>
 
-        {isLoading && sortedChecks.length === 0 ? (
-          <div className="flex flex-1 items-center justify-center py-8 text-sm text-muted-foreground">
-            Waiting for checks to report back...
+        {shouldShowWaitingForChecks ? (
+          <div className="flex flex-1 items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+            <CircleNotch
+              size={15}
+              className={cn("size-4 shrink-0", feedbackIconClassName("warning"), "animate-spin")}
+            />
+            <span>Waiting for checks to report back...</span>
           </div>
         ) : null}
 
-        {!isLoading &&
+        {!shouldShowWaitingForChecks &&
         sortedChecks.length === 0 &&
         sortedReviews.length === 0 &&
         sortedComments.length === 0 &&

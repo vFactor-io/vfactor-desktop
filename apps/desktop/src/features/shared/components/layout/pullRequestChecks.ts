@@ -1,5 +1,20 @@
 import type { GitPullRequest, GitPullRequestCheck } from "@/desktop/client"
 
+export function isActionablePullRequestChecksError(
+  error: string | null | undefined
+): error is string {
+  const message = error?.trim()
+  if (!message) {
+    return false
+  }
+
+  return !(
+    /no required checks reported/i.test(message) ||
+    /no checks? (reported|found|published)/i.test(message) ||
+    /no pull request check data/i.test(message)
+  )
+}
+
 export interface PullRequestChecksSummary {
   pendingCount: number
   failedCount: number

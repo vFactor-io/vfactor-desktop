@@ -3,6 +3,7 @@ import {
   desktop,
   type GitBranchesResponse,
   type GitFileChange,
+  type GitPullRequest,
   type GitPullRequestCheck,
   type GitPullRequestChecksResponse,
   type GitPullRequestComment,
@@ -11,6 +12,7 @@ import {
 } from "@/desktop/client"
 
 const WATCHER_REFRESH_DEBOUNCE_MS = 120
+const OPTIMISTIC_CHECKS_PENDING_GRACE_MS = 30_000
 
 interface ProjectGitEntry {
   branchData: GitBranchesResponse | null
@@ -22,6 +24,7 @@ interface ProjectGitEntry {
   branchError: string | null
   changesError: string | null
   pullRequestChecksError: string | null
+  pullRequestChecksPendingUntil: number | null
   isBranchLoading: boolean
   isChangesLoading: boolean
   isPullRequestChecksLoading: boolean
@@ -68,6 +71,7 @@ const EMPTY_ENTRY: ProjectGitEntry = {
   branchError: null,
   changesError: null,
   pullRequestChecksError: null,
+  pullRequestChecksPendingUntil: null,
   isBranchLoading: false,
   isChangesLoading: false,
   isPullRequestChecksLoading: false,
@@ -92,6 +96,86 @@ function shouldRetainPullRequestChecks(
   const nextPullRequestNumber = getOpenPullRequestNumber(nextBranchData)
 
   return currentPullRequestNumber != null && currentPullRequestNumber === nextPullRequestNumber
+}
+
+function shouldPreservePendingChecks(
+  entry: ProjectGitEntry,
+  nextBranchData: GitBranchesResponse | null
+): boolean {
+  const currentPullRequest = entry.branchData?.openPullRequest
+  const nextPullRequest = nextBranchData?.openPullRequest
+
+  return Boolean(
+    currentPullRequest?.state === "open" &&
+      nextPullRequest?.state === "open" &&
+      currentPullRequest.number === nextPullRequest.number &&
+      currentPullRequest.checksStatus === "pending" &&
+      nextPullRequest.checksStatus === "none" &&
+      entry.pullRequestChecksPendingUntil != null &&
+      Date.now() < entry.pullRequestChecksPendingUntil
+  )
+}
+
+function mergePendingPullRequestState(
+  currentPullRequest: GitPullRequest,
+  nextPullRequest: GitPullRequest
+): GitPullRequest {
+  return {
+    ...nextPullRequest,
+    checksStatus: "pending",
+    checksError: null,
+    pendingChecksCount: Math.max(
+      currentPullRequest.pendingChecksCount ?? 0,
+      nextPullRequest.pendingChecksCount ?? 0,
+      1
+    ),
+    failedChecksCount: 0,
+    failedCheckNames: [],
+    resolveReason:
+      nextPullRequest.resolveReason === "failed_checks"
+        ? undefined
+        : nextPullRequest.resolveReason,
+  }
+}
+
+function resolveBranchDataForEntry(
+  entry: ProjectGitEntry,
+  nextBranchData: GitBranchesResponse | null
+): { branchData: GitBranchesResponse | null; pullRequestChecksPendingUntil: number | null } {
+  const nextPullRequest = nextBranchData?.openPullRequest
+
+  if (nextPullRequest?.state === "open" && nextPullRequest.checksStatus === "pending") {
+    return {
+      branchData: {
+        ...nextBranchData,
+        openPullRequest: {
+          ...nextPullRequest,
+          checksError: null,
+          pendingChecksCount: Math.max(nextPullRequest.pendingChecksCount ?? 0, 1),
+        },
+      },
+      pullRequestChecksPendingUntil: Math.max(
+        entry.pullRequestChecksPendingUntil ?? 0,
+        Date.now() + OPTIMISTIC_CHECKS_PENDING_GRACE_MS
+      ),
+    }
+  }
+
+  if (shouldPreservePendingChecks(entry, nextBranchData)) {
+    const currentPullRequest = entry.branchData!.openPullRequest!
+    return {
+      branchData: {
+        ...nextBranchData!,
+        openPullRequest: mergePendingPullRequestState(currentPullRequest, nextPullRequest!),
+      },
+      pullRequestChecksPendingUntil: entry.pullRequestChecksPendingUntil,
+    }
+  }
+
+  return {
+    branchData: nextBranchData,
+    pullRequestChecksPendingUntil: null,
+  }
 }
 
 const pendingRefreshByProject = new Map<
@@ -234,53 +318,38 @@ export const useProjectGitStore = create<ProjectGitStoreState>((set, get) => ({
   },
 
   setBranchData: (projectPath, branchData) => {
-    set((state) => ({
-      entriesByProjectPath: {
-        ...state.entriesByProjectPath,
-        [projectPath]: {
-          ...getEntry(state.entriesByProjectPath, projectPath),
-          branchData,
-          pullRequestChecks: shouldRetainPullRequestChecks(
-            getEntry(state.entriesByProjectPath, projectPath).branchData,
-            branchData
-          )
-            ? getEntry(state.entriesByProjectPath, projectPath).pullRequestChecks
-            : [],
-          pullRequestComments: shouldRetainPullRequestChecks(
-            getEntry(state.entriesByProjectPath, projectPath).branchData,
-            branchData
-          )
-            ? getEntry(state.entriesByProjectPath, projectPath).pullRequestComments
-            : [],
-          pullRequestReviews: shouldRetainPullRequestChecks(
-            getEntry(state.entriesByProjectPath, projectPath).branchData,
-            branchData
-          )
-            ? getEntry(state.entriesByProjectPath, projectPath).pullRequestReviews
-            : [],
-          pullRequestReviewComments: shouldRetainPullRequestChecks(
-            getEntry(state.entriesByProjectPath, projectPath).branchData,
-            branchData
-          )
-            ? getEntry(state.entriesByProjectPath, projectPath).pullRequestReviewComments
-            : [],
-          branchError: null,
-          pullRequestChecksError: shouldRetainPullRequestChecks(
-            getEntry(state.entriesByProjectPath, projectPath).branchData,
-            branchData
-          )
-            ? getEntry(state.entriesByProjectPath, projectPath).pullRequestChecksError
-            : null,
-          isBranchLoading: false,
-          isPullRequestChecksLoading: shouldRetainPullRequestChecks(
-            getEntry(state.entriesByProjectPath, projectPath).branchData,
-            branchData
-          )
-            ? getEntry(state.entriesByProjectPath, projectPath).isPullRequestChecksLoading
-            : false,
+    set((state) => {
+      const currentEntry = getEntry(state.entriesByProjectPath, projectPath)
+      const {
+        branchData: nextBranchData,
+        pullRequestChecksPendingUntil,
+      } = resolveBranchDataForEntry(currentEntry, branchData)
+      const shouldRetainChecks = shouldRetainPullRequestChecks(
+        currentEntry.branchData,
+        nextBranchData
+      )
+
+      return {
+        entriesByProjectPath: {
+          ...state.entriesByProjectPath,
+          [projectPath]: {
+            ...currentEntry,
+            branchData: nextBranchData,
+            pullRequestChecks: shouldRetainChecks ? currentEntry.pullRequestChecks : [],
+            pullRequestComments: shouldRetainChecks ? currentEntry.pullRequestComments : [],
+            pullRequestReviews: shouldRetainChecks ? currentEntry.pullRequestReviews : [],
+            pullRequestReviewComments: shouldRetainChecks ? currentEntry.pullRequestReviewComments : [],
+            branchError: null,
+            pullRequestChecksError: shouldRetainChecks ? currentEntry.pullRequestChecksError : null,
+            pullRequestChecksPendingUntil,
+            isBranchLoading: false,
+            isPullRequestChecksLoading: shouldRetainChecks
+              ? currentEntry.isPullRequestChecksLoading
+              : false,
+          },
         },
-      },
-    }))
+      }
+    })
   },
 
   requestRefresh: async (projectPath, request) => {
@@ -350,53 +419,42 @@ export const useProjectGitStore = create<ProjectGitStoreState>((set, get) => ({
       tasks.push(
         refreshBranches(projectPath)
           .then((branchData) => {
-            set((state) => ({
-              entriesByProjectPath: {
-                ...state.entriesByProjectPath,
-                [projectPath]: {
-                  ...getEntry(state.entriesByProjectPath, projectPath),
-                  branchData,
-                  pullRequestChecks: shouldRetainPullRequestChecks(
-                    getEntry(state.entriesByProjectPath, projectPath).branchData,
-                    branchData
-                  )
-                    ? getEntry(state.entriesByProjectPath, projectPath).pullRequestChecks
-                    : [],
-                  pullRequestComments: shouldRetainPullRequestChecks(
-                    getEntry(state.entriesByProjectPath, projectPath).branchData,
-                    branchData
-                  )
-                    ? getEntry(state.entriesByProjectPath, projectPath).pullRequestComments
-                    : [],
-                  pullRequestReviews: shouldRetainPullRequestChecks(
-                    getEntry(state.entriesByProjectPath, projectPath).branchData,
-                    branchData
-                  )
-                    ? getEntry(state.entriesByProjectPath, projectPath).pullRequestReviews
-                    : [],
-                  pullRequestReviewComments: shouldRetainPullRequestChecks(
-                    getEntry(state.entriesByProjectPath, projectPath).branchData,
-                    branchData
-                  )
-                    ? getEntry(state.entriesByProjectPath, projectPath).pullRequestReviewComments
-                    : [],
-                  branchError: null,
-                  pullRequestChecksError: shouldRetainPullRequestChecks(
-                    getEntry(state.entriesByProjectPath, projectPath).branchData,
-                    branchData
-                  )
-                    ? getEntry(state.entriesByProjectPath, projectPath).pullRequestChecksError
-                    : null,
-                  isBranchLoading: false,
-                  isPullRequestChecksLoading: shouldRetainPullRequestChecks(
-                    getEntry(state.entriesByProjectPath, projectPath).branchData,
-                    branchData
-                  )
-                    ? getEntry(state.entriesByProjectPath, projectPath).isPullRequestChecksLoading
-                    : false,
+            set((state) => {
+              const currentEntry = getEntry(state.entriesByProjectPath, projectPath)
+              const {
+                branchData: nextBranchData,
+                pullRequestChecksPendingUntil,
+              } = resolveBranchDataForEntry(currentEntry, branchData)
+              const shouldRetainChecks = shouldRetainPullRequestChecks(
+                currentEntry.branchData,
+                nextBranchData
+              )
+
+              return {
+                entriesByProjectPath: {
+                  ...state.entriesByProjectPath,
+                  [projectPath]: {
+                    ...currentEntry,
+                    branchData: nextBranchData,
+                    pullRequestChecks: shouldRetainChecks ? currentEntry.pullRequestChecks : [],
+                    pullRequestComments: shouldRetainChecks ? currentEntry.pullRequestComments : [],
+                    pullRequestReviews: shouldRetainChecks ? currentEntry.pullRequestReviews : [],
+                    pullRequestReviewComments: shouldRetainChecks
+                      ? currentEntry.pullRequestReviewComments
+                      : [],
+                    branchError: null,
+                    pullRequestChecksError: shouldRetainChecks
+                      ? currentEntry.pullRequestChecksError
+                      : null,
+                    pullRequestChecksPendingUntil,
+                    isBranchLoading: false,
+                    isPullRequestChecksLoading: shouldRetainChecks
+                      ? currentEntry.isPullRequestChecksLoading
+                      : false,
+                  },
                 },
-              },
-            }))
+              }
+            })
           })
           .catch((error) => {
             set((state) => ({

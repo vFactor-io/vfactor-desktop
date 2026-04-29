@@ -4,6 +4,7 @@ import type {
   GitStackedAction,
 } from "@/desktop/client"
 import { getResolveActionLabel, getResolveHint, getResolveTone } from "./gitResolve"
+import { isActionablePullRequestChecksError } from "./pullRequestChecks"
 
 export type GitActionIconName =
   | "archive"
@@ -329,7 +330,7 @@ export function resolveQuickAction(
       }
     }
 
-    if (pullRequest.checksError) {
+    if (isActionablePullRequestChecksError(pullRequest.checksError)) {
       return {
         label: "Checks unavailable",
         disabled: false,
