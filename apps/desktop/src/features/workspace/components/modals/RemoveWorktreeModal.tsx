@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { InformationCircle, Trash } from "@/components/icons"
+import { Archive, InformationCircle, Trash } from "@/components/icons"
 import { desktop } from "@/desktop/client"
 import { feedbackIconClassName, feedbackSurfaceClassName } from "@/features/shared/appearance"
 import {
@@ -50,17 +50,20 @@ export function RemoveWorktreeModal({
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const { changes, isLoading, loadError } = useProjectGitChanges(open ? (worktree?.path ?? null) : null)
-  const hasUncommittedChanges = changes.length > 0
+  const hasSettledUncommittedChanges = !isLoading && !isRemoving && changes.length > 0
   const canDeleteFromSystem = worktree?.source === "managed"
-  const deleteIsBlocked = deleteFromSystem && (isLoading || hasUncommittedChanges || Boolean(loadError))
+  const deleteIsBlocked =
+    deleteFromSystem && (isLoading || hasSettledUncommittedChanges || Boolean(loadError))
+  const isCheckingBeforeDelete = deleteFromSystem && isLoading && !isRemoving
   const actionLabel =
     intent === "archive"
       ? deleteFromSystem
-        ? "Archive and delete"
+        ? "Delete"
         : "Archive"
       : deleteFromSystem
-        ? "Remove and delete"
-        : "Remove from app"
+        ? "Delete"
+        : "Archive"
+  const ActionIcon = deleteFromSystem ? Trash : Archive
 
   useEffect(() => {
     if (!open) {
@@ -150,22 +153,13 @@ export function RemoveWorktreeModal({
             />
           </div>
 
-          {hasUncommittedChanges ? (
+          {hasSettledUncommittedChanges ? (
             <div className={cn(feedbackSurfaceClassName("warning"), "flex items-start gap-2 rounded-lg px-3 py-2.5 text-left")}>
               <InformationCircle className={cn("mt-0.5 size-4 shrink-0", feedbackIconClassName("warning"))} />
               <p className="text-xs leading-5">
                 {deleteIsBlocked
                   ? "Can't delete from system while this workspace has uncommitted changes."
                   : "This workspace has uncommitted changes."}
-              </p>
-            </div>
-          ) : null}
-
-          {deleteFromSystem && isLoading ? (
-            <div className="flex items-start gap-2 rounded-lg border border-border/70 bg-muted/40 px-3 py-2.5 text-left">
-              <InformationCircle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-              <p className="text-xs leading-5 text-muted-foreground">
-                Checking for uncommitted changes before deleting this workspace from disk.
               </p>
             </div>
           ) : null}
@@ -188,7 +182,8 @@ export function RemoveWorktreeModal({
             onClick={() => void handleRemove()}
             disabled={!project || !worktree || isRemoving || deleteIsBlocked}
           >
-            {isRemoving ? "Removing..." : actionLabel}
+            {isRemoving || isCheckingBeforeDelete ? null : <ActionIcon className="size-4" />}
+            {isRemoving ? "Removing..." : isCheckingBeforeDelete ? "Checking..." : actionLabel}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

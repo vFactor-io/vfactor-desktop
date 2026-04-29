@@ -374,6 +374,35 @@ describe("projectStore", () => {
     expect(persistedProjects[0]?.setupScript).toBeNull()
   })
 
+  test("updateWorktree trims and persists visual workspace name", async () => {
+    useProjectStore.setState({
+      projects: [createProject({ worktrees: [createRootWorktree(), createManagedWorktree()] })],
+      focusedProjectId: "project-1",
+      activeWorktreeId: "managed-worktree",
+      isLoading: false,
+    })
+
+    const updatedWorktree = await useProjectStore.getState().updateWorktree(
+      "project-1",
+      "managed-worktree",
+      {
+        name: "  Checkout polish  ",
+      }
+    )
+
+    const project = useProjectStore.getState().projects[0]
+    const worktree = project?.worktrees.find((candidate) => candidate.id === "managed-worktree")
+    const persistedProjects = storeData.get("projects") as Array<Project>
+    const persistedWorktree = persistedProjects[0]?.worktrees.find(
+      (candidate) => candidate.id === "managed-worktree"
+    )
+
+    expect(updatedWorktree.name).toBe("Checkout polish")
+    expect(worktree?.name).toBe("Checkout polish")
+    expect(persistedWorktree?.name).toBe("Checkout polish")
+    expect(worktree?.branchName).toBe("kolkata")
+  })
+
   test("removing the last worktree preserves the project and clears active worktree state", async () => {
     useProjectStore.setState({
       projects: [createProject()],

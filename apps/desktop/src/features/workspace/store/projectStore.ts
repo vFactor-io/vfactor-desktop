@@ -60,6 +60,11 @@ interface ProjectState {
     worktreeId: string,
     updates: { branchName: string; name?: string | null }
   ) => Promise<ProjectWorktree>
+  updateWorktree: (
+    projectId: string,
+    worktreeId: string,
+    updates: Partial<Pick<ProjectWorktree, "name">>
+  ) => Promise<ProjectWorktree>
   removeWorktree: (
     projectId: string,
     worktreeId: string,
@@ -1386,6 +1391,43 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       focusedProjectId: selection.focusedProjectId,
       activeWorktreeId: selection.activeWorktreeId,
     })
+  },
+
+  updateWorktree: async (projectId, worktreeId, updates) => {
+    let updatedWorktree: ProjectWorktree | null = null
+    const nextProjects = get().projects.map((project) => {
+      if (project.id !== projectId) {
+        return project
+      }
+
+      const nextWorktrees = project.worktrees.map((worktree) => {
+        if (worktree.id !== worktreeId) {
+          return worktree
+        }
+
+        updatedWorktree = {
+          ...worktree,
+          name: updates.name?.trim() ? updates.name.trim() : worktree.name,
+          updatedAt: Date.now(),
+        }
+
+        return updatedWorktree
+      })
+
+      return {
+        ...project,
+        worktrees: nextWorktrees,
+      }
+    })
+
+    if (!updatedWorktree) {
+      throw new Error(`Unknown worktree: ${projectId}/${worktreeId}`)
+    }
+
+    bumpProjectMutationVersion()
+    await persistProjects(nextProjects, get().focusedProjectId, get().activeWorktreeId)
+    set({ projects: nextProjects })
+    return updatedWorktree
   },
 
   updateProject: async (id, updates) => {

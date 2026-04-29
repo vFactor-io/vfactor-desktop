@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, type ReactNode } from "react"
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from "react"
 import { useShallow } from "zustand/react/shallow"
 import { Reorder } from "framer-motion"
 import { desktop } from "@/desktop/client"
@@ -27,6 +27,7 @@ import {
   ProjectSettingsModal,
   RemoveProjectModal,
   RemoveWorktreeModal,
+  WorkspaceSettingsModal,
 } from "@/features/workspace/components/modals"
 import { ProjectIcon } from "@/features/workspace/components/ProjectIcon"
 import { useChatStore } from "@/features/chat/store"
@@ -88,6 +89,61 @@ function getWorktreeRemovalDisabledReason({
   return null
 }
 
+function TruncatedWorkspaceLabel({
+  children,
+  className,
+}: {
+  children: string
+  className?: string
+}) {
+  const labelRef = useRef<HTMLSpanElement | null>(null)
+  const [isOverflowing, setIsOverflowing] = useState(false)
+
+  const updateOverflowState = () => {
+    const label = labelRef.current
+    if (!label) {
+      setIsOverflowing(false)
+      return
+    }
+
+    setIsOverflowing(label.scrollWidth > label.clientWidth + 1)
+  }
+
+  useLayoutEffect(() => {
+    updateOverflowState()
+  }, [children])
+
+  useEffect(() => {
+    const label = labelRef.current
+    if (!label || typeof ResizeObserver === "undefined") {
+      return
+    }
+
+    const observer = new ResizeObserver(updateOverflowState)
+    observer.observe(label)
+    return () => observer.disconnect()
+  }, [])
+
+  const label = (
+    <span ref={labelRef} className={className}>
+      {children}
+    </span>
+  )
+
+  if (!isOverflowing) {
+    return label
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{label}</TooltipTrigger>
+      <TooltipContent side="right" align="center" className="max-w-72 text-sm leading-5">
+        {children}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
 function ReorderableProjectItem(props: {
   project: Project
   isDraggingProject: boolean
@@ -136,6 +192,10 @@ export function LeftSidebar({
   const [newWorkspaceModalProject, setNewWorkspaceModalProject] = useState<Project | null>(null)
   const [projectSettingsProject, setProjectSettingsProject] = useState<Project | null>(null)
   const [projectPendingRemoval, setProjectPendingRemoval] = useState<Project | null>(null)
+  const [worktreeSettingsTarget, setWorktreeSettingsTarget] = useState<{
+    project: Project
+    worktree: ProjectWorktree
+  } | null>(null)
   const [worktreePendingRemoval, setWorktreePendingRemoval] = useState<{
     project: Project
     worktree: ProjectWorktree
@@ -425,7 +485,9 @@ export function LeftSidebar({
               />
             </span>
             <span className="flex min-w-0 flex-1 items-center gap-2 text-left">
-              <span className="truncate text-sm font-medium">{project.name}</span>
+              <TruncatedWorkspaceLabel className="min-w-0 flex-1 truncate text-sm font-medium">
+                {project.name}
+              </TruncatedWorkspaceLabel>
             </span>
           </button>
 
@@ -568,9 +630,9 @@ export function LeftSidebar({
                           </Tooltip>
                         )}
                       </span>
-                      <span className="min-w-0 flex-1 truncate text-sm font-medium leading-none">
+                      <TruncatedWorkspaceLabel className="min-w-0 flex-1 truncate text-sm font-medium leading-none">
                         {worktree.name}
-                      </span>
+                      </TruncatedWorkspaceLabel>
                     </button>
 
                     {pullRequestIndicator ? (
@@ -613,6 +675,11 @@ export function LeftSidebar({
                         <DotsThree size="1em" weight="bold" />
                       </DropdownMenuTrigger>
                       <DropdownMenuContent side="bottom" align="end" className="w-44">
+                        <DropdownMenuItem
+                          onClick={() => setWorktreeSettingsTarget({ project, worktree })}
+                        >
+                          <span>Settings</span>
+                        </DropdownMenuItem>
                         {removeWorktreeDisabledReason ? (
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -835,6 +902,16 @@ export function LeftSidebar({
         onOpenChange={(open) => {
           if (!open) {
             setWorktreePendingRemoval(null)
+          }
+        }}
+      />
+      <WorkspaceSettingsModal
+        open={worktreeSettingsTarget !== null}
+        project={worktreeSettingsTarget?.project ?? null}
+        worktree={worktreeSettingsTarget?.worktree ?? null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setWorktreeSettingsTarget(null)
           }
         }}
       />
