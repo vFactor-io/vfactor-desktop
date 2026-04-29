@@ -12,7 +12,11 @@ import {
   useProjectGitPullRequestChecks,
 } from "@/features/shared/hooks"
 import { PullRequestChecksPanel } from "./PullRequestChecksPanel"
-import { getChecksTabBadgeCount, shouldAutoOpenChecksTab } from "./pullRequestChecks"
+import {
+  getChecksTabBadgeCount,
+  isActionablePullRequestChecksError,
+  shouldAutoOpenChecksTab,
+} from "./pullRequestChecks"
 import { useRightSidebar } from "./useRightSidebar"
 import { SidebarShell } from "./SidebarShell"
 import { RightSidebarEmptyState } from "./RightSidebarEmptyState"
@@ -86,6 +90,7 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
   const shouldLoadChecks = openPullRequest?.state === "open"
   const {
     checks: pullRequestChecks,
+    commits: pullRequestCommits,
     comments: pullRequestComments,
     reviews: pullRequestReviews,
     reviewComments: pullRequestReviewComments,
@@ -97,6 +102,12 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
   const gitMissing = branchData != null && !branchData.isGitAvailable
   const gitUninitialized = branchData != null && branchData.isGitAvailable && !branchData.isRepo
   const checksTabBadgeCount = getChecksTabBadgeCount(openPullRequest, pullRequestChecks)
+  const pullRequestChecksLoadError =
+    !isPullRequestChecksLoading &&
+    openPullRequest?.checksStatus !== "pending" &&
+    isActionablePullRequestChecksError(pullRequestChecksError ?? openPullRequest?.checksError)
+      ? (pullRequestChecksError ?? openPullRequest?.checksError ?? null)
+      : null
 
   const fileTreeData = activeProjectPath ? (dataByProjectPath[activeProjectPath] ?? {}) : {}
   const isFileTreeLoading = activeProjectPath ? (loadingByProjectPath[activeProjectPath] ?? false) : false
@@ -502,11 +513,12 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
                     <PullRequestChecksPanel
                       pullRequest={openPullRequest}
                       checks={pullRequestChecks}
+                      commits={pullRequestCommits}
                       comments={pullRequestComments}
                       reviews={pullRequestReviews}
                       reviewComments={pullRequestReviewComments}
                       isLoading={isPullRequestChecksLoading}
-                      loadError={pullRequestChecksError ?? openPullRequest?.checksError ?? null}
+                      loadError={pullRequestChecksLoadError}
                     />
                   )}
                 </div>

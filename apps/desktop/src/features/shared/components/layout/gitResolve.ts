@@ -168,20 +168,48 @@ export function getResolveTone(
   return "warning"
 }
 
-export function getResolveHint(resolveReason: GitPullRequestResolveReason): string {
+export function getResolveHint(
+  resolveReason: GitPullRequestResolveReason,
+  context?: {
+    baseBranch?: string | null
+    failedChecksCount?: number | null
+    pendingChecksCount?: number | null
+  }
+): string {
+  const baseBranch = context?.baseBranch?.trim() || "the base branch"
+  const failedChecksCount = context?.failedChecksCount ?? 0
+  const pendingChecksCount = context?.pendingChecksCount ?? 0
+
   switch (resolveReason) {
     case "conflicts":
-      return "Open a new chat to resolve merge conflicts blocking this PR."
+      return "GitHub says this PR has merge conflicts.\nClicking this opens a resolve chat to fix the conflicts in this branch."
     case "behind":
-      return "Open a new chat to update this branch and fix any merge fallout."
+      return `GitHub says this branch is out-of-date with ${baseBranch}.\nClicking this opens a resolve chat to merge the latest ${baseBranch} changes into this branch.`
     case "failed_checks":
-      return "Open a new chat to investigate and fix the failing required checks."
+      return `${failedChecksCount > 0 ? `${failedChecksCount} required check${failedChecksCount === 1 ? " is" : "s are"} failing.` : "GitHub says required checks are failing."}\nClicking this opens a resolve chat to investigate and fix the failing checks.`
     case "blocked":
-      return "Open a new chat to investigate what is blocking this PR from merging."
+      return "GitHub says merging is blocked.\nClicking this opens a resolve chat to investigate the blocker; if it is a GitHub-only requirement like an unresolved conversation, it will point you back to the PR."
     case "draft":
-      return "Open a new chat to prepare this draft PR for merge readiness."
+      return "GitHub says this PR is still a draft.\nClicking this opens a resolve chat to prepare the branch for merge readiness."
     case "unknown":
-      return "Open a new chat to investigate why this PR is not mergeable yet."
+      return "GitHub says this PR is not mergeable yet, but did not provide a specific reason.\nClicking this opens a resolve chat to inspect the PR state and identify the blocker."
+  }
+}
+
+export function getResolveActionLabel(resolveReason: GitPullRequestResolveReason): string {
+  switch (resolveReason) {
+    case "conflicts":
+      return "Fix conflicts"
+    case "behind":
+      return "Update branch"
+    case "failed_checks":
+      return "Fix checks"
+    case "blocked":
+      return "Resolve blocker"
+    case "draft":
+      return "Draft PR"
+    case "unknown":
+      return "View blocker"
   }
 }
 

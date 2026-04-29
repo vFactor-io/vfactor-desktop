@@ -17,6 +17,8 @@ import {
   GitPullRequest,
   InformationCircle,
   Refresh,
+  ShieldWarning,
+  X,
 } from "@/components/icons"
 import { normalizeGitGenerationModel, useSettingsStore } from "@/features/settings/store/settingsStore"
 import {
@@ -29,7 +31,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/features/shared/components/ui/alert-dialog"
-import { contentTextClassNames, iconTextClassNames } from "@/features/shared/appearance"
+import {
+  contentTextClassNames,
+  feedbackIconClassName,
+  iconTextClassNames,
+} from "@/features/shared/appearance"
 import { Button } from "@/features/shared/components/ui/button"
 import {
   DropdownMenu,
@@ -53,6 +59,7 @@ import {
 } from "./gitActionsLogic"
 import { useCurrentProjectWorktree } from "@/features/shared/hooks"
 import { buildResolvePrompt } from "./gitResolve"
+import { useRightSidebar } from "./useRightSidebar"
 
 interface SourceControlActionGroupProps {
   className?: string
@@ -109,6 +116,7 @@ function formatGitActionError(error: unknown, fallback: string): string {
   return message
     .replace(/^Error invoking remote method '[^']+':\s*/i, "")
     .replace(/^Error:\s*/i, "")
+    .replace(/^GraphQL:\s*/i, "")
     .trim()
 }
 
@@ -151,6 +159,7 @@ export function SourceControlActionGroup({
   const createOptimisticSession = useChatStore((state) => state.createOptimisticSession)
   const sendMessage = useChatStore((state) => state.sendMessage)
   const openChatSession = useTabStore((state) => state.openChatSession)
+  const { expand: expandRightSidebar, setActiveTab: setRightSidebarActiveTab } = useRightSidebar()
   const {
     branchData,
     isLoading: isBranchLoading,
@@ -180,7 +189,7 @@ export function SourceControlActionGroup({
   const [busyLabel, setBusyLabel] = useState<string | null>(null)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null)
-  const [feedbackTone, setFeedbackTone] = useState<"error" | "neutral">("neutral")
+  const [feedbackTone, setFeedbackTone] = useState<"error" | "success" | "info">("info")
   const [isArchiveModalOpen, setIsArchiveModalOpen] = useState(false)
 
   useEffect(() => {
@@ -192,6 +201,18 @@ export function SourceControlActionGroup({
       setActiveStep(event.step)
     })
   }, [])
+
+  useEffect(() => {
+    if (!feedbackMessage || feedbackTone === "error") {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setFeedbackMessage(null)
+    }, 4_000)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [feedbackMessage, feedbackTone])
 
   const hasChanges = changes.length > 0
   const isBusy = isSubmitting || isBranchLoading || isChangesLoading
@@ -331,6 +352,31 @@ export function SourceControlActionGroup({
     }, 2_000)
   }
 
+  const seedOptimisticPendingChecks = (nextBranchData: GitBranchesResponse | null) => {
+    const nextPullRequest = nextBranchData?.openPullRequest ?? branchStatus?.openPullRequest ?? null
+    const base = nextBranchData ?? branchStatus
+
+    if (!base || nextPullRequest?.state !== "open") {
+      return
+    }
+
+    setBranchData({
+      ...base,
+      openPullRequest: {
+        ...nextPullRequest,
+        checksStatus: "pending",
+        checksError: null,
+        pendingChecksCount: Math.max(nextPullRequest.pendingChecksCount ?? 0, 1),
+        failedChecksCount: 0,
+        failedCheckNames: [],
+        resolveReason:
+          nextPullRequest.resolveReason === "failed_checks"
+            ? undefined
+            : nextPullRequest.resolveReason,
+      },
+    })
+  }
+
   const openPullRequest = async () => {
     const prUrl = branchStatus?.openPullRequest?.url
     if (!prUrl) {
@@ -341,7 +387,7 @@ export function SourceControlActionGroup({
 
     try {
       await desktop.shell.openExternal(prUrl)
-      setFeedbackTone("neutral")
+      setFeedbackTone("info")
       setFeedbackMessage(null)
     } catch (error) {
       setFeedbackTone("error")
@@ -356,7 +402,7 @@ export function SourceControlActionGroup({
       return
     }
 
-    setFeedbackTone("neutral")
+    setFeedbackTone("info")
     setFeedbackMessage(null)
     setIsArchiveModalOpen(true)
   }
@@ -364,7 +410,7 @@ export function SourceControlActionGroup({
   const handleInstallGit = async () => {
     try {
       await desktop.shell.openExternal(GIT_DOWNLOADS_URL)
-      setFeedbackTone("neutral")
+      setFeedbackTone("info")
       setFeedbackMessage(null)
     } catch (error) {
       setFeedbackTone("error")
@@ -381,7 +427,7 @@ export function SourceControlActionGroup({
       const nextBranchData = await desktop.git.initRepo(resolvedProjectPath)
       setBranchData(nextBranchData)
       await refreshGitState()
-      setFeedbackTone("neutral")
+      setFeedbackTone("success")
       setFeedbackMessage("Git initialized for this project.")
     } catch (error) {
       setFeedbackTone("error")
@@ -454,10 +500,24 @@ export function SourceControlActionGroup({
         if (!nextBranchData?.openPullRequest) {
           seedOptimisticPullRequest(nextBranchData, result.pr)
         }
-        setFeedbackTone("neutral")
-        setFeedbackMessage(null)
+        if (result.pr.status === "opened_existing") {
+          seedOptimisticPendingChecks(nextBranchData)
+          setFeedbackTone("success")
+          setFeedbackMessage(summarizeGitResult(result))
+        } else {
+          setFeedbackTone("info")
+          setFeedbackMessage(null)
+        }
+      } else if (
+        (action === "commit_push" || action === "commit_push_pr") &&
+        (nextBranchData?.openPullRequest?.state === "open" ||
+          branchStatus?.openPullRequest?.state === "open")
+      ) {
+        seedOptimisticPendingChecks(nextBranchData)
+        setFeedbackTone("success")
+        setFeedbackMessage(summarizeGitResult(result))
       } else {
-        setFeedbackTone("neutral")
+        setFeedbackTone("success")
         setFeedbackMessage(summarizeGitResult(result))
       }
       console.debug("[AppHeader] runGitAction:success", {
@@ -499,7 +559,7 @@ export function SourceControlActionGroup({
         projectPath: resolvedProjectPath,
         result,
       })
-      setFeedbackTone("neutral")
+      setFeedbackTone("success")
       setFeedbackMessage(
         result.status === "pulled"
           ? `Pulled ${result.branch}`
@@ -519,6 +579,13 @@ export function SourceControlActionGroup({
     }
   }
 
+  const openChecksTab = () => {
+    expandRightSidebar()
+    setRightSidebarActiveTab("checks")
+    setFeedbackTone("info")
+    setFeedbackMessage(null)
+  }
+
   const handleMergePullRequest = async () => {
     console.debug("[AppHeader] handleMergePullRequest:start", {
       projectPath: resolvedProjectPath,
@@ -535,7 +602,7 @@ export function SourceControlActionGroup({
         projectPath: resolvedProjectPath,
         result,
       })
-      setFeedbackTone("neutral")
+      setFeedbackTone("success")
       setFeedbackMessage(`Merged PR #${result.number}`)
     } catch (error) {
       console.error("[AppHeader] handleMergePullRequest:error", {
@@ -587,7 +654,7 @@ export function SourceControlActionGroup({
     openChatSession(session.id, session.title)
     setIsSubmitting(true)
     setBusyLabel("Resolving")
-    setFeedbackTone("neutral")
+    setFeedbackTone("info")
     setFeedbackMessage(null)
 
     try {
@@ -627,6 +694,11 @@ export function SourceControlActionGroup({
       return
     }
 
+    if (quickAction.kind === "open_checks") {
+      openChecksTab()
+      return
+    }
+
     if (quickAction.kind === "merge_pr") {
       await handleMergePullRequest()
       return
@@ -648,7 +720,7 @@ export function SourceControlActionGroup({
     }
 
     if (quickAction.hint) {
-      setFeedbackTone("neutral")
+      setFeedbackTone("info")
       setFeedbackMessage(quickAction.hint)
     }
   }
@@ -699,6 +771,26 @@ export function SourceControlActionGroup({
   const displayLabel = busyLabel ?? (isSubmitting && activeStep ? STEP_LABELS[activeStep] : quickAction.label)
   const iconKey = isSubmitting ? "spinner" : quickAction.label
   const labelKey = displayLabel
+  const isChecksPendingAction = quickAction.kind === "open_checks"
+  const splitButtonTone = feedbackTone === "error" && feedbackMessage ? "danger" : quickAction.tone
+  const feedbackIconTone =
+    feedbackTone === "error" ? "destructive" : feedbackTone === "success" ? "success" : "info"
+  const feedbackTitle =
+    feedbackTone === "error"
+      ? "Git action failed"
+      : feedbackTone === "success"
+        ? "Git action complete"
+        : "Git action"
+  const splitButtonToneClassName =
+    splitButtonTone === "warning"
+      ? "border-[color:var(--color-warning-border)] bg-[color:var(--color-warning-surface)] text-[color:var(--color-warning-surface-foreground)] hover:bg-[color:var(--color-warning-surface)]/85 hover:text-[color:var(--color-warning-surface-foreground)]"
+      : splitButtonTone === "danger"
+        ? "border-[color:var(--color-destructive-border)] bg-[color:var(--color-destructive-surface)] text-[color:var(--color-destructive-surface-foreground)] hover:bg-[color:var(--color-destructive-surface)]/85 hover:text-[color:var(--color-destructive-surface-foreground)]"
+        : undefined
+  const splitButtonIconClassName =
+    splitButtonTone === "default"
+      ? "[&_svg]:text-[color:var(--color-icon)]"
+      : "[&_svg]:text-current"
 
   const enterTransition = { duration: 0.25, ease: [0.4, 0, 0.2, 1] }
   const exitTransition = { duration: 0.15, ease: [0.4, 0, 1, 1] }
@@ -713,12 +805,8 @@ export function SourceControlActionGroup({
       className={cn(
         "h-7 rounded-r-none border-r-0 border-control-border bg-[color:color-mix(in_oklab,var(--sidebar)_74%,var(--card))] shadow-none hover:bg-[var(--sidebar-item-hover)]",
         contentTextClassNames.default,
-        "[&_svg]:text-[color:var(--color-icon)]",
-        quickAction.tone === "warning" &&
-          "border-[color:var(--color-warning-border)] bg-[color:var(--color-warning-surface)] text-[color:var(--color-warning-surface-foreground)] hover:bg-[color:var(--color-warning-surface)]/85 hover:text-[color:var(--color-warning-surface-foreground)]",
-        quickAction.tone === "danger" &&
-          "border-[color:var(--color-destructive-border)] bg-[color:var(--color-destructive-surface)] text-[color:var(--color-destructive-surface-foreground)] hover:bg-[color:var(--color-destructive-surface)]/85 hover:text-[color:var(--color-destructive-surface-foreground)]",
-        feedbackTone === "error" && feedbackMessage ? "border-destructive/50" : undefined,
+        splitButtonIconClassName,
+        splitButtonToneClassName,
         className
       )}
     >
@@ -731,7 +819,11 @@ export function SourceControlActionGroup({
             animate={{ opacity: 1, scale: 1, transition: enterTransition }}
             exit={{ opacity: 0, scale: 0.6, position: "absolute", transition: exitTransition }}
           >
-            {isSubmitting ? <CircleNotch size={16} className="animate-spin" /> : quickActionIcon}
+            {isSubmitting || isChecksPendingAction ? (
+              <CircleNotch size={16} className="animate-spin" />
+            ) : (
+              quickActionIcon
+            )}
           </motion.span>
         </AnimatePresence>
       </span>
@@ -777,7 +869,7 @@ export function SourceControlActionGroup({
                 <span>{setupActionLabel}</span>
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom" align="end" className="max-w-72 text-sm leading-5">
+            <TooltipContent side="bottom" align="end" className="max-w-72 whitespace-pre-line text-sm leading-5">
               {actionHint}
             </TooltipContent>
           </Tooltip>
@@ -788,7 +880,7 @@ export function SourceControlActionGroup({
                 <TooltipTrigger asChild>
                   <span className="inline-flex">{renderQuickButton}</span>
                 </TooltipTrigger>
-                <TooltipContent side="bottom" align="end" className="max-w-72 text-sm leading-5">
+                <TooltipContent side="bottom" align="end" className="max-w-72 whitespace-pre-line text-sm leading-5">
                   {actionHint}
                 </TooltipContent>
               </Tooltip>
@@ -805,7 +897,8 @@ export function SourceControlActionGroup({
                     size="icon-sm"
                     className={cn(
                       "h-7 w-8 rounded-l-none border-control-border bg-[color:color-mix(in_oklab,var(--sidebar)_74%,var(--card))] shadow-none hover:bg-[var(--sidebar-item-hover)]",
-                      iconTextClassNames.default
+                      splitButtonTone === "default" ? iconTextClassNames.default : "text-current",
+                      splitButtonToneClassName
                     )}
                     aria-label="Open git actions menu"
                     disabled={isBusy}
@@ -835,6 +928,55 @@ export function SourceControlActionGroup({
           </div>
         )}
       </div>
+
+      <AnimatePresence>
+        {feedbackMessage ? (
+          <motion.div
+            key={`${feedbackTone}:${feedbackMessage}`}
+            role={feedbackTone === "error" ? "alert" : "status"}
+            aria-live={feedbackTone === "error" ? "assertive" : "polite"}
+            className="pointer-events-none fixed top-12 right-3 z-50 w-[min(92vw,360px)]"
+            initial={{ opacity: 0, y: -8, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -6, scale: 0.98 }}
+            transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <div
+              className={cn(
+                "pointer-events-auto flex items-start gap-2 rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-popover)] px-3 py-2 text-sm text-[color:var(--color-popover-foreground)] shadow-lg"
+              )}
+            >
+              <span
+                className={cn(
+                  "mt-0.5 flex size-4 shrink-0 items-center justify-center",
+                  feedbackIconClassName(feedbackIconTone)
+                )}
+              >
+                {feedbackTone === "error" ? (
+                  <ShieldWarning size={16} />
+                ) : (
+                  <InformationCircle size={16} />
+                )}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium leading-4">{feedbackTitle}</p>
+                <p className="mt-0.5 break-words text-xs leading-5">{feedbackMessage}</p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="-mr-1 -mt-1 size-6 shrink-0 text-current opacity-70 hover:bg-current/10 hover:text-current hover:opacity-100"
+                aria-label="Dismiss git action feedback"
+                title="Dismiss"
+                onClick={() => setFeedbackMessage(null)}
+              >
+                <X size={12} />
+              </Button>
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
       <CommitChangesDialog
         open={isCommitDialogOpen}

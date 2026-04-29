@@ -3,7 +3,8 @@ import type {
   GitRunStackedActionResult,
   GitStackedAction,
 } from "@/desktop/client"
-import { getResolveHint, getResolveTone } from "./gitResolve"
+import { getResolveActionLabel, getResolveHint, getResolveTone } from "./gitResolve"
+import { isActionablePullRequestChecksError } from "./pullRequestChecks"
 
 export type GitActionIconName =
   | "archive"
@@ -36,6 +37,7 @@ export interface GitQuickAction {
   kind:
     | "merge_pr"
     | "open_archive"
+    | "open_checks"
     | "open_pr"
     | "resolve_pr"
     | "run_action"
@@ -71,20 +73,14 @@ function isArchiveAvailable(
 
 function getChecksPendingHint(branchData: GitBranchesResponse): string {
   const pendingCount = branchData.openPullRequest?.pendingChecksCount ?? 0
-  if (pendingCount > 0) {
-    return pendingCount === 1 ? "1 required check is still running." : `${pendingCount} required checks are still running.`
-  }
+  const countLabel =
+    pendingCount > 0
+      ? pendingCount === 1
+        ? "1 required check is still running."
+        : `${pendingCount} required checks are still running.`
+      : "Required checks are still running for this pull request."
 
-  return "Required checks are still running for this pull request."
-}
-
-function getChecksFailedHint(branchData: GitBranchesResponse): string {
-  const failedCount = branchData.openPullRequest?.failedChecksCount ?? 0
-  if (failedCount > 0) {
-    return failedCount === 1 ? "1 required check is failing." : `${failedCount} required checks are failing.`
-  }
-
-  return "Required checks are failing for this pull request."
+  return `GitHub says checks are still pending.\n${countLabel}\nClicking this opens the Checks tab here so you can watch them finish.`
 }
 
 function canResolvePullRequest(branchData: GitBranchesResponse): boolean {
@@ -162,9 +158,10 @@ export function buildMenuItems(
   ]
 
   if (canResolvePullRequest(branchData)) {
+    const resolveReason = branchData.openPullRequest!.resolveReason!
     menuItems.push({
       id: "resolve",
-      label: "Resolve",
+      label: getResolveActionLabel(resolveReason),
       disabled: isBusy,
       icon: "chat",
       kind: "resolve_pr",
@@ -322,7 +319,18 @@ export function resolveQuickAction(
   }
 
   if (hasOpenPr) {
-    if (pullRequest.checksError) {
+    if (pullRequest.checksStatus === "pending") {
+      return {
+        label: "Checks pending",
+        disabled: false,
+        icon: "pr",
+        kind: "open_checks",
+        hint: getChecksPendingHint(branchData),
+        tone: "warning",
+      }
+    }
+
+    if (isActionablePullRequestChecksError(pullRequest.checksError)) {
       return {
         label: "Checks unavailable",
         disabled: false,
@@ -333,27 +341,17 @@ export function resolveQuickAction(
       }
     }
 
-    if (pullRequest.checksStatus === "pending") {
-      return {
-        label: "Checks pending",
-        disabled: false,
-        icon: "pr",
-        kind: "open_pr",
-        hint: getChecksPendingHint(branchData),
-        tone: "warning",
-      }
-    }
-
     if (pullRequest.resolveReason) {
       return {
-        label: "Resolve",
+        label: getResolveActionLabel(pullRequest.resolveReason),
         disabled: false,
         icon: "chat",
         kind: "resolve_pr",
-        hint:
-          pullRequest.resolveReason === "failed_checks"
-            ? getChecksFailedHint(branchData)
-            : getResolveHint(pullRequest.resolveReason),
+        hint: getResolveHint(pullRequest.resolveReason, {
+          baseBranch: pullRequest.baseBranch,
+          failedChecksCount: pullRequest.failedChecksCount,
+          pendingChecksCount: pullRequest.pendingChecksCount,
+        }),
         tone: getResolveTone(pullRequest.resolveReason),
       }
     }

@@ -13,8 +13,10 @@ import type {
   GitFileDiff,
   GitMergePullRequestResult,
   GitPullRequestResolveReason,
+  GitPullRequestChecksOptions,
   GitPullRequestChecksResponse,
   GitPullRequestCheck,
+  GitPullRequestCommit,
   GitPullRequestComment,
   GitPullRequestCheckStatus,
   GitPullRequestReviewComment,
@@ -89,37 +91,46 @@ function normalizePullRequestChecksResponse(
 ): GitPullRequestChecksResponse {
   const response = (value ?? {}) as Partial<GitPullRequestChecksResponse>
   const checks = Array.isArray(response.checks) ? response.checks : []
+  const hasCommitsArray = Array.isArray(response.commits)
   const hasReviewsArray = Array.isArray(response.reviews)
   const hasCommentsArray = Array.isArray(response.comments)
   const hasReviewCommentsArray = Array.isArray(response.reviewComments)
+  const commits = hasCommitsArray ? response.commits : []
   const reviews = hasReviewsArray ? response.reviews : []
   const comments = hasCommentsArray ? response.comments : []
   const reviewComments = hasReviewCommentsArray ? response.reviewComments : []
   const pullRequestNumber =
     typeof response.pullRequestNumber === "number" ? response.pullRequestNumber : null
   const error = response.error ?? null
+  const activityError = response.activityError ?? null
 
-  if (!hasReviewsArray || !hasCommentsArray || !hasReviewCommentsArray) {
+  if (!hasCommitsArray || !hasReviewsArray || !hasCommentsArray || !hasReviewCommentsArray) {
     const legacyBridgeMessage =
-      "The desktop bridge is still using the older pull request checks payload. Restart the desktop dev process to load reviews and comments."
+      "The desktop bridge is still using the older pull request checks payload. Restart the desktop dev process to load commits, reviews, and comments."
 
     return {
       checks,
+      commits,
       reviews,
       comments,
       reviewComments,
       pullRequestNumber,
       error: error ? `${error} ${legacyBridgeMessage}` : legacyBridgeMessage,
+      activityIncluded: false,
+      activityError,
     }
   }
 
   return {
     checks,
+    commits,
     reviews,
     comments,
     reviewComments,
     pullRequestNumber,
     error,
+    activityIncluded: response.activityIncluded !== false,
+    activityError,
   }
 }
 
@@ -231,7 +242,7 @@ export const desktop = {
   git: {
     getBranches: (projectPath: string) => window.vfactor.git.getBranches(projectPath),
     getChanges: (projectPath: string) => window.vfactor.git.getChanges(projectPath),
-    getPullRequestChecks: (projectPath: string) => {
+    getPullRequestChecks: (projectPath: string, options?: GitPullRequestChecksOptions) => {
       const getPullRequestChecks = window.vfactor.git.getPullRequestChecks
       if (typeof getPullRequestChecks !== "function") {
         console.warn("[desktop.git] getPullRequestChecks is unavailable in the current preload bridge")
@@ -242,10 +253,12 @@ export const desktop = {
           reviewComments: [],
           pullRequestNumber: null,
           error: "Pull request checks are unavailable in the current desktop bridge.",
+          activityIncluded: false,
+          activityError: null,
         })
       }
 
-      return getPullRequestChecks(projectPath).then((result) =>
+      return getPullRequestChecks(projectPath, options).then((result) =>
         normalizePullRequestChecksResponse(projectPath, result)
       )
     },
@@ -299,11 +312,14 @@ export type {
   GitFileDiff,
   GitMergePullRequestResult,
   GitPullRequestResolveReason,
+  GitPullRequestChecksOptions,
   GitPullRequestChecksResponse,
   GitPullRequestCheck,
+  GitPullRequestCommit,
   GitPullRequestComment,
   GitPullRequestCheckStatus,
   GitPullRequestReview,
+  GitPullRequestReviewComment,
   GitPullResult,
   GitRenameWorktreeInput,
   GitRenameWorktreeResult,

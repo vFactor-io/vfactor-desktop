@@ -13,6 +13,7 @@ import type {
   GitFileChange,
   GitFileDiff,
   GitMergePullRequestResult,
+  GitPullRequestChecksOptions,
   GitPullRequestChecksResponse,
   GitPullResult,
   GitRenameWorktreeInput,
@@ -144,7 +145,10 @@ declare global {
       git: {
         getBranches: (projectPath: string) => Promise<GitBranchesResponse>
         getChanges: (projectPath: string) => Promise<GitFileChange[]>
-        getPullRequestChecks: (projectPath: string) => Promise<GitPullRequestChecksResponse>
+        getPullRequestChecks: (
+          projectPath: string,
+          options?: GitPullRequestChecksOptions
+        ) => Promise<GitPullRequestChecksResponse>
         listWorktrees: (projectPath: string) => Promise<GitWorktreeSummary[]>
         initRepo: (projectPath: string) => Promise<GitBranchesResponse>
         createWorktree: (

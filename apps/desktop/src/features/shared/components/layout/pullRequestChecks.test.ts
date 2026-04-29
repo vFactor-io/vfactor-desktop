@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   getChecksTabBadgeCount,
+  isActionablePullRequestChecksError,
   shouldAutoOpenChecksTab,
   sortPullRequestChecks,
   summarizePullRequestChecks,
@@ -108,5 +109,11 @@ describe("pullRequestChecks", () => {
         { id: "2", name: "Beta", status: "pending", hasFailureDetails: false },
       ]).map((check) => check.id)
     ).toEqual(["2", "1", "3"])
+  })
+
+  test("filters benign no-checks messages from actionable load errors", () => {
+    expect(isActionablePullRequestChecksError("GitHub returned no pull request check data.")).toBe(false)
+    expect(isActionablePullRequestChecksError("No required checks reported.")).toBe(false)
+    expect(isActionablePullRequestChecksError("Unable to load pull request checks from GitHub.")).toBe(true)
   })
 })

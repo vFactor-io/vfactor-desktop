@@ -3,7 +3,7 @@ import { useShallow } from "zustand/react/shallow"
 import { desktop, type GitBranchesResponse } from "@/desktop/client"
 import { useProjectGitStore } from "./projectGitStore"
 
-const OPEN_PULL_REQUEST_POLL_INTERVAL_MS = 5000
+const OPEN_PULL_REQUEST_POLL_INTERVAL_MS = 30_000
 
 interface UseProjectGitBranchesOptions {
   enabled?: boolean

@@ -52,11 +52,12 @@ describe("resolveQuickAction", () => {
 
     expect(quickAction.label).toBe("Checks pending")
     expect(quickAction.disabled).toBe(false)
-    expect(quickAction.kind).toBe("open_pr")
+    expect(quickAction.kind).toBe("open_checks")
+    expect(quickAction.hint).toContain("opens the Checks tab")
     expect(quickAction.tone).toBe("warning")
   })
 
-  test("shows Resolve for failed checks", () => {
+  test("shows Fix checks for failed checks", () => {
     const quickAction = resolveQuickAction(
       createBranchData({
         openPullRequest: {
@@ -78,14 +79,68 @@ describe("resolveQuickAction", () => {
       { preferredRemoteName: "origin", canArchiveWorktree: true }
     )
 
-    expect(quickAction.label).toBe("Resolve")
+    expect(quickAction.label).toBe("Fix checks")
     expect(quickAction.disabled).toBe(false)
     expect(quickAction.icon).toBe("chat")
     expect(quickAction.kind).toBe("resolve_pr")
     expect(quickAction.tone).toBe("danger")
   })
 
-  test("shows Resolve for merge conflicts", () => {
+  test("keeps pending checks ahead of merge blockers", () => {
+    const quickAction = resolveQuickAction(
+      createBranchData({
+        openPullRequest: {
+          number: 42,
+          title: "Header polish",
+          url: "https://example.com/pr/42",
+          state: "open",
+          baseBranch: "main",
+          headBranch: "feature/header",
+          checksStatus: "pending",
+          mergeStatus: "blocked",
+          isMergeable: false,
+          resolveReason: "behind",
+          pendingChecksCount: 2,
+        },
+      }),
+      false,
+      false,
+      { preferredRemoteName: "origin", canArchiveWorktree: true }
+    )
+
+    expect(quickAction.label).toBe("Checks pending")
+    expect(quickAction.kind).toBe("open_checks")
+    expect(quickAction.tone).toBe("warning")
+  })
+
+  test("keeps failed checks ahead of merge blockers", () => {
+    const quickAction = resolveQuickAction(
+      createBranchData({
+        openPullRequest: {
+          number: 42,
+          title: "Header polish",
+          url: "https://example.com/pr/42",
+          state: "open",
+          baseBranch: "main",
+          headBranch: "feature/header",
+          checksStatus: "failed",
+          mergeStatus: "blocked",
+          isMergeable: false,
+          resolveReason: "failed_checks",
+          failedChecksCount: 1,
+        },
+      }),
+      false,
+      false,
+      { preferredRemoteName: "origin", canArchiveWorktree: true }
+    )
+
+    expect(quickAction.label).toBe("Fix checks")
+    expect(quickAction.kind).toBe("resolve_pr")
+    expect(quickAction.tone).toBe("danger")
+  })
+
+  test("shows Fix conflicts for merge conflicts", () => {
     const quickAction = resolveQuickAction(
       createBranchData({
         openPullRequest: {
@@ -106,13 +161,13 @@ describe("resolveQuickAction", () => {
       { preferredRemoteName: "origin", canArchiveWorktree: true }
     )
 
-    expect(quickAction.label).toBe("Resolve")
+    expect(quickAction.label).toBe("Fix conflicts")
     expect(quickAction.icon).toBe("chat")
     expect(quickAction.kind).toBe("resolve_pr")
     expect(quickAction.tone).toBe("danger")
   })
 
-  test("shows Resolve for draft pull requests", () => {
+  test("shows Draft PR for draft pull requests", () => {
     const quickAction = resolveQuickAction(
       createBranchData({
         openPullRequest: {
@@ -133,7 +188,7 @@ describe("resolveQuickAction", () => {
       { preferredRemoteName: "origin", canArchiveWorktree: true }
     )
 
-    expect(quickAction.label).toBe("Resolve")
+    expect(quickAction.label).toBe("Draft PR")
     expect(quickAction.icon).toBe("chat")
     expect(quickAction.kind).toBe("resolve_pr")
     expect(quickAction.tone).toBe("warning")
@@ -164,6 +219,58 @@ describe("resolveQuickAction", () => {
     expect(quickAction.kind).toBe("merge_pr")
   })
 
+  test("shows Update branch when GitHub requires the PR branch to catch up", () => {
+    const quickAction = resolveQuickAction(
+      createBranchData({
+        openPullRequest: {
+          number: 42,
+          title: "Header polish",
+          url: "https://example.com/pr/42",
+          state: "open",
+          baseBranch: "main",
+          headBranch: "feature/header",
+          checksStatus: "passed",
+          mergeStatus: "blocked",
+          isMergeable: false,
+          resolveReason: "behind",
+        },
+      }),
+      false,
+      false,
+      { preferredRemoteName: "origin", canArchiveWorktree: true }
+    )
+
+    expect(quickAction.label).toBe("Update branch")
+    expect(quickAction.kind).toBe("resolve_pr")
+    expect(quickAction.tone).toBe("warning")
+  })
+
+  test("shows Resolve blocker when GitHub reports a protected merge blocker", () => {
+    const quickAction = resolveQuickAction(
+      createBranchData({
+        openPullRequest: {
+          number: 42,
+          title: "Header polish",
+          url: "https://example.com/pr/42",
+          state: "open",
+          baseBranch: "main",
+          headBranch: "feature/header",
+          checksStatus: "passed",
+          mergeStatus: "blocked",
+          isMergeable: false,
+          resolveReason: "blocked",
+        },
+      }),
+      false,
+      false,
+      { preferredRemoteName: "origin", canArchiveWorktree: true }
+    )
+
+    expect(quickAction.label).toBe("Resolve blocker")
+    expect(quickAction.kind).toBe("resolve_pr")
+    expect(quickAction.tone).toBe("warning")
+  })
+
   test("shows Checks unavailable when PR checks could not be loaded", () => {
     const quickAction = resolveQuickAction(
       createBranchData({
@@ -188,6 +295,81 @@ describe("resolveQuickAction", () => {
     expect(quickAction.label).toBe("Checks unavailable")
     expect(quickAction.kind).toBe("open_pr")
     expect(quickAction.tone).toBe("warning")
+  })
+
+  test("keeps pending checks ahead of a transient checks error", () => {
+    const quickAction = resolveQuickAction(
+      createBranchData({
+        openPullRequest: {
+          number: 42,
+          title: "Header polish",
+          url: "https://example.com/pr/42",
+          state: "open",
+          baseBranch: "main",
+          headBranch: "feature/header",
+          checksStatus: "pending",
+          mergeStatus: "blocked",
+          isMergeable: false,
+          checksError: "Unable to load pull request checks from GitHub.",
+          pendingChecksCount: 1,
+        },
+      }),
+      false,
+      false,
+      { preferredRemoteName: "origin", canArchiveWorktree: true }
+    )
+
+    expect(quickAction.label).toBe("Checks pending")
+    expect(quickAction.kind).toBe("open_checks")
+  })
+
+  test("falls through to merge state when a PR has no checks", () => {
+    const quickAction = resolveQuickAction(
+      createBranchData({
+        openPullRequest: {
+          number: 42,
+          title: "Header polish",
+          url: "https://example.com/pr/42",
+          state: "open",
+          baseBranch: "main",
+          headBranch: "feature/header",
+          checksStatus: "none",
+          mergeStatus: "mergeable",
+          isMergeable: true,
+        },
+      }),
+      false,
+      false,
+      { preferredRemoteName: "origin", canArchiveWorktree: true }
+    )
+
+    expect(quickAction.label).toBe("Merge PR")
+    expect(quickAction.kind).toBe("merge_pr")
+  })
+
+  test("falls through to merge state for benign no-checks messages", () => {
+    const quickAction = resolveQuickAction(
+      createBranchData({
+        openPullRequest: {
+          number: 42,
+          title: "Header polish",
+          url: "https://example.com/pr/42",
+          state: "open",
+          baseBranch: "main",
+          headBranch: "feature/header",
+          checksStatus: "none",
+          mergeStatus: "mergeable",
+          isMergeable: true,
+          checksError: "GitHub returned no pull request check data.",
+        },
+      }),
+      false,
+      false,
+      { preferredRemoteName: "origin", canArchiveWorktree: true }
+    )
+
+    expect(quickAction.label).toBe("Merge PR")
+    expect(quickAction.kind).toBe("merge_pr")
   })
 
   test("shows Archive for merged PRs on managed worktrees", () => {
@@ -348,9 +530,7 @@ describe("buildMenuItems", () => {
       { preferredRemoteName: "origin", canArchiveWorktree: true }
     )
 
-    expect(menuItems.some((item) => item.id === "resolve" && item.kind === "resolve_pr")).toBe(
-      true
-    )
+    expect(menuItems.some((item) => item.id === "resolve" && item.label === "Update branch")).toBe(true)
     expect(menuItems.some((item) => item.id === "pr" && item.kind === "open_pr")).toBe(true)
   })
 })

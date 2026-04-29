@@ -30,7 +30,7 @@ import {
   registerElectronCrashTelemetry,
   registerProcessCrashTelemetry,
 } from "./services/crashTelemetry"
-import type { AppWindowThemeSyncInput } from "../src/desktop/contracts"
+import type { AppWindowThemeSyncInput, GitPullRequestChecksOptions } from "../src/desktop/contracts"
 import {
   APPEARANCE_THEME_ID_KEY,
   areWindowThemeStatesEqual,
@@ -484,8 +484,10 @@ function registerIpcHandlers(storeService: JsonStoreService): void {
   ipcMain.handle(IPC_CHANNELS.gitGetChanges, (_event, projectPath: string) =>
     gitService.getChanges(projectPath)
   )
-  ipcMain.handle(IPC_CHANNELS.gitGetPullRequestChecks, (_event, projectPath: string) =>
-    gitService.getPullRequestChecks(projectPath)
+  ipcMain.handle(
+    IPC_CHANNELS.gitGetPullRequestChecks,
+    (_event, projectPath: string, options?: GitPullRequestChecksOptions) =>
+      gitService.getPullRequestChecks(projectPath, options)
   )
   ipcMain.handle(IPC_CHANNELS.gitListWorktrees, (_event, projectPath: string) =>
     gitService.listWorktrees(projectPath)

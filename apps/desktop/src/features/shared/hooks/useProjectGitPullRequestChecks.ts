@@ -4,6 +4,7 @@ import { desktop } from "@/desktop/client"
 import { useProjectGitStore } from "./projectGitStore"
 
 const PULL_REQUEST_CHECKS_POLL_INTERVAL_MS = 5000
+const PULL_REQUEST_ACTIVITY_REFRESH_COOLDOWN_MS = 60_000
 
 interface UseProjectGitPullRequestChecksOptions {
   enabled?: boolean
@@ -11,6 +12,14 @@ interface UseProjectGitPullRequestChecksOptions {
 
 interface RefreshOptions {
   quiet?: boolean
+}
+
+function shouldRequestPullRequestActivity(projectPath: string): boolean {
+  const loadedAt =
+    useProjectGitStore.getState().entriesByProjectPath[projectPath]?.pullRequestActivityLoadedAt ??
+    null
+
+  return !loadedAt || Date.now() - loadedAt > PULL_REQUEST_ACTIVITY_REFRESH_COOLDOWN_MS
 }
 
 export function useProjectGitPullRequestChecks(
@@ -39,6 +48,7 @@ export function useProjectGitPullRequestChecks(
     useProjectGitStore.getState().ensureEntry(projectPath)
     void requestRefresh(projectPath, {
       includePullRequestChecks: true,
+      includePullRequestActivity: shouldRequestPullRequestActivity(projectPath),
       quietPullRequestChecks: false,
       debounceMs: 0,
     })
@@ -56,6 +66,7 @@ export function useProjectGitPullRequestChecks(
 
       void requestRefresh(projectPath, {
         includePullRequestChecks: true,
+        includePullRequestActivity: false,
         quietPullRequestChecks: true,
         debounceMs: 120,
       })
@@ -64,6 +75,7 @@ export function useProjectGitPullRequestChecks(
     const handleFocus = () => {
       void requestRefresh(projectPath, {
         includePullRequestChecks: true,
+        includePullRequestActivity: shouldRequestPullRequestActivity(projectPath),
         quietPullRequestChecks: true,
         debounceMs: 0,
       })
@@ -85,6 +97,7 @@ export function useProjectGitPullRequestChecks(
     const intervalId = window.setInterval(() => {
       void requestRefresh(projectPath, {
         includePullRequestChecks: true,
+        includePullRequestActivity: false,
         quietPullRequestChecks: true,
         debounceMs: 0,
       })
@@ -102,6 +115,7 @@ export function useProjectGitPullRequestChecks(
 
     await requestRefresh(projectPath, {
       includePullRequestChecks: true,
+      includePullRequestActivity: true,
       quietPullRequestChecks: quiet,
       debounceMs: 0,
     })
@@ -111,6 +125,7 @@ export function useProjectGitPullRequestChecks(
 
   return {
     checks: entry?.pullRequestChecks ?? [],
+    commits: entry?.pullRequestCommits ?? [],
     comments: entry?.pullRequestComments ?? [],
     reviews: entry?.pullRequestReviews ?? [],
     reviewComments: entry?.pullRequestReviewComments ?? [],
