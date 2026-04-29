@@ -364,7 +364,7 @@ function NoWorkspaceSelectedState({
 
 export function MainContent({ activeView, activeSettingsSection, onOpenSettings }: MainContentProps) {
   const { focusedProjectId, activeWorktreeId, activeWorktreePath } = useCurrentProjectWorktree()
-  const { getProjectChat, openDraftSession, createOptimisticSession, selectSession } = useChatStore()
+  const { getProjectChat, selectSession } = useChatStore()
   const chatStoreInitialized = useChatStore((state) => state.isInitialized)
   const worktreeChat = useChatStore((state) =>
     activeWorktreeId ? state.chatByWorktree[activeWorktreeId] ?? null : null
@@ -381,12 +381,12 @@ export function MainContent({ activeView, activeSettingsSection, onOpenSettings 
     switchProject,
     tabs,
     activeTabId,
-    openTerminalTab,
     setActiveTab,
     closeTab,
     openChatSession,
     updateChatSessionTitle,
   } = useTabStore()
+  const isWorkspaceSetupActive = focusedProjectId != null && newWorkspaceSetupProjectId === focusedProjectId
   const lastInitializedWorktreeIdRef = useRef<string | null>(null)
   const lastOpenedSessionIdRef = useRef<string | null>(null)
 
@@ -406,6 +406,7 @@ export function MainContent({ activeView, activeSettingsSection, onOpenSettings 
     if (
       !isInitialized ||
       !chatStoreInitialized ||
+      isWorkspaceSetupActive ||
       !focusedProjectId ||
       !activeWorktreeId ||
       !activeWorktreePath
@@ -431,23 +432,9 @@ export function MainContent({ activeView, activeSettingsSection, onOpenSettings 
       lastInitializedWorktreeIdRef.current = activeWorktreeId
       lastOpenedSessionIdRef.current = activeSession?.id ?? null
 
-      if (!currentTabs.some((tab) => tab.type === "terminal")) {
-        openTerminalTab(activeWorktreeId, false)
-      }
-
-      if (!hasChatTab) {
-        if (activeSession && !activeChatTab) {
-          openChatSession(activeSession.id, activeSession.title)
-          return
-        }
-
-        if (!activeSession) {
-          const optimisticSession = createOptimisticSession(activeWorktreeId, activeWorktreePath)
-          if (optimisticSession) {
-            lastOpenedSessionIdRef.current = optimisticSession.id
-            openChatSession(optimisticSession.id, optimisticSession.title)
-          }
-        }
+      if (!hasChatTab && activeSession && !activeChatTab) {
+        openChatSession(activeSession.id, activeSession.title)
+        return
       }
       return
     }
@@ -478,14 +465,13 @@ export function MainContent({ activeView, activeSettingsSection, onOpenSettings 
     isInitialized,
     chatStoreInitialized,
     openChatSession,
-    createOptimisticSession,
     focusedProjectId,
     activeWorktreePath,
     activeWorktreeId,
     worktreeChat,
     tabs,
     updateChatSessionTitle,
-    openTerminalTab,
+    isWorkspaceSetupActive,
   ])
 
   const activeTab = useMemo(
@@ -538,16 +524,6 @@ export function MainContent({ activeView, activeSettingsSection, onOpenSettings 
       void selectSession(activeWorktreeId, nextActiveTab.sessionId)
       return
     }
-
-    if (!nextActiveTab) {
-      const optimisticSession = createOptimisticSession(activeWorktreeId, activeWorktreePath)
-      if (optimisticSession) {
-        openChatSession(optimisticSession.id, optimisticSession.title)
-        return
-      }
-    }
-
-    void openDraftSession(activeWorktreeId, activeWorktreePath)
   }
 
   if (activeView === "settings") {

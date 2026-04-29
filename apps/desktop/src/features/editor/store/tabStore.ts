@@ -207,23 +207,15 @@ export const useTabStore = create<TabState>((set, get) => ({
     try {
       const store = await getStore()
       const persisted = await store.get<PersistedTabState>(STORE_KEY)
-      let didMigrateTabs = false
       const tabsByWorktree = Object.fromEntries(
         Object.entries(persisted?.tabsByWorktree ?? {}).map(([worktreeId, worktreeTabs]) => [
           worktreeId,
-          (() => {
-            const normalized = normalizeWorktreeTabs(worktreeTabs)
-            const ensured = ensureTerminalTab(normalized)
-            if (ensured.tabs.length !== normalized.tabs.length) {
-              didMigrateTabs = true
-            }
-            return ensured
-          })(),
+          normalizeWorktreeTabs(worktreeTabs),
         ])
       )
       const currentWorktreeId = get().currentWorktreeId
       const currentWorktreeTabs = currentWorktreeId
-        ? ensureTerminalTab(normalizeWorktreeTabs(tabsByWorktree[currentWorktreeId]))
+        ? normalizeWorktreeTabs(tabsByWorktree[currentWorktreeId])
         : emptyWorktreeTabs
 
       set({
@@ -234,9 +226,6 @@ export const useTabStore = create<TabState>((set, get) => ({
         isInitialized: true,
       })
 
-      if (didMigrateTabs) {
-        await persistTabs(tabsByWorktree)
-      }
     } catch (error) {
       console.error("Failed to initialize tab store:", error)
       set({
@@ -263,12 +252,12 @@ export const useTabStore = create<TabState>((set, get) => ({
     if (currentWorktreeId && isInitialized) {
       nextTabsByWorktree = {
         ...tabsByWorktree,
-        [currentWorktreeId]: ensureTerminalTab(normalizeWorktreeTabs({ tabs, activeTabId, activeTerminalTabId })),
+        [currentWorktreeId]: normalizeWorktreeTabs({ tabs, activeTabId, activeTerminalTabId }),
       }
     }
 
     const nextWorktreeTabs = worktreeId
-      ? ensureTerminalTab(normalizeWorktreeTabs(nextTabsByWorktree[worktreeId]))
+      ? normalizeWorktreeTabs(nextTabsByWorktree[worktreeId])
       : emptyWorktreeTabs
 
     if (worktreeId) {
