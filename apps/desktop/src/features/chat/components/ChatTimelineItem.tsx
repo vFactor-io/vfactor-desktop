@@ -512,12 +512,13 @@ function renderCommandSummary(toolPart: RuntimeToolPart) {
 
   return (
     <span className="inline-flex min-w-0 max-w-full items-center gap-1.5">
-      <span className="shrink-0">Bash</span>
-      {renderInlineCode(
-        displayCommandLabel,
-        commandLabel,
-        "max-w-[180px] sm:max-w-[220px] md:max-w-[280px]"
-      )}
+      <span className="shrink-0">Ran</span>
+      <span
+        title={commandLabel}
+        className="min-w-0 max-w-[180px] truncate font-mono text-[0.95em] text-foreground/84 sm:max-w-[220px] md:max-w-[280px]"
+      >
+        {displayCommandLabel}
+      </span>
     </span>
   )
 }
