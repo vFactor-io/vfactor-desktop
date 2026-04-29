@@ -424,7 +424,19 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
               </div>
             ) : activeTab === "browser" ? null : activeTab === "changes" ? (
               <div className="flex h-full min-h-0 flex-col">
-                <div className="app-scrollbar-sm min-h-0 flex-1 overflow-y-auto border-t border-sidebar-border/70 bg-background px-1.5 py-1.5">
+                <div
+                  className={cn(
+                    "app-scrollbar-sm min-h-0 flex-1 overflow-y-auto border-t border-sidebar-border/70 bg-background",
+                    selectedWorktree &&
+                      !gitMissing &&
+                      !gitUninitialized &&
+                      !isChangesLoading &&
+                      !changesError &&
+                      trackedProjectChanges.length > 0
+                      ? ""
+                      : "px-1.5 py-1.5"
+                  )}
+                >
                   {!selectedWorktree ? (
                     <RightSidebarEmptyState
                       icon={GitDiff}

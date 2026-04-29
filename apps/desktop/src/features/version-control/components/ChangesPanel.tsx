@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { desktop, type GitFileDiff } from "@/desktop/client"
 import { CaretDown, CaretRight } from "@/components/icons"
 import { PatchDiff } from "@pierre/diffs/react"
@@ -11,14 +11,105 @@ interface ChangesPanelProps {
   changes: FileChange[]
 }
 
-const statusToneClassNames: Record<FileStatus, string> = {
-  modified: vcsTextClassNames.modified,
-  added: vcsTextClassNames.added,
-  deleted: vcsTextClassNames.deleted,
-  untracked: vcsTextClassNames.ignored,
-  renamed: vcsTextClassNames.renamed,
-  copied: vcsTextClassNames.added,
-  ignored: vcsTextClassNames.ignored,
+const statusBorderColors: Record<FileStatus, string> = {
+  modified: "color-mix(in oklab, var(--color-vcs-modified) 35%, transparent)",
+  added: "color-mix(in oklab, var(--color-vcs-added) 35%, transparent)",
+  deleted: "color-mix(in oklab, var(--color-vcs-deleted) 35%, transparent)",
+  renamed: "color-mix(in oklab, var(--color-vcs-renamed) 35%, transparent)",
+  copied: "color-mix(in oklab, var(--color-vcs-added) 35%, transparent)",
+  untracked: "color-mix(in oklab, var(--color-vcs-ignored) 35%, transparent)",
+  ignored: "color-mix(in oklab, var(--color-vcs-ignored) 35%, transparent)",
+}
+
+const statusPillClassNames: Record<FileStatus, string> = {
+  modified:
+    "bg-[color:var(--color-vcs-modified-surface)] text-[color:var(--color-vcs-modified)]",
+  added:
+    "bg-[color:var(--color-vcs-added-surface)] text-[color:var(--color-vcs-added)]",
+  deleted:
+    "bg-[color:var(--color-vcs-deleted-surface)] text-[color:var(--color-vcs-deleted)]",
+  renamed:
+    "bg-[color:var(--color-vcs-renamed-surface)] text-[color:var(--color-vcs-renamed)]",
+  copied:
+    "bg-[color:var(--color-vcs-added-surface)] text-[color:var(--color-vcs-added)]",
+  untracked:
+    "bg-[color:var(--color-vcs-ignored-surface)] text-[color:var(--color-vcs-ignored)]",
+  ignored:
+    "bg-[color:var(--color-vcs-ignored-surface)] text-[color:var(--color-vcs-ignored)]",
+}
+
+const statusIndicators: Record<FileStatus, string> = {
+  modified: "M",
+  added: "A",
+  deleted: "D",
+  untracked: "U",
+  renamed: "R",
+  copied: "C",
+  ignored: "!",
+}
+
+const statusLabels: Record<FileStatus, string> = {
+  modified: "Modified",
+  added: "Added",
+  deleted: "Deleted",
+  untracked: "Untracked",
+  renamed: "Renamed",
+  copied: "Copied",
+  ignored: "Ignored",
+}
+
+function splitFilePath(filePath: string): { name: string; parent: string | null } {
+  const lastSlash = filePath.lastIndexOf("/")
+  if (lastSlash === -1) {
+    return { name: filePath, parent: null }
+  }
+  return {
+    name: filePath.slice(lastSlash + 1),
+    parent: filePath.slice(0, lastSlash),
+  }
+}
+
+const COLLAPSED_KEYS_STORAGE_PREFIX = "vfactor:changes-panel-collapsed:"
+
+function getCollapsedKeysStorageKey(projectPath: string): string {
+  return `${COLLAPSED_KEYS_STORAGE_PREFIX}${projectPath}`
+}
+
+function readCollapsedKeysFromStorage(projectPath: string): Set<string> {
+  if (typeof window === "undefined") {
+    return new Set()
+  }
+
+  try {
+    const raw = window.localStorage.getItem(getCollapsedKeysStorageKey(projectPath))
+    if (!raw) {
+      return new Set()
+    }
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) {
+      return new Set()
+    }
+    return new Set(parsed.filter((value): value is string => typeof value === "string"))
+  } catch {
+    return new Set()
+  }
+}
+
+function writeCollapsedKeysToStorage(projectPath: string, keys: ReadonlySet<string>): void {
+  if (typeof window === "undefined") {
+    return
+  }
+
+  try {
+    const storageKey = getCollapsedKeysStorageKey(projectPath)
+    if (keys.size === 0) {
+      window.localStorage.removeItem(storageKey)
+      return
+    }
+    window.localStorage.setItem(storageKey, JSON.stringify(Array.from(keys)))
+  } catch {
+    // Ignore storage errors (private mode, quota, etc.)
+  }
 }
 
 function getChangeKey(change: FileChange) {
@@ -102,6 +193,10 @@ function getRenderablePatch(diff: GitFileDiff | null): string | null {
     return null
   }
 
+  if (diff.previewUnavailableReason) {
+    return null
+  }
+
   const patch = diff.patch?.trim()
   if (patch) {
     return normalizePatchText(patch)
@@ -115,29 +210,31 @@ function ChangesPanelDiff({
 }: {
   diff: GitFileDiff | null
 }) {
-  const { pierreDiffTheme, textSizePx } = useAppearance()
+  const { pierreDiffTheme } = useAppearance()
   const patch = useMemo(() => getRenderablePatch(diff), [diff])
 
-  if (!diff) {
-    return (
-      <div className="px-6 py-4 text-sm text-muted-foreground">
-        Loading diff...
-      </div>
-    )
-  }
+  const placeholder = (() => {
+    if (!diff) return "Loading diff…"
+    if (diff.previewUnavailableReason === "image") return "Image diffs are not previewed here."
+    if (diff.previewUnavailableReason === "binary") return "Binary diffs are not previewed here."
+    if (diff.previewUnavailableReason === "too_large") return "This diff is too large to preview safely."
+    if (!patch) return "Diff not available for this file."
+    return null
+  })()
 
-  if (!patch) {
+  if (placeholder) {
     return (
-      <div className="px-6 py-4 text-sm text-muted-foreground">
-        Diff not available for this file.
+      <div className="rounded-md border border-border/60 bg-card/60 px-2.5 py-1.5 text-xs text-muted-foreground">
+        {placeholder}
       </div>
     )
   }
 
   return (
-    <div className="app-scrollbar-sm overflow-x-auto overflow-y-hidden pb-2">
+    <div className="app-scrollbar-sm overflow-hidden rounded-md border border-border/60 bg-card/60">
       <PatchDiff
-        patch={patch}
+        key={pierreDiffTheme}
+        patch={patch!}
         disableWorkerPool
         options={{
           theme: pierreDiffTheme,
@@ -150,15 +247,63 @@ function ChangesPanelDiff({
           disableBackground: false,
           lineDiffType: "word",
           unsafeCSS: `
+            :host {
+              --diffs-header-font-family: var(--font-sans);
+              --diffs-font-size: 12px;
+              --diffs-line-height: 1.45;
+              --diffs-light-bg: var(--color-card);
+              --diffs-dark-bg: var(--color-card);
+              --diffs-light: var(--color-card-foreground);
+              --diffs-dark: var(--color-card-foreground);
+              --diffs-fg-number-override: color-mix(in oklab, var(--color-muted-foreground) 70%, var(--color-card) 30%);
+              --diffs-bg-buffer-override: color-mix(in oklab, var(--color-card) 96%, var(--color-background) 4%);
+              --diffs-bg-hover-override: color-mix(in oklab, var(--color-accent) 10%, var(--color-card) 90%);
+              --diffs-bg-context-override: transparent;
+              --diffs-bg-context-number-override: color-mix(in oklab, var(--color-card) 94%, var(--color-border) 6%);
+              --diffs-bg-separator-override: color-mix(in oklab, var(--color-card) 92%, var(--color-border) 8%);
+              --diffs-addition-color-override: var(--color-vcs-added);
+              --diffs-deletion-color-override: var(--color-vcs-deleted);
+              --diffs-modified-color-override: var(--color-vcs-modified);
+              --diffs-bg-addition-override: var(--color-vcs-added-surface);
+              --diffs-bg-addition-number-override: color-mix(in oklab, var(--color-vcs-added-surface) 86%, var(--color-card) 14%);
+              --diffs-bg-addition-hover-override: color-mix(in oklab, var(--color-vcs-added-surface) 92%, var(--color-accent) 8%);
+              --diffs-bg-deletion-override: var(--color-vcs-deleted-surface);
+              --diffs-bg-deletion-number-override: color-mix(in oklab, var(--color-vcs-deleted-surface) 86%, var(--color-card) 14%);
+              --diffs-bg-deletion-hover-override: color-mix(in oklab, var(--color-vcs-deleted-surface) 92%, var(--color-accent) 8%);
+            }
+
+            [data-file],
+            [data-diff] {
+              background: transparent !important;
+              border-radius: 0 !important;
+            }
+
             [data-code] {
-              padding-top: 4px !important;
-              padding-bottom: 4px !important;
-              font-size: var(--app-text-size, ${textSizePx}px) !important;
+              background: transparent !important;
+              padding-top: 1px !important;
+              padding-bottom: 1px !important;
+              font-size: 12px !important;
               line-height: 1.45 !important;
+            }
+
+            [data-code]::-webkit-scrollbar {
+              height: 4px !important;
+            }
+
+            [data-code]::-webkit-scrollbar-thumb {
+              background-color: transparent !important;
+              border-width: 0 !important;
+              border-radius: 9999px !important;
+            }
+
+            [data-diff]:hover [data-code]::-webkit-scrollbar-thumb,
+            [data-file]:hover [data-code]::-webkit-scrollbar-thumb,
+            [data-code]::-webkit-scrollbar-thumb:hover {
+              background-color: var(--color-scrollbar-thumb) !important;
             }
           `,
         }}
-        className="text-base"
+        className="text-[12px]"
       />
     </div>
   )
@@ -172,117 +317,261 @@ export function ChangesPanel({ projectPath, changes }: ChangesPanelProps) {
         .sort((a, b) => a.path.localeCompare(b.path)),
     [changes]
   )
-  const [openKey, setOpenKey] = useState<string | null>(visibleChanges[0] ? getChangeKey(visibleChanges[0]) : null)
-  const [activeDiff, setActiveDiff] = useState<GitFileDiff | null>(null)
-  const [activeDiffError, setActiveDiffError] = useState<string | null>(null)
+  const [collapsedKeys, setCollapsedKeys] = useState<ReadonlySet<string>>(() =>
+    readCollapsedKeysFromStorage(projectPath)
+  )
+  const [diffsByKey, setDiffsByKey] = useState<Record<string, GitFileDiff>>({})
+  const [diffErrorsByKey, setDiffErrorsByKey] = useState<Record<string, string>>({})
+  const inFlightDiffsRef = useRef(new Map<string, Promise<void>>())
+  const diffGenerationRef = useRef(0)
+  const projectPathRef = useRef(projectPath)
 
+  // Persist collapsed keys per project so navigation away and back restores the exact state.
   useEffect(() => {
-    if (visibleChanges.length === 0) {
-      setOpenKey(null)
-      return
-    }
+    writeCollapsedKeysToStorage(projectPath, collapsedKeys)
+  }, [projectPath, collapsedKeys])
 
-    setOpenKey((current) => {
-      if (current && visibleChanges.some((change) => getChangeKey(change) === current)) {
-        return current
+  // Drop collapsed entries that are no longer in the visible list (e.g. file no longer changed).
+  useEffect(() => {
+    setCollapsedKeys((current) => {
+      if (current.size === 0) return current
+      const visibleKeys = new Set(visibleChanges.map(getChangeKey))
+      let changed = false
+      const next = new Set<string>()
+      for (const key of current) {
+        if (visibleKeys.has(key)) {
+          next.add(key)
+        } else {
+          changed = true
+        }
       }
-
-      return getChangeKey(visibleChanges[0])
+      return changed ? next : current
     })
   }, [visibleChanges])
 
-  const openChange =
-    visibleChanges.find((change) => getChangeKey(change) === openKey) ?? null
+  useEffect(() => {
+    diffGenerationRef.current += 1
+    setDiffsByKey({})
+    setDiffErrorsByKey({})
+    inFlightDiffsRef.current.clear()
+  }, [visibleChanges])
+
+  const preloadDiff = useCallback(
+    (change: FileChange) => {
+      const changeKey = getChangeKey(change)
+
+      if (diffsByKey[changeKey] || diffErrorsByKey[changeKey] || inFlightDiffsRef.current.has(changeKey)) {
+        return
+      }
+
+      const requestProjectPath = projectPath
+      const requestGeneration = diffGenerationRef.current
+      const request = desktop.git
+        .getFileDiff(requestProjectPath, change.path, change.previousPath)
+        .then((nextDiff) => {
+          if (
+            projectPathRef.current !== requestProjectPath ||
+            diffGenerationRef.current !== requestGeneration
+          ) {
+            return
+          }
+
+          setDiffsByKey((current) => ({ ...current, [changeKey]: nextDiff }))
+          setDiffErrorsByKey((current) => {
+            if (!(changeKey in current)) {
+              return current
+            }
+
+            const { [changeKey]: _removed, ...next } = current
+            return next
+          })
+        })
+        .catch((error) => {
+          console.error("Failed to preload changes panel diff:", error)
+          if (
+            projectPathRef.current !== requestProjectPath ||
+            diffGenerationRef.current !== requestGeneration
+          ) {
+            return
+          }
+
+          setDiffErrorsByKey((current) => ({ ...current, [changeKey]: "Failed to load diff." }))
+        })
+        .finally(() => {
+          if (inFlightDiffsRef.current.get(changeKey) === request) {
+            inFlightDiffsRef.current.delete(changeKey)
+          }
+        })
+
+      inFlightDiffsRef.current.set(changeKey, request)
+    },
+    [diffErrorsByKey, diffsByKey, projectPath]
+  )
 
   useEffect(() => {
-    if (!openChange) {
-      setActiveDiff(null)
-      setActiveDiffError(null)
-      return
+    for (const change of visibleChanges) {
+      if (!collapsedKeys.has(getChangeKey(change))) {
+        preloadDiff(change)
+      }
     }
+  }, [collapsedKeys, preloadDiff, visibleChanges])
 
-    let isCancelled = false
+  const allCollapsed =
+    visibleChanges.length > 0 &&
+    visibleChanges.every((change) => collapsedKeys.has(getChangeKey(change)))
 
-    setActiveDiff(null)
-    setActiveDiffError(null)
+  const toggleAll = useCallback(() => {
+    setCollapsedKeys((current) => {
+      const visibleKeys = visibleChanges.map(getChangeKey)
+      const isEveryVisibleChangeCollapsed =
+        visibleKeys.length > 0 && visibleKeys.every((key) => current.has(key))
 
-    void desktop.git
-      .getFileDiff(projectPath, openChange.path, openChange.previousPath)
-      .then((nextDiff) => {
-        if (!isCancelled) {
-          setActiveDiff(nextDiff)
-        }
-      })
-      .catch((error) => {
-        console.error("Failed to load changes panel diff:", error)
-        if (!isCancelled) {
-          setActiveDiffError("Failed to load diff.")
-        }
-      })
+      if (isEveryVisibleChangeCollapsed) {
+        return new Set()
+      }
 
-    return () => {
-      isCancelled = true
+      return new Set(visibleKeys)
+    })
+  }, [visibleChanges])
+
+  useEffect(() => {
+    projectPathRef.current = projectPath
+    diffGenerationRef.current += 1
+    setDiffsByKey({})
+    setDiffErrorsByKey({})
+    inFlightDiffsRef.current.clear()
+    setCollapsedKeys(readCollapsedKeysFromStorage(projectPath))
+  }, [projectPath])
+
+  const totals = useMemo(() => {
+    let additions = 0
+    let deletions = 0
+    for (const change of visibleChanges) {
+      additions += change.additions ?? 0
+      deletions += change.deletions ?? 0
     }
-  }, [openChange, projectPath])
+    return { additions, deletions }
+  }, [visibleChanges])
 
   if (visibleChanges.length === 0) {
     return null
   }
 
+  const fileLabel = visibleChanges.length === 1 ? "file" : "files"
+
   return (
-    <div className="flex h-full min-h-0 flex-col px-1 py-1">
-      {visibleChanges.map((change) => {
-        const changeKey = getChangeKey(change)
-        const isOpen = changeKey === openKey
-        const Chevron = isOpen ? CaretDown : CaretRight
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-sidebar-border/60 bg-background/95 px-2.5 py-1.5 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          {visibleChanges.length} {fileLabel} changed
+        </span>
+        <div className="flex shrink-0 items-center gap-2 text-[11px] tabular-nums">
+          {totals.additions > 0 ? (
+            <span className={vcsTextClassNames.added}>+{totals.additions}</span>
+          ) : null}
+          {totals.deletions > 0 ? (
+            <span className={vcsTextClassNames.deleted}>−{totals.deletions}</span>
+          ) : null}
+          <button
+            type="button"
+            onClick={toggleAll}
+            title={allCollapsed ? "Expand all" : "Collapse all"}
+            aria-label={allCollapsed ? "Expand all" : "Collapse all"}
+            className="ml-0.5 inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground/70 transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-foreground"
+          >
+            {allCollapsed ? <CaretRight size={12} /> : <CaretDown size={12} />}
+          </button>
+        </div>
+      </div>
 
-        return (
-          <div key={changeKey} className="min-w-0">
-            <button
-              type="button"
-              onClick={() => setOpenKey((current) => (current === changeKey ? null : changeKey))}
-              className={cn(
-                "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-[13px] leading-5 text-foreground/92",
-                "transition-colors hover:bg-[var(--sidebar-item-hover)]",
-                isOpen && "bg-[var(--sidebar-item-active)]"
-              )}
-            >
-              <span className="min-w-0 flex-1 truncate">
-                {change.path}
-              </span>
-              {change.additions != null ? (
-                <span className={cn("shrink-0 text-[0.95em] font-medium", vcsTextClassNames.added)}>
-                  +{change.additions}
-                </span>
-              ) : null}
-              {change.deletions != null ? (
-                <span className={cn("shrink-0 text-[0.95em] font-medium", vcsTextClassNames.deleted)}>
-                  -{change.deletions}
-                </span>
-              ) : null}
-              <Chevron
-                size={14}
+      <div className="flex flex-col px-1 py-1">
+        {visibleChanges.map((change) => {
+          const changeKey = getChangeKey(change)
+          const isOpen = !collapsedKeys.has(changeKey)
+          const Chevron = isOpen ? CaretDown : CaretRight
+          const { name, parent } = splitFilePath(change.path)
+
+          return (
+            <div key={changeKey} className="min-w-0">
+              <button
+                type="button"
+                onMouseEnter={() => preloadDiff(change)}
+                onFocus={() => preloadDiff(change)}
+                onClick={() =>
+                  setCollapsedKeys((current) => {
+                    const next = new Set(current)
+                    if (next.has(changeKey)) {
+                      next.delete(changeKey)
+                    } else {
+                      next.add(changeKey)
+                    }
+                    return next
+                  })
+                }
+                title={`${statusLabels[change.status]} · ${change.path}`}
                 className={cn(
-                  "shrink-0 text-muted-foreground/72",
-                  isOpen && statusToneClassNames[change.status]
+                  "group flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-sm leading-tight",
+                  "transition-colors hover:bg-[var(--sidebar-item-hover)]",
+                  isOpen && "bg-[var(--sidebar-item-active)]"
                 )}
-              />
-            </button>
+              >
+                <span
+                  aria-label={statusLabels[change.status]}
+                  className={cn(
+                    "inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[4px] text-[10px] font-semibold leading-none tabular-nums",
+                    statusPillClassNames[change.status]
+                  )}
+                >
+                  {statusIndicators[change.status]}
+                </span>
 
-            {isOpen ? (
-              activeDiffError ? (
-                <div className="px-6 py-3 text-[12px] text-destructive">
-                  {activeDiffError}
+                <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+                  <span className="truncate text-foreground">{name}</span>
+                  {parent ? (
+                    <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground/70">
+                      {parent}
+                    </span>
+                  ) : null}
+                </span>
+
+                {change.additions != null && change.additions > 0 ? (
+                  <span className={cn("shrink-0 text-[11px] tabular-nums", vcsTextClassNames.added)}>
+                    +{change.additions}
+                  </span>
+                ) : null}
+                {change.deletions != null && change.deletions > 0 ? (
+                  <span className={cn("shrink-0 text-[11px] tabular-nums", vcsTextClassNames.deleted)}>
+                    −{change.deletions}
+                  </span>
+                ) : null}
+                <Chevron
+                  size={12}
+                  className={cn(
+                    "shrink-0 text-muted-foreground/50 transition-colors",
+                    "group-hover:text-muted-foreground/80",
+                    isOpen && "text-muted-foreground/80"
+                  )}
+                />
+              </button>
+
+              {isOpen ? (
+                <div
+                  className="ml-[14px] mb-1.5 mt-0.5 border-l-2 pl-2"
+                  style={{ borderLeftColor: statusBorderColors[change.status] }}
+                >
+                  {diffErrorsByKey[changeKey] ? (
+                    <div className="px-2 py-2 text-xs text-destructive">
+                      {diffErrorsByKey[changeKey]}
+                    </div>
+                  ) : (
+                    <ChangesPanelDiff diff={diffsByKey[changeKey] ?? null} />
+                  )}
                 </div>
-              ) : (
-                <div className="pb-2 pl-2">
-                  <ChangesPanelDiff diff={activeDiff} />
-                </div>
-              )
-            ) : null}
-          </div>
-        )
-      })}
+              ) : null}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

@@ -100,6 +100,21 @@ export function ProjectDiffViewer({
     )
   }
 
+  if (diff.previewUnavailableReason) {
+    const message =
+      diff.previewUnavailableReason === "image"
+        ? "Image diffs are not previewed here."
+        : diff.previewUnavailableReason === "binary"
+          ? "Binary diffs are not previewed here."
+          : "This diff is too large to preview safely."
+
+    return (
+      <div className="flex h-full items-center justify-center text-muted-foreground">
+        {message}
+      </div>
+    )
+  }
+
   return (
     <DiffViewer
       filename={filename}

@@ -43,6 +43,10 @@ export interface GitFileDiff {
   original: string
   modified: string
   patch?: string | null
+  isBinary?: boolean
+  isImage?: boolean
+  isTooLarge?: boolean
+  previewUnavailableReason?: "binary" | "image" | "too_large"
 }
 
 export interface GitBranchesResponse {
