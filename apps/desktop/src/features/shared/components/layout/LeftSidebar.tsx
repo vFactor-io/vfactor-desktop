@@ -1,4 +1,11 @@
-import { useState, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from "react"
+import {
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  type ReactNode,
+} from "react"
 import { useShallow } from "zustand/react/shallow"
 import { Reorder } from "framer-motion"
 import { desktop } from "@/desktop/client"
@@ -370,6 +377,21 @@ export function LeftSidebar({
     if (!isCollapsed && isHoverPreviewOpen) {
       setIsHoverPreviewOpen(false)
     }
+  }, [isCollapsed, isHoverPreviewOpen])
+
+  useEffect(() => {
+    if (!isCollapsed || !isHoverPreviewOpen) {
+      return
+    }
+
+    const handleWindowMouseOut = (event: MouseEvent) => {
+      if (event.relatedTarget === null && event.clientX <= 0) {
+        setIsHoverPreviewOpen(false)
+      }
+    }
+
+    window.addEventListener("mouseout", handleWindowMouseOut)
+    return () => window.removeEventListener("mouseout", handleWindowMouseOut)
   }, [isCollapsed, isHoverPreviewOpen])
 
   useEffect(() => {
@@ -929,7 +951,7 @@ export function LeftSidebar({
           />
           {(isHoverPreviewOpen || draggedProjectId !== null) && (
             <div
-              className="fixed top-11 bottom-0 left-0 z-30 flex flex-col overflow-hidden border-r border-sidebar-border/70 bg-sidebar text-sidebar-foreground shadow-[0_12px_28px_rgba(0,0,0,0.12)]"
+              className="fixed top-11 bottom-0 left-0 z-30 flex flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground shadow-[10px_0_24px_rgba(0,0,0,0.16)]"
               style={{ width: `var(${LEFT_SIDEBAR_WIDTH_CSS_VAR}, ${width}px)` }}
               onMouseEnter={() => setIsHoverPreviewOpen(true)}
               onMouseLeave={() => setIsHoverPreviewOpen(false)}
