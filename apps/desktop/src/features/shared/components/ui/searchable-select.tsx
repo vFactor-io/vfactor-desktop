@@ -59,8 +59,8 @@ interface SearchableSelectProps<T extends SearchableSelectOption = SearchableSel
   /** Called once each time the dropdown opens */
   onOpen?: () => void
 
-  /** Trigger visual style — "input" looks like a form field, "ghost" is transparent */
-  triggerVariant?: "input" | "ghost"
+  /** Trigger visual style — "input" looks like a form field, "ghost" is transparent, "text" is inline chrome-free */
+  triggerVariant?: "input" | "ghost" | "text"
 
   /** Root wrapper className */
   className?: string
@@ -242,6 +242,11 @@ export function SearchableSelect<T extends SearchableSelectOption = SearchableSe
       "h-7 w-auto border-0 bg-transparent text-[color:var(--color-content-subtle)]",
       !disabled && "hover:bg-accent/45 hover:text-[color:var(--color-content-strong)]",
       isOpen && "bg-accent/55 text-[color:var(--color-content-strong)]",
+    ),
+    text: cn(
+      "h-7 w-auto rounded-sm border-0 bg-transparent px-0 text-[color:var(--color-content-subtle)]",
+      !disabled && "hover:text-[color:var(--color-content-strong)]",
+      isOpen && "text-[color:var(--color-content-strong)]",
     ),
   }
 

@@ -87,7 +87,7 @@ export function BranchTargetSelector({
         onOpen={() => {
           void refresh({ quiet: true })
         }}
-        triggerVariant="ghost"
+        triggerVariant="text"
         className="min-w-0 items-center"
         triggerClassName="max-w-[312px] gap-1.5 font-medium"
         dropdownClassName="w-[360px]"
