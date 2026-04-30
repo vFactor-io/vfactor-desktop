@@ -64,6 +64,7 @@ export type CodexThreadItem =
   | {
       type: "reasoning"
       id: string
+      title?: string | null
       summary: string[]
       content: string[]
     }

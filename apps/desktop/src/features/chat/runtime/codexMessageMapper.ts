@@ -42,7 +42,7 @@ function createAssistantMessage(
   createdAt: number,
   parts: RuntimeMessagePart[],
   finishReason?: RuntimeMessage["finishReason"],
-  metadata?: Pick<RuntimeMessage, "itemType" | "phase" | "turnId">
+  metadata?: Pick<RuntimeMessage, "itemType" | "phase" | "turnId" | "title">
 ): MessageWithParts {
   return {
     info: {
@@ -51,6 +51,7 @@ function createAssistantMessage(
       role: "assistant",
       createdAt,
       finishReason,
+      title: metadata?.title,
       itemType: metadata?.itemType,
       phase: metadata?.phase,
       turnId: metadata?.turnId,
@@ -151,6 +152,7 @@ function createEmptyReasoning(itemId: string): Extract<CodexThreadItem, { type: 
   return {
     type: "reasoning",
     id: itemId,
+    title: null,
     summary: [],
     content: [],
   }
@@ -402,6 +404,7 @@ export function mapTurnItemsToMessages(turn: CodexTurn, sessionId: string): Mess
             undefined,
             {
               itemType: "reasoning",
+              title: item.title?.trim() || null,
               turnId: turn.id,
             }
           ),

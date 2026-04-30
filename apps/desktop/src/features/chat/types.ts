@@ -74,6 +74,7 @@ export interface RuntimeMessage {
   createdAt: number;
   turnId?: string;
   finishReason?: "end_turn" | "stop" | "error";
+  title?: string | null;
   itemType?:
     | "userMessage"
     | "agentMessage"

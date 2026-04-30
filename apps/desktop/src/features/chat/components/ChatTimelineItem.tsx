@@ -43,6 +43,7 @@ import type { ChildSessionData } from "./agent-activity/AgentActivitySubagent"
 import { getFileChangeEntries, getToolPart } from "./timelineActivity"
 import { UploadChip } from "./UploadChip"
 import { getCommandCliKind, getCommandLabel } from "./commandToolClassification"
+import { getThoughtSummaryTitle } from "./thoughtTitle"
 import {
   useViewportAnchorToggle,
 } from "./useViewportAnchorToggle"
@@ -1455,10 +1456,12 @@ export function InlineSubagentActivity({
 
 function ThoughtTimelineRow({
   text,
+  title,
   isStreaming,
   withinGroup = false,
 }: {
   text: string
+  title?: string | null
   isStreaming?: boolean
   withinGroup?: boolean
 }) {
@@ -1466,11 +1469,12 @@ function ThoughtTimelineRow({
     () => renderThoughtDetails(text, Boolean(isStreaming)),
     [isStreaming, text]
   )
+  const summaryTitle = useMemo(() => getThoughtSummaryTitle(text, title), [text, title])
 
   return (
     <InlineActivityRow
       icon={Brain}
-      summary={<span>Thought</span>}
+      summary={<span>{summaryTitle}</span>}
       details={details}
       withinGroup={withinGroup}
     />
@@ -1551,6 +1555,7 @@ export function ChatTimelineItem({
     return (
       <ThoughtTimelineRow
         text={text}
+        title={message.info.title}
         isStreaming={isStreaming}
         withinGroup={withinGroup}
       />
