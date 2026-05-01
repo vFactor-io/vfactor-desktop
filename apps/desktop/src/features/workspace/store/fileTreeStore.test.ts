@@ -163,4 +163,48 @@ describe("fileTreeStore", () => {
     )
     expect(useFileTreeStore.getState().staleByProjectPath[projectPath]).toBe(false)
   })
+
+  test("lets the latest project activation win during rapid switching", async () => {
+    const alphaPath = "/tmp/project-alpha"
+    const betaPath = "/tmp/project-beta"
+    const gammaPath = "/tmp/project-gamma"
+    const releaseAlphaRead = queueReadWait(alphaPath)
+    const releaseBetaRead = queueReadWait(betaPath)
+
+    projectTrees.set(alphaPath, createTree(alphaPath, ["alpha.ts"]))
+    projectTrees.set(betaPath, createTree(betaPath, ["beta.ts"]))
+    projectTrees.set(gammaPath, createTree(gammaPath, ["gamma.ts"]))
+
+    const alphaPromise = useFileTreeStore.getState().setActiveProjectPath(alphaPath)
+
+    while ((readCounts.get(alphaPath) ?? 0) === 0) {
+      await Promise.resolve()
+    }
+
+    const betaPromise = useFileTreeStore.getState().setActiveProjectPath(betaPath)
+
+    while ((readCounts.get(betaPath) ?? 0) === 0) {
+      await Promise.resolve()
+    }
+
+    const gammaPromise = useFileTreeStore.getState().setActiveProjectPath(gammaPath)
+
+    await gammaPromise
+
+    expect(useFileTreeStore.getState().activeProjectPath).toBe(gammaPath)
+    expect(useFileTreeStore.getState().dataByProjectPath[gammaPath]).toEqual(
+      createTree(gammaPath, ["gamma.ts"])
+    )
+    expect(useFileTreeStore.getState().staleByProjectPath[gammaPath]).toBe(false)
+
+    releaseAlphaRead()
+    releaseBetaRead()
+    await Promise.all([alphaPromise, betaPromise])
+
+    expect(useFileTreeStore.getState().activeProjectPath).toBe(gammaPath)
+    expect(useFileTreeStore.getState().dataByProjectPath[gammaPath]).toEqual(
+      createTree(gammaPath, ["gamma.ts"])
+    )
+    expect(useFileTreeStore.getState().staleByProjectPath[gammaPath]).toBe(false)
+  })
 })

@@ -32,10 +32,13 @@ export function useProjectGitChanges(
       return
     }
 
+    const hasCachedChangesEntry =
+      useProjectGitStore.getState().entriesByProjectPath[projectPath] != null
+
     useProjectGitStore.getState().ensureEntry(projectPath)
     void requestRefresh(projectPath, {
       includeChanges: true,
-      quietChanges: false,
+      quietChanges: hasCachedChangesEntry,
       debounceMs: 0,
     })
   }, [autoRefreshOnMount, enabled, projectPath, requestRefresh])

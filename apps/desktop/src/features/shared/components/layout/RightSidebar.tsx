@@ -4,7 +4,6 @@ import { CheckCircle, Folder, GitDiff, Globe } from "@/components/icons"
 import { BrowserSidebar } from "@/features/browser/components/BrowserSidebar"
 import { ChangesPanel, FilePreviewPanel, FileTreeViewer } from "@/features/version-control/components"
 import { useFileTreeStore } from "@/features/workspace/store"
-import { useTabStore } from "@/features/editor/store"
 import { useCurrentProjectWorktree } from "@/features/shared/hooks"
 import {
   useProjectGitBranches,
@@ -45,7 +44,7 @@ const FILES_TREE_PANEL_MIN_WIDTH = 180
 const FILES_PREVIEW_PANEL_MIN_WIDTH = 260
 
 export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
-  const [isInitialLoad, setIsInitialLoad] = useState(true)
+  const [pendingFileTreePath, setPendingFileTreePath] = useState<string | null>(null)
   const [fileImportError, setFileImportError] = useState<string | null>(null)
   const [isImportingFiles, setIsImportingFiles] = useState(false)
   const [browserToolbarContainer, setBrowserToolbarContainer] = useState<HTMLDivElement | null>(null)
@@ -64,23 +63,22 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
   const {
     activeProjectPath,
     dataByProjectPath,
+    loadedByProjectPath,
     loadingByProjectPath,
     initialize: initializeFileTreeStore,
     setActiveProjectPath,
     refreshActiveProject,
   } = useFileTreeStore()
-  const {
-    initialize: initializeTabs,
-    isInitialized: isTabsInitialized,
-    switchProject,
-  } = useTabStore()
-  const { branchData } = useProjectGitBranches(selectedWorktreePath, { enabled: Boolean(selectedWorktreePath) })
+  const isChatSidebarVisible = activeView === "chat"
+  const { branchData } = useProjectGitBranches(selectedWorktreePath, {
+    enabled: Boolean(selectedWorktreePath) && isChatSidebarVisible,
+  })
   const {
     changes: projectChanges,
     isLoading: isChangesLoading,
     loadError: changesError,
   } = useProjectGitChanges(selectedWorktreePath, {
-    enabled: Boolean(selectedWorktreePath) && activeView === "chat",
+    enabled: Boolean(selectedWorktreePath) && isChatSidebarVisible && activeTab === "changes",
   })
   const trackedProjectChanges = useMemo(
     () => projectChanges.filter((change) => change.status !== "untracked"),
@@ -97,7 +95,11 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
     isLoading: isPullRequestChecksLoading,
     loadError: pullRequestChecksError,
   } = useProjectGitPullRequestChecks(selectedWorktreePath, {
-    enabled: Boolean(selectedWorktreePath) && shouldLoadChecks,
+    enabled:
+      Boolean(selectedWorktreePath) &&
+      isChatSidebarVisible &&
+      activeTab === "checks" &&
+      shouldLoadChecks,
   })
   const gitMissing = branchData != null && !branchData.isGitAvailable
   const gitUninitialized = branchData != null && branchData.isGitAvailable && !branchData.isRepo
@@ -109,8 +111,17 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
       ? (pullRequestChecksError ?? openPullRequest?.checksError ?? null)
       : null
 
-  const fileTreeData = activeProjectPath ? (dataByProjectPath[activeProjectPath] ?? {}) : {}
-  const isFileTreeLoading = activeProjectPath ? (loadingByProjectPath[activeProjectPath] ?? false) : false
+  const fileTreeData = selectedWorktreePath ? (dataByProjectPath[selectedWorktreePath] ?? {}) : {}
+  const hasCachedFileTreeForSelectedPath = selectedWorktreePath
+    ? (loadedByProjectPath[selectedWorktreePath] ?? false)
+    : false
+  const isSelectedFileTreeLoading = selectedWorktreePath
+    ? (loadingByProjectPath[selectedWorktreePath] ?? false)
+    : false
+  const shouldShowFileTreeLoading =
+    Boolean(selectedWorktreePath) &&
+    !hasCachedFileTreeForSelectedPath &&
+    (pendingFileTreePath === selectedWorktreePath || isSelectedFileTreeLoading)
   const selectedWorktreePathMatchesFileTree =
     Boolean(selectedWorktreePath) && activeProjectPath === selectedWorktreePath
 
@@ -134,23 +145,6 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
 
   const resolvedFilesTreePanelWidth = clampFilesTreePanelWidth(filesTreePanelWidth)
 
-  // Switch project tabs and load files when selected project changes
-  useEffect(() => {
-    void initializeTabs()
-  }, [initializeTabs])
-
-  useEffect(() => {
-    if (!isTabsInitialized) {
-      return
-    }
-
-    switchProject(selectedWorktreeId ?? null)
-  }, [isTabsInitialized, selectedWorktreeId, switchProject])
-
-  useEffect(() => {
-    void initializeFileTreeStore()
-  }, [initializeFileTreeStore])
-
   useEffect(() => {
     setFileImportError(null)
     setIsImportingFiles(false)
@@ -173,12 +167,55 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
   }, [fileTreeData, selectedPreviewFile])
 
   useEffect(() => {
-    setIsInitialLoad(true)
+    let cancelled = false
 
-    void setActiveProjectPath(selectedWorktreePath ?? null).finally(() => {
-      setIsInitialLoad(false)
-    })
-  }, [selectedWorktreePath, setActiveProjectPath])
+    const activateFileTree = async () => {
+      const requestedPath = selectedWorktreePath
+
+      if (activeTab !== "files") {
+        setPendingFileTreePath(null)
+        return
+      }
+
+      // File tree activation is demand-driven so workspace selection stays cheap.
+      if (!requestedPath) {
+        setPendingFileTreePath(null)
+        await initializeFileTreeStore()
+        if (!cancelled) {
+          setActiveProjectPath(null)
+        }
+        return
+      }
+
+      if (!hasCachedFileTreeForSelectedPath) {
+        setPendingFileTreePath(requestedPath)
+      } else {
+        setPendingFileTreePath(null)
+      }
+
+      await initializeFileTreeStore()
+      if (cancelled) {
+        return
+      }
+
+      setActiveProjectPath(requestedPath)
+      setPendingFileTreePath((currentPath) =>
+        currentPath === requestedPath ? null : currentPath
+      )
+    }
+
+    void activateFileTree()
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    activeTab,
+    hasCachedFileTreeForSelectedPath,
+    initializeFileTreeStore,
+    selectedWorktreePath,
+    setActiveProjectPath,
+  ])
 
   useEffect(() => {
     const pullRequestKey =
@@ -343,7 +380,7 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
             {activeTab === "files" ? (
               <div className="flex h-full min-h-0 flex-col">
                 <div className="min-h-0 flex-1 border-t border-sidebar-border/70 bg-[var(--right-sidebar-content-bg)] [--right-sidebar-content-bg:var(--background)]">
-                  {isInitialLoad || isFileTreeLoading ? (
+                  {shouldShowFileTreeLoading ? (
                     <div className="flex items-center justify-center py-8">
                       <span className="text-sm text-muted-foreground">Loading files...</span>
                     </div>
@@ -367,7 +404,7 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
                         </div>
                       ) : null}
 
-                      {!selectedWorktreePathMatchesFileTree ? (
+                      {!hasCachedFileTreeForSelectedPath && !selectedWorktreePathMatchesFileTree ? (
                         <div className="flex items-center justify-center py-8">
                           <span className="text-sm text-muted-foreground">Loading files...</span>
                         </div>

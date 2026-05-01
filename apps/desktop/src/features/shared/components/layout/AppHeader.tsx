@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion"
 
 import { desktop } from "@/desktop/client"
@@ -45,6 +45,7 @@ import {
 } from "@/features/shared/components/ui/dropdown-menu"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/features/shared/components/ui/tooltip"
 import { useProjectGitBranches, useProjectGitChanges } from "@/features/shared/hooks"
+import { useProjectGitStore } from "@/features/shared/hooks/projectGitStore"
 import { cn } from "@/lib/utils"
 import { CommitChangesDialog } from "./CommitChangesDialog"
 import { RemoveWorktreeModal } from "@/features/workspace/components/modals"
@@ -159,6 +160,8 @@ export function SourceControlActionGroup({
   const createOptimisticSession = useChatStore((state) => state.createOptimisticSession)
   const sendMessage = useChatStore((state) => state.sendMessage)
   const openChatSession = useTabStore((state) => state.openChatSession)
+  const requestGitRefresh = useProjectGitStore((state) => state.requestRefresh)
+  const latestGitRefreshPathRef = useRef<string | null>(null)
   const { expand: expandRightSidebar, setActiveTab: setRightSidebarActiveTab } = useRightSidebar()
   const {
     branchData,
@@ -176,7 +179,7 @@ export function SourceControlActionGroup({
   const { changes, isLoading: isChangesLoading, loadError: changesLoadError, refresh: refreshChanges } =
     useProjectGitChanges(resolvedProjectPath, {
       enabled: Boolean(resolvedProjectPath),
-      autoRefreshOnMount: true,
+      autoRefreshOnMount: false,
       refreshOnWindowFocus: true,
       subscribeToWatcher: true,
     })
@@ -195,6 +198,32 @@ export function SourceControlActionGroup({
   useEffect(() => {
     void initializeSettings()
   }, [initializeSettings])
+
+  useEffect(() => {
+    if (!resolvedProjectPath) {
+      latestGitRefreshPathRef.current = null
+      return
+    }
+
+    latestGitRefreshPathRef.current = resolvedProjectPath
+    const timeoutId = window.setTimeout(() => {
+      if (latestGitRefreshPathRef.current !== resolvedProjectPath) {
+        return
+      }
+
+      void requestGitRefresh(resolvedProjectPath, {
+        includeBranches: true,
+        includeChanges: true,
+        quietBranches: true,
+        quietChanges: true,
+        debounceMs: 0,
+      })
+    }, 300)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [requestGitRefresh, resolvedProjectPath])
 
   useEffect(() => {
     return desktop.git.onActionProgress((event) => {

@@ -403,7 +403,7 @@ export function buildChatTimelineViewModel({
     })
   }
 
-  const childSessionData = childSessions
+  const childSessionData = childSessions && childSessions.size > 0
     ? new Map(
         Array.from(childSessions.entries()).map(([id, state]) => [
           id,

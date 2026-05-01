@@ -25,10 +25,30 @@ interface FileTreeState {
 
 let unlistenProjectEvents: (() => void) | null = null
 let initializePromise: Promise<void> | null = null
-let switchingProjectPromise: Promise<void> | null = null
+let activeProjectSwitchRequestId = 0
 let eventFlushTimeoutId: ReturnType<typeof setTimeout> | null = null
 const treeLoadPromiseByProject = new Map<string, Promise<Record<string, FileTreeItem>>>()
 const queuedEventsByProject = new Map<string, ProjectFileSystemEvent[]>()
+
+function isCurrentProjectSwitch(
+  requestId: number,
+  projectPath: string | null,
+  get: () => FileTreeState
+): boolean {
+  return activeProjectSwitchRequestId === requestId && get().activeProjectPath === projectPath
+}
+
+function restartLatestProjectWatcher(get: () => FileTreeState): void {
+  const latestProjectPath = get().activeProjectPath
+  if (!latestProjectPath) {
+    void stopProjectFileWatcher()
+    return
+  }
+
+  void startProjectFileWatcher(latestProjectPath).catch((error) => {
+    console.error("Failed to restart latest project file watcher:", error)
+  })
+}
 
 function clearQueuedEvents(projectPath?: string | null): void {
   if (projectPath) {
@@ -279,59 +299,74 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => ({
   },
 
   setActiveProjectPath: async (projectPath) => {
-    if (switchingProjectPromise) {
-      await switchingProjectPromise
+    const requestId = ++activeProjectSwitchRequestId
+
+    await get().initialize()
+
+    if (!isCurrentProjectSwitch(requestId, get().activeProjectPath, get)) {
+      return
     }
 
-    switchingProjectPromise = (async () => {
-      await get().initialize()
+    const previousProjectPath = get().activeProjectPath
+    if (previousProjectPath === projectPath) {
+      return
+    }
 
-      const previousProjectPath = get().activeProjectPath
-      if (previousProjectPath === projectPath) {
-        return
-      }
+    if (eventFlushTimeoutId) {
+      clearTimeout(eventFlushTimeoutId)
+      eventFlushTimeoutId = null
+    }
 
-      if (eventFlushTimeoutId) {
-        clearTimeout(eventFlushTimeoutId)
-        eventFlushTimeoutId = null
-      }
+    clearQueuedEvents(previousProjectPath)
+    if (previousProjectPath) {
+      set((state) => ({
+        staleByProjectPath: {
+          ...state.staleByProjectPath,
+          [previousProjectPath]: true,
+        },
+      }))
+    }
 
-      clearQueuedEvents(previousProjectPath)
-      if (previousProjectPath) {
-        set((state) => ({
-          staleByProjectPath: {
-            ...state.staleByProjectPath,
-            [previousProjectPath]: true,
-          },
-        }))
-      }
-
-      if (!projectPath) {
-        await stopProjectFileWatcher()
-        set({ activeProjectPath: null })
-        return
-      }
-
-      set({ activeProjectPath: projectPath })
+    if (!projectPath) {
+      set({ activeProjectPath: null })
 
       try {
-        await startProjectFileWatcher(projectPath)
+        await stopProjectFileWatcher()
       } catch (error) {
-        console.error("Failed to start project file watcher:", error)
+        console.error("Failed to stop project file watcher:", error)
       }
 
-      await ensureProjectTreeLoaded(projectPath, get, set, {
-        forceReload:
-          (get().staleByProjectPath[projectPath] ?? false) ||
-          !(get().loadedByProjectPath[projectPath] ?? false),
-      })
+      if (!isCurrentProjectSwitch(requestId, null, get)) {
+        restartLatestProjectWatcher(get)
+      }
 
-      await applyQueuedEventsForProject(projectPath, get, set)
-    })().finally(() => {
-      switchingProjectPromise = null
+      return
+    }
+
+    set({ activeProjectPath: projectPath })
+
+    try {
+      await startProjectFileWatcher(projectPath)
+    } catch (error) {
+      console.error("Failed to start project file watcher:", error)
+    }
+
+    if (!isCurrentProjectSwitch(requestId, projectPath, get)) {
+      restartLatestProjectWatcher(get)
+      return
+    }
+
+    await ensureProjectTreeLoaded(projectPath, get, set, {
+      forceReload:
+        (get().staleByProjectPath[projectPath] ?? false) ||
+        !(get().loadedByProjectPath[projectPath] ?? false),
     })
 
-    return switchingProjectPromise
+    if (!isCurrentProjectSwitch(requestId, projectPath, get)) {
+      return
+    }
+
+    await applyQueuedEventsForProject(projectPath, get, set)
   },
 
   refreshActiveProject: async () => {

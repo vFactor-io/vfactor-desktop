@@ -45,11 +45,15 @@ export function useProjectGitPullRequestChecks(
       return
     }
 
+    const hasCachedChecks =
+      (useProjectGitStore.getState().entriesByProjectPath[projectPath]?.pullRequestChecks.length ??
+        0) > 0
+
     useProjectGitStore.getState().ensureEntry(projectPath)
     void requestRefresh(projectPath, {
       includePullRequestChecks: true,
       includePullRequestActivity: shouldRequestPullRequestActivity(projectPath),
-      quietPullRequestChecks: false,
+      quietPullRequestChecks: hasCachedChecks,
       debounceMs: 0,
     })
   }, [enabled, hasOpenPullRequest, openPullRequestRefreshKey, projectPath, requestRefresh])

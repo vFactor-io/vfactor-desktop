@@ -271,7 +271,7 @@ export function LeftSidebar({
   const sectionLabelClass =
     "text-xs font-medium uppercase tracking-[0.08em] text-sidebar-foreground/40"
   const hoveredWorktreePrewarmTarget =
-    activeView === "chat" && !isRightSidebarCollapsed ? rightSidebarActiveTab : "changes"
+    activeView === "chat" && !isRightSidebarCollapsed ? rightSidebarActiveTab : "chat"
   const projectById = useMemo(
     () => new Map(projects.map((project) => [project.id, project])),
     [projects]

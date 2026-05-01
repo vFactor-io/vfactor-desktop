@@ -364,13 +364,23 @@ function replaceSessionActivity(
 ): Record<string, SessionActivityState> {
   const previousActivity = sessionActivityById[sessionId]
   const workStartedAt = getActiveWorkStartedAt(previousActivity, nextActivity.status)
+  const resolvedActivity = {
+    ...nextActivity,
+    ...(workStartedAt == null ? {} : { workStartedAt }),
+  }
+
+  if (
+    previousActivity &&
+    previousActivity.status === resolvedActivity.status &&
+    previousActivity.unread === resolvedActivity.unread &&
+    previousActivity.workStartedAt === resolvedActivity.workStartedAt
+  ) {
+    return sessionActivityById
+  }
 
   return {
     ...sessionActivityById,
-    [sessionId]: {
-      ...nextActivity,
-      ...(workStartedAt == null ? {} : { workStartedAt }),
-    },
+    [sessionId]: resolvedActivity,
   }
 }
 
@@ -1564,10 +1574,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }
 
           const previousMessages = getSessionMessages(state.messagesBySession, sessionId)
-          const sessionMessages = mergeSessionMessages(
-            previousMessages,
-            createTurnUpdateMessages(sessionId, turnId, partialResult)
-          )
+          const turnUpdateMessages = createTurnUpdateMessages(sessionId, turnId, partialResult)
+          const sessionMessages = turnUpdateMessages?.length
+            ? mergeSessionMessages(previousMessages, turnUpdateMessages)
+            : previousMessages
+          const nextMessagesBySession =
+            sessionMessages === previousMessages
+              ? state.messagesBySession
+              : {
+                  ...state.messagesBySession,
+                  [sessionId]: sessionMessages,
+                }
           const nextPromptState =
             partialResult.prompt === undefined
               ? state.activePromptBySession
@@ -1576,17 +1593,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
                   sessionId,
                   getNormalizedPromptState(partialResult.prompt)
                 )
-
-          return {
-            messagesBySession: {
-              ...state.messagesBySession,
-              [sessionId]: sessionMessages,
-            },
-            activePromptBySession: nextPromptState,
-            sessionActivityById: replaceSessionActivity(state.sessionActivityById, sessionId, {
+          const nextSessionActivityById = replaceSessionActivity(
+            state.sessionActivityById,
+            sessionId,
+            {
               status: "streaming",
               unread: false,
-            }),
+            }
+          )
+
+          if (
+            nextMessagesBySession === state.messagesBySession &&
+            nextPromptState === state.activePromptBySession &&
+            nextSessionActivityById === state.sessionActivityById &&
+            state.status === "streaming" &&
+            state.error === null
+          ) {
+            return {}
+          }
+
+          return {
+            messagesBySession: nextMessagesBySession,
+            activePromptBySession: nextPromptState,
+            sessionActivityById: nextSessionActivityById,
             status: "streaming",
             error: null,
           }

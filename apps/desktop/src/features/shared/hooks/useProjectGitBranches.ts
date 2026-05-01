@@ -42,10 +42,13 @@ export function useProjectGitBranches(
       return
     }
 
+    const hasCachedBranchData =
+      useProjectGitStore.getState().entriesByProjectPath[projectPath]?.branchData != null
+
     useProjectGitStore.getState().ensureEntry(projectPath)
     void requestRefresh(projectPath, {
       includeBranches: true,
-      quietBranches: false,
+      quietBranches: hasCachedBranchData,
       debounceMs: 0,
     })
   }, [autoRefreshOnMount, enabled, projectPath, requestRefresh])
