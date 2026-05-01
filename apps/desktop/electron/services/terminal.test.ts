@@ -25,18 +25,26 @@ interface FakePty {
   onData: (listener: (data: string) => void) => { dispose: () => void }
   onExit: (listener: (event: { exitCode: number }) => void) => { dispose: () => void }
   emitData: (data: string) => void
+  emitExit: (event?: { exitCode: number }) => void
 }
 
 const fakePtys: FakePty[] = []
 
-function createFakePty(cwd: string): FakePty {
+function flushTerminalEvents(): Promise<void> {
+  return new Promise((resolve) => queueMicrotask(resolve))
+}
+
+function createFakePty(cwd: string, options: { exitOnKill?: boolean } = {}): FakePty {
   let dataListener: ((data: string) => void) | null = null
   let exitListener: ((event: { exitCode: number }) => void) | null = null
+  const exitOnKill = options.exitOnKill ?? true
 
   const pty: FakePty = {
     cwd,
     kill: mock(() => {
-      exitListener?.({ exitCode: 0 })
+      if (exitOnKill) {
+        exitListener?.({ exitCode: 0 })
+      }
     }),
     resize: mock(() => {}),
     write: mock(() => {}),
@@ -62,6 +70,9 @@ function createFakePty(cwd: string): FakePty {
     },
     emitData: (data) => {
       dataListener?.(data)
+    },
+    emitExit: (event = { exitCode: 0 }) => {
+      exitListener?.(event)
     },
   }
 
@@ -168,6 +179,7 @@ describe("TerminalService", () => {
       await service.createSession("session-1", rootDir, 80, 24)
 
       expect(() => fakePtys[0]?.emitData("hello")).not.toThrow()
+      await flushTerminalEvents()
       expect(sendEvent).toHaveBeenCalledTimes(1)
     } finally {
       await rm(rootDir, { recursive: true, force: true })
@@ -195,6 +207,71 @@ describe("TerminalService", () => {
       expect(sendEvent).not.toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
         sessionId: "session-1",
         data: "stale",
+      }))
+    } finally {
+      await rm(rootDir, { recursive: true, force: true })
+    }
+  })
+
+  test("queues terminal data before sending it to the renderer", async () => {
+    const rootDir = await mkdtemp(path.join(tmpdir(), "vfactor-terminal-test-"))
+    const sendEvent = mock(() => {})
+
+    try {
+      const service = new TerminalService(sendEvent)
+
+      await service.createSession("session-1", rootDir, 80, 24)
+      fakePtys[0]?.emitData("first")
+      fakePtys[0]?.emitData("second")
+
+      expect(sendEvent).not.toHaveBeenCalled()
+
+      await flushTerminalEvents()
+
+      expect(sendEvent).toHaveBeenNthCalledWith(1, expect.any(String), expect.objectContaining({
+        sessionId: "session-1",
+        data: "first",
+      }))
+      expect(sendEvent).toHaveBeenNthCalledWith(2, expect.any(String), expect.objectContaining({
+        sessionId: "session-1",
+        data: "second",
+      }))
+    } finally {
+      await rm(rootDir, { recursive: true, force: true })
+    }
+  })
+
+  test("waits for terminal exit while closing a session", async () => {
+    const rootDir = await mkdtemp(path.join(tmpdir(), "vfactor-terminal-test-"))
+    const sendEvent = mock(() => {})
+
+    spawnMock.mockImplementation((_shell: string, _args: string[], options: { cwd: string }) =>
+      createFakePty(options.cwd, { exitOnKill: false })
+    )
+
+    try {
+      const service = new TerminalService(sendEvent)
+
+      await service.createSession("session-1", rootDir, 80, 24)
+      const pty = fakePtys[0]
+      let didClose = false
+
+      const closePromise = service.closeSession("session-1").then(() => {
+        didClose = true
+      })
+
+      await flushTerminalEvents()
+
+      expect(pty?.kill).toHaveBeenCalledWith("SIGTERM")
+      expect(didClose).toBe(false)
+
+      pty?.emitExit()
+      await closePromise
+
+      expect(didClose).toBe(true)
+      expect(sendEvent).not.toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+        sessionId: "session-1",
+        exitCode: 0,
       }))
     } finally {
       await rm(rootDir, { recursive: true, force: true })

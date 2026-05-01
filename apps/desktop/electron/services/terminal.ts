@@ -10,15 +10,24 @@ import { EVENT_CHANNELS } from "../ipc/channels"
 import { capture, captureException } from "./analytics"
 
 const TERMINAL_SCROLLBACK_LIMIT = 200_000
+const TERMINAL_KILL_GRACE_MS = 1_000
+const TERMINAL_KILL_TIMEOUT_MS = 2_500
 
 type EventSender = (channel: string, payload: unknown) => void
+type PendingTerminalEvent =
+  | { type: "data"; payload: TerminalDataEvent }
+  | { type: "exit"; payload: TerminalExitEvent }
 
 interface TerminalSession {
   pty: IPty
   eventDisposables: Array<{ dispose: () => void }>
+  closeWaiters: Array<() => void>
+  pendingEvents: PendingTerminalEvent[]
   buffer: string
   cwd: string
   exited: boolean
+  closing: boolean
+  eventDrainScheduled: boolean
   suppressExitEvent: boolean
   shellKind: TerminalStartResponse["shellKind"]
 }
@@ -158,8 +167,27 @@ function createTerminalPty(
 
 export class TerminalService {
   private readonly sessions = new Map<string, TerminalSession>()
+  private readonly sessionOperations = new Map<string, Promise<unknown>>()
 
   constructor(private readonly sendEvent: EventSender) {}
+
+  private withSessionOperation<T>(
+    sessionId: string,
+    operation: () => Promise<T>
+  ): Promise<T> {
+    const previous = this.sessionOperations.get(sessionId) ?? Promise.resolve()
+    const next = previous.catch(() => undefined).then(operation)
+
+    this.sessionOperations.set(sessionId, next)
+    const cleanup = () => {
+      if (this.sessionOperations.get(sessionId) === next) {
+        this.sessionOperations.delete(sessionId)
+      }
+    }
+    void next.then(cleanup, cleanup)
+
+    return next
+  }
 
   private sendTerminalEvent(channel: string, payload: unknown): void {
     try {
@@ -185,18 +213,135 @@ export class TerminalService {
     }
   }
 
-  private killSession(session: TerminalSession): void {
-    this.disposeSessionEvents(session)
+  private enqueueTerminalEvent(session: TerminalSession, event: PendingTerminalEvent): void {
+    if (session.closing) {
+      return
+    }
 
-    try {
-      session.pty.kill()
-    } catch (error) {
-      console.warn("[terminal] Failed to kill terminal session:", error)
-      captureException(error, { context: "terminal_session_kill" })
+    session.pendingEvents.push(event)
+    if (session.eventDrainScheduled) {
+      return
+    }
+
+    session.eventDrainScheduled = true
+    queueMicrotask(() => {
+      this.drainTerminalEvents(session)
+    })
+  }
+
+  private drainTerminalEvents(session: TerminalSession): void {
+    session.eventDrainScheduled = false
+    if (session.closing || session.pendingEvents.length === 0) {
+      session.pendingEvents = []
+      return
+    }
+
+    const events = session.pendingEvents.splice(0)
+    for (const event of events) {
+      if (session.closing) {
+        session.pendingEvents = []
+        return
+      }
+
+      this.sendTerminalEvent(
+        event.type === "data" ? EVENT_CHANNELS.terminalData : EVENT_CHANNELS.terminalExit,
+        event.payload
+      )
+    }
+
+    if (session.pendingEvents.length > 0) {
+      this.enqueueTerminalDrain(session)
     }
   }
 
+  private enqueueTerminalDrain(session: TerminalSession): void {
+    if (session.eventDrainScheduled) {
+      return
+    }
+
+    session.eventDrainScheduled = true
+    queueMicrotask(() => {
+      this.drainTerminalEvents(session)
+    })
+  }
+
+  private resolveCloseWaiters(session: TerminalSession): void {
+    for (const waiter of session.closeWaiters.splice(0)) {
+      waiter()
+    }
+  }
+
+  private killSession(session: TerminalSession, signal?: string): void {
+    try {
+      session.pty.kill(signal)
+    } catch (error) {
+      console.warn("[terminal] Failed to kill terminal session:", error)
+      captureException(error, { context: "terminal_session_kill", signal: signal ?? null })
+    }
+  }
+
+  private waitForSessionExit(session: TerminalSession, timeoutMs: number): Promise<boolean> {
+    if (session.exited) {
+      return Promise.resolve(true)
+    }
+
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        const index = session.closeWaiters.indexOf(resolveExited)
+        if (index >= 0) {
+          session.closeWaiters.splice(index, 1)
+        }
+        resolve(false)
+      }, timeoutMs)
+      timeout.unref?.()
+
+      const resolveExited = () => {
+        clearTimeout(timeout)
+        resolve(true)
+      }
+
+      session.closeWaiters.push(resolveExited)
+    })
+  }
+
+  private async stopSession(session: TerminalSession): Promise<void> {
+    if (session.exited) {
+      this.disposeSessionEvents(session)
+      return
+    }
+
+    session.closing = true
+    session.suppressExitEvent = true
+    session.pendingEvents = []
+
+    this.killSession(session, "SIGTERM")
+    const exitedAfterTerm = await this.waitForSessionExit(session, TERMINAL_KILL_GRACE_MS)
+    if (!exitedAfterTerm) {
+      this.killSession(session, "SIGKILL")
+      await this.waitForSessionExit(session, TERMINAL_KILL_TIMEOUT_MS - TERMINAL_KILL_GRACE_MS)
+    }
+
+    session.exited = true
+    session.closing = false
+    session.pendingEvents = []
+    this.disposeSessionEvents(session)
+    this.resolveCloseWaiters(session)
+  }
+
   async createSession(
+    sessionId: string,
+    cwd: string,
+    cols: number,
+    rows: number,
+    initialCommand?: string,
+    environment?: Record<string, string>
+  ): Promise<TerminalStartResponse> {
+    return this.withSessionOperation(sessionId, () =>
+      this.createSessionInternal(sessionId, cwd, cols, rows, initialCommand, environment)
+    )
+  }
+
+  private async createSessionInternal(
     sessionId: string,
     cwd: string,
     cols: number,
@@ -226,15 +371,11 @@ export class TerminalService {
         } catch (error) {
           console.warn("[terminal] Failed to resize existing terminal session, recreating:", error)
           captureException(error, { context: "terminal_existing_session_resize" })
-          existing.suppressExitEvent = true
-          existing.exited = true
-          this.killSession(existing)
+          await this.stopSession(existing)
           this.sessions.delete(sessionId)
         }
       } else {
-        existing.suppressExitEvent = true
-        existing.exited = true
-        this.killSession(existing)
+        await this.stopSession(existing)
         this.sessions.delete(sessionId)
       }
     }
@@ -249,9 +390,13 @@ export class TerminalService {
     const session: TerminalSession = {
       pty: terminal,
       eventDisposables: [],
+      closeWaiters: [],
+      pendingEvents: [],
       buffer: "",
       cwd: trimmedCwd,
       exited: false,
+      closing: false,
+      eventDrainScheduled: false,
       suppressExitEvent: false,
       shellKind,
     }
@@ -269,7 +414,7 @@ export class TerminalService {
           data,
         }
 
-        this.sendTerminalEvent(EVENT_CHANNELS.terminalData, payload)
+        this.enqueueTerminalEvent(session, { type: "data", payload })
       } catch (error) {
         console.warn("[terminal] Failed to handle terminal data:", error)
         captureException(error, { context: "terminal_data_handler" })
@@ -284,6 +429,7 @@ export class TerminalService {
 
         session.exited = true
         this.disposeSessionEvents(session)
+        this.resolveCloseWaiters(session)
         if (session.suppressExitEvent) {
           return
         }
@@ -293,7 +439,7 @@ export class TerminalService {
           exitCode: event.exitCode,
         }
 
-        this.sendTerminalEvent(EVENT_CHANNELS.terminalExit, payload)
+        this.enqueueTerminalEvent(session, { type: "exit", payload })
       } catch (error) {
         console.warn("[terminal] Failed to handle terminal exit:", error)
         captureException(error, { context: "terminal_exit_handler" })
@@ -312,30 +458,33 @@ export class TerminalService {
   }
 
   async write(sessionId: string, data: string): Promise<void> {
-    const session = this.requireSession(sessionId)
-    session.pty.write(data)
+    return this.withSessionOperation(sessionId, async () => {
+      const session = this.requireSession(sessionId)
+      session.pty.write(data)
+    })
   }
 
   async resize(sessionId: string, cols: number, rows: number): Promise<void> {
-    const session = this.requireSession(sessionId)
-    session.pty.resize(Math.max(1, cols), Math.max(1, rows))
+    return this.withSessionOperation(sessionId, async () => {
+      const session = this.requireSession(sessionId)
+      session.pty.resize(Math.max(1, cols), Math.max(1, rows))
+    })
   }
 
   async closeSession(sessionId: string): Promise<void> {
-    const session = this.sessions.get(sessionId)
-    if (!session) {
-      return
-    }
+    return this.withSessionOperation(sessionId, async () => {
+      const session = this.sessions.get(sessionId)
+      if (!session) {
+        return
+      }
 
-    session.exited = true
-    this.killSession(session)
-    this.sessions.delete(sessionId)
+      await this.stopSession(session)
+      this.sessions.delete(sessionId)
+    })
   }
 
-  dispose(): void {
-    for (const sessionId of this.sessions.keys()) {
-      void this.closeSession(sessionId)
-    }
+  async dispose(): Promise<void> {
+    await Promise.all([...this.sessions.keys()].map((sessionId) => this.closeSession(sessionId)))
   }
 
   getActiveSessionCount(): number {
@@ -356,7 +505,7 @@ export class TerminalService {
       throw new Error(`Unknown terminal session: ${sessionId}`)
     }
 
-    if (session.exited) {
+    if (session.exited || session.closing) {
       throw new Error("Terminal session has exited")
     }
 

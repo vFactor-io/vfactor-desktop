@@ -202,7 +202,7 @@ async function cleanupForQuit(options: { includeAnalytics: boolean }): Promise<v
   await projectWatcherService.stop().catch((error) => {
     console.warn("[watcher] Failed to stop project watcher:", error)
   })
-  terminalService.dispose()
+  await terminalService.dispose()
   runtimeService?.dispose()
   codexServerService.dispose()
   await openCodeServerService.dispose()
