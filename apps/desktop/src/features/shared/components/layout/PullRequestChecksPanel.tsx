@@ -781,11 +781,11 @@ function ChecksBlock({
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
       <CollapsibleTrigger
-        className="flex w-full items-center gap-2.5 py-1.5 text-left transition-colors"
+        className="flex w-full items-center gap-2 py-1.5 text-left transition-colors"
         disabled={sorted.length === 0}
       >
         {summaryIcon}
-        <div className={cn("min-w-0 flex-1 truncate text-sm font-medium", summaryToneClass)}>
+        <div className={cn("min-w-0 truncate text-sm font-medium", summaryToneClass)}>
           {summary.label}
         </div>
         {sorted.length > 0 ? (
