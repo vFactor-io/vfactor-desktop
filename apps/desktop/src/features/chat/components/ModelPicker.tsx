@@ -1,5 +1,4 @@
 import { memo, type Dispatch, type SetStateAction } from "react"
-import { motion } from "framer-motion"
 import {
   CaretDown,
   CheckCircle,
@@ -134,10 +133,8 @@ const ModelPickerDropdownContent = memo(function ModelPickerDropdownContent({
             )}
           >
             {modelHarnessFilter === "favorites" ? (
-              <motion.div
-                layoutId="modelHarnessFilterRail"
+              <div
                 className="model-picker-control absolute inset-0 z-0 rounded-md bg-[var(--sidebar-item-active)]"
-                transition={{ type: "spring", stiffness: 500, damping: 35, mass: 0.5 }}
               />
             ) : null}
             <span className="relative z-10 flex items-center justify-center">
@@ -160,10 +157,8 @@ const ModelPickerDropdownContent = memo(function ModelPickerDropdownContent({
             )}
           >
             {modelHarnessFilter === "all" ? (
-              <motion.div
-                layoutId="modelHarnessFilterRail"
+              <div
                 className="model-picker-control absolute inset-0 z-0 rounded-md bg-[var(--sidebar-item-active)]"
-                transition={{ type: "spring", stiffness: 500, damping: 35, mass: 0.5 }}
               />
             ) : null}
             <span className="relative z-10 flex items-center justify-center">
@@ -189,10 +184,8 @@ const ModelPickerDropdownContent = memo(function ModelPickerDropdownContent({
               )}
             >
               {modelHarnessFilter === group.harnessId ? (
-                <motion.div
-                  layoutId="modelHarnessFilterRail"
+                <div
                   className="model-picker-control absolute inset-0 z-0 rounded-md bg-[var(--sidebar-item-active)]"
-                  transition={{ type: "spring", stiffness: 500, damping: 35, mass: 0.5 }}
                 />
               ) : null}
               <span className="relative z-10 flex items-center justify-center">

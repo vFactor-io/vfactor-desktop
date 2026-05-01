@@ -12,7 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/features/shared/components/ui/dropdown-menu"
 import { HorizontalOverflowFade } from "@/features/shared/components/ui"
-import { motion, Reorder } from "framer-motion"
+import { Reorder } from "framer-motion"
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { cn } from "@/lib/utils"
 import { getTerminalTabLabel } from "@/features/terminal/utils/terminalTabs"
@@ -190,18 +190,13 @@ export function TabBar({ tabs, activeTabId, onTabChange, onTabClose }: TabBarPro
         contentRef={contentRef}
       >
         {activeIndicator ? (
-          <motion.div
+          <div
             aria-hidden="true"
             className="absolute inset-y-1 z-0 rounded-md bg-[var(--sidebar-item-active)]"
-            animate={{
-              x: activeIndicator.x,
+            style={{
+              transform: `translateX(${activeIndicator.x}px)`,
               width: activeIndicator.width,
             }}
-            transition={
-              enableLayoutAnimation
-                ? { duration: 0 }
-                : { type: "spring", stiffness: 500, damping: 35, mass: 0.5 }
-            }
           />
         ) : null}
 

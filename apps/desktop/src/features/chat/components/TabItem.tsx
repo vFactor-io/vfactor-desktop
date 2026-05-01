@@ -1,6 +1,5 @@
 import { ChatCircle, GitDiff, Terminal, X } from "@/components/icons"
 import { cn } from "@/lib/utils"
-import { motion } from "framer-motion"
 import { LoadingDots } from "@/features/shared/components/ui/loading-dots"
 import { getFileIcon } from "@/features/editor/utils/fileIcons"
 import { ModelLogo, getHarnessLogoKind } from "./ModelLogo"
@@ -112,10 +111,8 @@ export function TabItem({
       )}
     >
       {isActive && showActiveIndicator ? (
-        <motion.div
-          layoutId="chatActiveTab"
+        <div
           className="absolute inset-0 z-0 rounded-md bg-[var(--sidebar-item-active)]"
-          transition={{ type: "spring", stiffness: 500, damping: 35, mass: 0.5 }}
         />
       ) : null}
       <span className="relative z-10 flex min-w-0 flex-1 items-center gap-1.5">
