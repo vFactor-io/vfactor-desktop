@@ -51,6 +51,7 @@ import { $isUploadChipNode, UploadChipNode } from "./UploadChipNode"
 import { cn } from "@/lib/utils"
 import { useCurrentProjectWorktree } from "@/features/shared/hooks"
 import { useChatStore } from "../store"
+import { createProjectChatSession } from "../store/projectChatSession"
 import { createDefaultProjectChat } from "../store/sessionState"
 import { useSettingsStore } from "@/features/settings/store/settingsStore"
 import { useTabStore } from "@/features/editor/store"
@@ -163,17 +164,14 @@ export function ChatInput({
     [selectedWorktreeId, selectedWorktreePath, storedProjectChat]
   )
   const {
-    createOptimisticSession,
     setSessionRuntimeMode,
   } = useChatStore(
     useShallow((state) => ({
-      createOptimisticSession: state.createOptimisticSession,
       setSessionRuntimeMode: state.setSessionRuntimeMode,
     }))
   )
-  const { openChatSession, openTerminalTab } = useTabStore(
+  const { openTerminalTab } = useTabStore(
     useShallow((state) => ({
-      openChatSession: state.openChatSession,
       openTerminalTab: state.openTerminalTab,
     }))
   )
@@ -593,13 +591,22 @@ export function ChatInput({
           return
         }
 
-        const session = createOptimisticSession(selectedWorktreeId, selectedWorktreePath)
-        if (session) {
-          commitComposerInput("")
-          setDismissedMenuKey(null)
-          setIsSlashMenuDismissed(false)
-          openChatSession(session.id, session.title)
-        }
+        void createProjectChatSession({
+          worktreeId: selectedWorktreeId,
+          worktreePath: selectedWorktreePath,
+        })
+          .then((result) => {
+            if (!result.ok) {
+              return
+            }
+
+            commitComposerInput("")
+            setDismissedMenuKey(null)
+            setIsSlashMenuDismissed(false)
+          })
+          .catch((error) => {
+            console.error("[ChatInput] Failed to create a chat session:", error)
+          })
         return
       }
 
@@ -639,10 +646,8 @@ export function ChatInput({
       }
     },
     [
-      createOptimisticSession,
       openTerminalTab,
       openThemeSlashMenu,
-      openChatSession,
       selectedProject,
       selectedWorktreeId,
       selectedWorktreePath,
