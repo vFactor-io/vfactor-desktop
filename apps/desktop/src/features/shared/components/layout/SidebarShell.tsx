@@ -75,7 +75,7 @@ export function SidebarShell({
       <div
         aria-hidden="true"
         className={cn(
-          "pointer-events-none absolute inset-y-0 w-px bg-sidebar-border/70 transition-opacity",
+          "pointer-events-none absolute inset-y-0 z-20 w-px bg-sidebar-border/70 transition-opacity",
           isCollapsed ? "opacity-0" : "opacity-100",
           isLeftSidebar ? "right-0" : "left-0"
         )}

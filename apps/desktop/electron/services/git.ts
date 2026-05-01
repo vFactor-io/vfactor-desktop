@@ -14,6 +14,7 @@ import type {
   GitFileChange,
   GitFileDiff,
   GitFileStatus,
+  GitWorkingTreeDiff,
   GitMergePullRequestResult,
   GitPullRequestCheck,
   GitPullRequestCommit,
@@ -895,6 +896,26 @@ async function getFileDiff(
     isImage: previewUnavailableReason === "image",
     isTooLarge: previewUnavailableReason === "too_large",
     previewUnavailableReason: previewUnavailableReason ?? undefined,
+  }
+}
+
+async function getWorkingTreeDiff(projectPath: string): Promise<GitWorkingTreeDiff> {
+  const { repoRoot, scopePath } = await getRepoContext(projectPath)
+  const hasHead = await gitHeadExists(repoRoot)
+  const args = hasHead
+    ? withOptionalPathspec(
+        ["diff", "--no-ext-diff", "--find-renames", "--unified=3", "HEAD"],
+        scopePath
+      )
+    : withOptionalPathspec(
+        ["diff", "--no-ext-diff", "--find-renames", "--unified=3", "--cached"],
+        scopePath
+      )
+
+  const patch = await runGitCommand(repoRoot, args)
+
+  return {
+    patch: patch.trim() ? patch : "",
   }
 }
 
@@ -3302,6 +3323,10 @@ export class GitService {
 
   getFileDiff(projectPath: string, filePath: string, previousPath?: string | null): Promise<GitFileDiff> {
     return getFileDiff(projectPath, filePath, previousPath)
+  }
+
+  getWorkingTreeDiff(projectPath: string): Promise<GitWorkingTreeDiff> {
+    return getWorkingTreeDiff(projectPath)
   }
 
   async checkoutBranch(projectPath: string, branchName: string): Promise<GitBranchesResponse> {

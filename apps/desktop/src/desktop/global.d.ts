@@ -12,6 +12,7 @@ import type {
   GitCreateWorktreeResult,
   GitFileChange,
   GitFileDiff,
+  GitWorkingTreeDiff,
   GitMergePullRequestResult,
   GitPullRequestChecksOptions,
   GitPullRequestChecksResponse,
@@ -168,6 +169,7 @@ declare global {
           filePath: string,
           previousPath?: string | null
         ) => Promise<GitFileDiff>
+        getWorkingTreeDiff: (projectPath: string) => Promise<GitWorkingTreeDiff>
         checkoutBranch: (
           projectPath: string,
           branchName: string

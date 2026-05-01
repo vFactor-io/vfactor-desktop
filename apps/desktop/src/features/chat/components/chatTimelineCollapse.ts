@@ -13,6 +13,22 @@ function hasRenderableMessageContent(message: MessageWithParts): boolean {
   )
 }
 
+function isAssistantWorkMessage(message: MessageWithParts): boolean {
+  return message.info.role === "assistant" && message.info.itemType !== "providerNotice"
+}
+
+function isAssistantResponseMessage(message: MessageWithParts): boolean {
+  return message.info.role === "assistant" && message.info.itemType === "agentMessage"
+}
+
+function getFooterAnchorMessage(messages: MessageWithParts[]): MessageWithParts | null {
+  return (
+    [...messages].reverse().find(isAssistantResponseMessage) ??
+    [...messages].reverse().find(isAssistantWorkMessage) ??
+    null
+  )
+}
+
 function dedupeMessagesByLastId(messages: MessageWithParts[]): MessageWithParts[] {
   const lastIndexById = new Map<string, number>()
 
@@ -42,7 +58,7 @@ export function getTurnCollapsedMessagesByFooterId(
     }
 
     const turnMessages = dedupedMessages.slice(turnStartIndex, turnEndIndex + 1)
-    const footerMessage = [...turnMessages].reverse().find((message) => message.info.role === "assistant")
+    const footerMessage = getFooterAnchorMessage(turnMessages)
     if (!footerMessage || !getMessageText(footerMessage).trim()) {
       return
     }
@@ -53,8 +69,7 @@ export function getTurnCollapsedMessagesByFooterId(
 
     const collapsedMessages = turnMessages.filter(
       (message) =>
-        message.info.role === "assistant" &&
-        message.info.itemType !== "providerNotice" &&
+        isAssistantWorkMessage(message) &&
         message.info.id !== footerMessage.info.id &&
         hasRenderableMessageContent(message)
     )

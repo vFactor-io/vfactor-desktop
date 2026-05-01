@@ -49,6 +49,10 @@ export interface GitFileDiff {
   previewUnavailableReason?: "binary" | "image" | "too_large"
 }
 
+export interface GitWorkingTreeDiff {
+  patch: string
+}
+
 export interface GitBranchesResponse {
   isGitAvailable: boolean
   isRepo: boolean

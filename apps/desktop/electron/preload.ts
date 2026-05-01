@@ -11,6 +11,7 @@ import type {
   GitCreateWorktreeResult,
   GitFileChange,
   GitFileDiff,
+  GitWorkingTreeDiff,
   GitMergePullRequestResult,
   GitPullRequestChecksOptions,
   GitPullRequestChecksResponse,
@@ -232,6 +233,8 @@ contextBridge.exposeInMainWorld("vfactor", {
         filePath,
         previousPath ?? null
       ) as Promise<GitFileDiff>,
+    getWorkingTreeDiff: (projectPath: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.gitGetWorkingTreeDiff, projectPath) as Promise<GitWorkingTreeDiff>,
     checkoutBranch: (projectPath: string, branchName: string) =>
       ipcRenderer.invoke(
         IPC_CHANNELS.gitCheckoutBranch,

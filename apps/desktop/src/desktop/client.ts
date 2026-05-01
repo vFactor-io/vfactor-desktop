@@ -11,6 +11,7 @@ import type {
   GitCreateWorktreeResult,
   GitFileChange,
   GitFileDiff,
+  GitWorkingTreeDiff,
   GitMergePullRequestResult,
   GitPullRequestResolveReason,
   GitPullRequestChecksOptions,
@@ -272,6 +273,15 @@ export const desktop = {
       window.vfactor.git.renameWorktree(projectPath, input),
     getFileDiff: (projectPath: string, filePath: string, previousPath?: string | null) =>
       window.vfactor.git.getFileDiff(projectPath, filePath, previousPath),
+    getWorkingTreeDiff: (projectPath: string) => {
+      const getWorkingTreeDiff = window.vfactor.git.getWorkingTreeDiff
+      if (typeof getWorkingTreeDiff !== "function") {
+        return Promise.reject(
+          new Error("Working tree diff is unavailable in the current desktop bridge.")
+        )
+      }
+      return getWorkingTreeDiff(projectPath)
+    },
     checkoutBranch: (projectPath: string, branchName: string) =>
       window.vfactor.git.checkoutBranch(projectPath, branchName),
     createAndCheckoutBranch: (projectPath: string, branchName: string) =>
@@ -310,6 +320,7 @@ export type {
   GitCreateWorktreeResult,
   GitFileChange,
   GitFileDiff,
+  GitWorkingTreeDiff,
   GitMergePullRequestResult,
   GitPullRequestResolveReason,
   GitPullRequestChecksOptions,

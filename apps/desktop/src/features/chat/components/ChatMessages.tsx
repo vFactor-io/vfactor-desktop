@@ -7,7 +7,12 @@ import {
   useRef,
   useState,
 } from "react"
-import { useVirtualizer } from "@tanstack/react-virtual"
+import {
+  LegendList,
+  type LegendListRef,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+} from "@legendapp/list/react"
 import { motion, useReducedMotion } from "framer-motion"
 import { vcsTextClassNames } from "@/features/shared/appearance"
 import type { Project, ProjectWorktree } from "@/features/workspace/types"
@@ -18,17 +23,10 @@ import type {
   RuntimePromptState,
 } from "../types"
 import {
-  Conversation,
-  ConversationContent,
-  ConversationScrollButton,
-  useConversationScrollContext,
-  useConversationScrollState,
-} from "./ai-elements/conversation"
-import {
   Message as MessageComponent,
   MessageContent,
 } from "./ai-elements/message"
-import { Check, Copy, File } from "@/components/icons"
+import { ArrowDown, Check, Copy, File } from "@/components/icons"
 import { LoadingDots } from "@/features/shared/components/ui/loading-dots"
 import {
   HoverCard,
@@ -55,6 +53,7 @@ import type { ChildSessionData } from "./agent-activity/AgentActivitySubagent"
 import { getMessageTextContent } from "../domain/runtimeMessages"
 import { cn } from "@/lib/utils"
 import { getTurnCollapsedMessagesByFooterId } from "./chatTimelineCollapse"
+import { getChatScrollStateFromMetrics, type ChatScrollState } from "./chatScrollState"
 
 interface ChatMessagesProps {
   threadKey: string
@@ -95,24 +94,19 @@ interface StablePreparedDisplayBlocksState {
 
 const SAME_ROLE_BLOCK_GAP_PX = 12
 const ROLE_CHANGE_BLOCK_GAP_PX = 28
-const TIMELINE_OVERSCAN_ROWS = 8
 const DEFAULT_ROW_ESTIMATE_PX = 104
-const TURN_STEPS_ROW_ESTIMATE_PX = 68
-const TOOL_ROW_ESTIMATE_PX = 96
-const FILE_CHANGE_ROW_ESTIMATE_PX = 156
-const USER_ROW_ESTIMATE_PX = 88
-const TEXT_LINE_HEIGHT_ESTIMATE_PX = 22
-const FALLBACK_TIMELINE_WIDTH_PX = 784
-const ESTIMATED_AVERAGE_CHARACTER_WIDTH_PX = 7.2
-const MIN_ESTIMATED_CHARS_PER_LINE = 1
-const ALWAYS_MOUNTED_TAIL_BLOCK_COUNT = 4
 const EMPTY_APPROVAL_STATE_BY_MESSAGE_ID = new Map<string, RuntimeApprovalDisplayState>()
+const SCROLL_TO_BOTTOM_BUTTON_DELAY_MS = 150
 
 function getMessageText(message: MessageWithParts): string {
   return getMessageTextContent(message.parts)
 }
 
 function hasRenderableMessageContent(message: MessageWithParts): boolean {
+  if (message.info.itemType === "reasoning" && message.info.title?.trim()) {
+    return true
+  }
+
   return message.parts.some((part) =>
     part.type === "tool" ||
     part.type === "attachment" ||
@@ -182,64 +176,6 @@ function getDisplayBlockPaddingTop(
   return previousRole === currentRole ? SAME_ROLE_BLOCK_GAP_PX : ROLE_CHANGE_BLOCK_GAP_PX
 }
 
-function estimateTextHeight(text: string, timelineWidth: number): number {
-  const trimmedText = text.trim()
-
-  if (!trimmedText) {
-    return TEXT_LINE_HEIGHT_ESTIMATE_PX
-  }
-
-  const estimatedCharsPerLine = Math.max(
-    MIN_ESTIMATED_CHARS_PER_LINE,
-    Math.floor(
-      (Number.isFinite(timelineWidth) && timelineWidth > 0
-        ? timelineWidth
-        : FALLBACK_TIMELINE_WIDTH_PX) / ESTIMATED_AVERAGE_CHARACTER_WIDTH_PX
-    )
-  )
-  const explicitLines = trimmedText.split("\n")
-  const estimatedLineCount = explicitLines.reduce((lineCount, line) => {
-    return lineCount + Math.max(1, Math.ceil(line.length / estimatedCharsPerLine))
-  }, 0)
-
-  return estimatedLineCount * TEXT_LINE_HEIGHT_ESTIMATE_PX
-}
-
-function estimateDisplayBlockSize(
-  preparedBlock: PreparedDisplayBlock,
-  timelineWidth: number
-): number {
-  const block = preparedBlock.block
-  const paddingTop = preparedBlock.paddingTop
-
-  if (block.type === "turnStepsDropdown") {
-    return paddingTop + TURN_STEPS_ROW_ESTIMATE_PX + block.messages.length * 10
-  }
-
-  const message = block.message
-  const text = getMessageText(message)
-  const hasAttachment = message.parts.some((part) => part.type === "attachment")
-  const toolPart = message.parts.find((part) => part.type === "tool")
-
-  if (message.info.role === "user") {
-    return (
-      paddingTop +
-      USER_ROW_ESTIMATE_PX +
-      estimateTextHeight(text, timelineWidth) +
-      (hasAttachment ? 42 : 0)
-    )
-  }
-
-  if (toolPart) {
-    return (
-      paddingTop +
-      (message.info.itemType === "fileChange" ? FILE_CHANGE_ROW_ESTIMATE_PX : TOOL_ROW_ESTIMATE_PX)
-    )
-  }
-
-  return paddingTop + DEFAULT_ROW_ESTIMATE_PX + estimateTextHeight(text, timelineWidth)
-}
-
 function areMessageListsEqualById(
   currentMessages: MessageWithParts[],
   nextMessages: MessageWithParts[]
@@ -306,45 +242,6 @@ function computeStablePreparedDisplayBlocks(
   })
 
   return didChange ? { byKey: nextByKey, result } : previousState
-}
-
-function displayBlockContainsMessageId(block: DisplayBlock, messageId: string): boolean {
-  if (block.type === "message") {
-    return block.message.info.id === messageId
-  }
-
-  return block.messages.some((message) => message.info.id === messageId)
-}
-
-function getAlwaysMountedTailStartIndex(
-  preparedDisplayBlocks: PreparedDisplayBlock[],
-  latestTurnFooterMessageId: string | null,
-  latestTurnStreamingTextMessageId: string | null
-): number {
-  if (preparedDisplayBlocks.length === 0) {
-    return 0
-  }
-
-  const defaultTailStartIndex = Math.max(
-    0,
-    preparedDisplayBlocks.length - ALWAYS_MOUNTED_TAIL_BLOCK_COUNT
-  )
-  const anchoredMessageIds = [
-    latestTurnFooterMessageId,
-    latestTurnStreamingTextMessageId,
-  ].filter((messageId): messageId is string => messageId != null)
-  const firstAnchoredIndex =
-    anchoredMessageIds.length === 0
-      ? -1
-      : preparedDisplayBlocks.findIndex((preparedBlock) =>
-          anchoredMessageIds.some((messageId) =>
-            displayBlockContainsMessageId(preparedBlock.block, messageId)
-          )
-        )
-
-  return firstAnchoredIndex === -1
-    ? defaultTailStartIndex
-    : Math.min(defaultTailStartIndex, firstAnchoredIndex)
 }
 
 export function ChatMessages({
@@ -460,27 +357,6 @@ export function ChatMessages({
     [displayBlocks]
   )
   const stablePreparedDisplayBlocks = useStablePreparedDisplayBlocks(preparedDisplayBlocks)
-  const {
-    virtualizedPreparedDisplayBlocks,
-    alwaysMountedPreparedDisplayBlocks,
-  } = useMemo(() => {
-    const tailStartIndex = getAlwaysMountedTailStartIndex(
-      stablePreparedDisplayBlocks,
-      latestTurnFooterMessageId,
-      latestTurnStreamingTextMessageId
-    )
-
-    return {
-      virtualizedPreparedDisplayBlocks: stablePreparedDisplayBlocks.slice(0, tailStartIndex),
-      alwaysMountedPreparedDisplayBlocks: stablePreparedDisplayBlocks.slice(tailStartIndex),
-    }
-  }, [
-    latestTurnFooterMessageId,
-    latestTurnStreamingTextMessageId,
-    stablePreparedDisplayBlocks,
-  ])
-  const [preparedThreadKey, setPreparedThreadKey] = useState(threadKey)
-  const isThreadPrepared = preparedThreadKey === threadKey
   const handleOpenImagePreview = useMemo(
     () => (preview: ChatImagePreviewRequest) => {
       setPreviewImage(preview)
@@ -493,61 +369,28 @@ export function ChatMessages({
   }
 
   return (
-    <Conversation
-      key={threadKey}
-      className={isThreadPrepared ? "h-full" : "h-full invisible"}
+    <div
+      className="relative flex h-full min-h-0 w-full flex-1 overflow-hidden"
+      role="log"
     >
-      <ChatAutoScroll
+      <MessagesTimelineList
+        key={threadKey}
         threadKey={threadKey}
-        messages={messages}
+        preparedDisplayBlocks={stablePreparedDisplayBlocks}
+        childSessions={childSessionData}
+        approvalStateByMessageId={approvalStateByMessageId}
+        completedFooterByMessageId={resolvedCompletedFooterByMessageId}
+        latestTurnFooterMessageId={latestTurnFooterMessageId}
+        latestTurnStreamingTextMessageId={latestTurnStreamingTextMessageId}
         status={status}
-        onThreadPrepared={setPreparedThreadKey}
+        messages={messages}
+        worktreePath={selectedWorktree?.path ?? null}
+        orphanChildSessions={orphanChildSessions}
+        shouldRenderLatestTurnFooter={shouldRenderLatestTurnFooter}
+        latestTurnDurationMs={latestTurnDurationMs}
+        workStartedAt={workStartedAt}
+        onOpenImagePreview={handleOpenImagePreview}
       />
-      <ConversationContent className="mx-auto flex w-full max-w-[784px] flex-col gap-0 px-6 pb-10">
-        <>
-          <VirtualizedTimelineBlocks
-            preparedDisplayBlocks={virtualizedPreparedDisplayBlocks}
-            childSessions={childSessionData}
-            approvalStateByMessageId={approvalStateByMessageId}
-            completedFooterByMessageId={resolvedCompletedFooterByMessageId}
-            latestTurnFooterMessageId={latestTurnFooterMessageId}
-            latestTurnStreamingTextMessageId={latestTurnStreamingTextMessageId}
-            status={status}
-            worktreePath={selectedWorktree?.path ?? null}
-            onOpenImagePreview={handleOpenImagePreview}
-          />
-          {alwaysMountedPreparedDisplayBlocks.map((preparedBlock) => (
-            <TimelineDisplayBlockRow
-              key={preparedBlock.key}
-              preparedBlock={preparedBlock}
-              childSessions={childSessionData}
-              approvalStateByMessageId={approvalStateByMessageId}
-              completedFooterByMessageId={resolvedCompletedFooterByMessageId}
-              latestTurnFooterMessageId={latestTurnFooterMessageId}
-              latestTurnStreamingTextMessageId={latestTurnStreamingTextMessageId}
-              status={status}
-              worktreePath={selectedWorktree?.path ?? null}
-              onOpenImagePreview={handleOpenImagePreview}
-            />
-          ))}
-          {orphanChildSessions.length > 0 ? (
-            <div className="space-y-3">
-              {orphanChildSessions.map((childSession) => (
-                <InlineSubagentActivity key={childSession.session.id} childSession={childSession} />
-              ))}
-            </div>
-          ) : null}
-          {shouldRenderLatestTurnFooter ? (
-            <AssistantTurnFooter
-              activityState={status === "connecting" ? "connecting" : "streaming"}
-              startTime={status === "streaming" ? workStartedAt : null}
-              completedDurationMs={latestTurnDurationMs ?? undefined}
-            />
-          ) : null}
-        </>
-      </ConversationContent>
-      <ConversationEdgeFades />
-      <ConversationScrollButton />
       <ChatImagePreviewModal
         image={previewImage}
         open={previewImage != null}
@@ -557,13 +400,17 @@ export function ChatMessages({
           }
         }}
       />
-    </Conversation>
+    </div>
   )
 }
 
-function ConversationEdgeFades() {
-  const { isAtTop, isAtBottom } = useConversationScrollState()
-
+function ConversationEdgeFades({
+  isAtTop,
+  isAtBottom,
+}: {
+  isAtTop: boolean
+  isAtBottom: boolean
+}) {
   return (
     <>
       <div
@@ -579,6 +426,32 @@ function ConversationEdgeFades() {
         )}
       />
     </>
+  )
+}
+
+function ChatScrollToBottomButton({
+  visible,
+  onPress,
+}: {
+  visible: boolean
+  onPress: () => void
+}) {
+  if (!visible) {
+    return null
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onPress}
+      className={cn(
+        "absolute bottom-4 left-1/2 z-20 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border/70 bg-card/95 px-3 py-1.5 text-xs text-muted-foreground shadow-sm backdrop-blur-sm transition-colors",
+        "hover:border-border hover:bg-card hover:text-foreground"
+      )}
+    >
+      <ArrowDown className="size-3.5" />
+      <span>Scroll to bottom</span>
+    </button>
   )
 }
 
@@ -631,7 +504,8 @@ function TimelineDisplayBlockRow({
   )
 }
 
-function VirtualizedTimelineBlocks({
+function MessagesTimelineList({
+  threadKey,
   preparedDisplayBlocks,
   childSessions,
   approvalStateByMessageId,
@@ -639,9 +513,15 @@ function VirtualizedTimelineBlocks({
   latestTurnFooterMessageId,
   latestTurnStreamingTextMessageId,
   status,
+  messages,
   worktreePath,
+  orphanChildSessions,
+  shouldRenderLatestTurnFooter,
+  latestTurnDurationMs,
+  workStartedAt,
   onOpenImagePreview,
 }: {
+  threadKey: string
   preparedDisplayBlocks: PreparedDisplayBlock[]
   childSessions?: Map<string, ChildSessionData>
   approvalStateByMessageId: Map<string, RuntimeApprovalDisplayState>
@@ -649,107 +529,245 @@ function VirtualizedTimelineBlocks({
   latestTurnFooterMessageId: string | null
   latestTurnStreamingTextMessageId: string | null
   status: "idle" | "connecting" | "streaming" | "error"
+  messages: MessageWithParts[]
   worktreePath?: string | null
+  orphanChildSessions: ChildSessionData[]
+  shouldRenderLatestTurnFooter: boolean
+  latestTurnDurationMs: number | null
+  workStartedAt: number | null
   onOpenImagePreview?: (preview: ChatImagePreviewRequest) => void
 }) {
-  const { scrollRef } = useConversationScrollContext()
-  const preparedDisplayBlocksRef = useRef(preparedDisplayBlocks)
-  preparedDisplayBlocksRef.current = preparedDisplayBlocks
-  const [timelineElement, setTimelineElement] = useState<HTMLDivElement | null>(null)
-  const [timelineWidth, setTimelineWidth] = useState(FALLBACK_TIMELINE_WIDTH_PX)
-  const timelineWidthKey = Math.max(1, Math.round(timelineWidth))
+  const listRef = useRef<LegendListRef | null>(null)
+  const isAtEndRef = useRef(true)
+  const showScrollButtonTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const previousLastMessageIdRef = useRef<string | null>(
+    messages[messages.length - 1]?.info.id ?? null
+  )
+  const previousStatusRef = useRef<typeof status>(status)
+  const previousRowCountRef = useRef(preparedDisplayBlocks.length)
+  const [isAtTop, setIsAtTop] = useState(true)
+  const [isAtBottom, setIsAtBottom] = useState(true)
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false)
 
-  useLayoutEffect(() => {
-    if (timelineElement == null) {
+  const cancelShowScrollButton = useCallback(() => {
+    if (showScrollButtonTimeoutRef.current != null) {
+      clearTimeout(showScrollButtonTimeoutRef.current)
+      showScrollButtonTimeoutRef.current = null
+    }
+  }, [])
+
+  const hideScrollToBottomButton = useCallback(() => {
+    cancelShowScrollButton()
+    setShowScrollToBottom(false)
+  }, [cancelShowScrollButton])
+
+  const applyScrollState = useCallback((nextScrollState: ChatScrollState) => {
+    isAtEndRef.current = nextScrollState.isAtBottom
+    setIsAtBottom((current) =>
+      current === nextScrollState.isAtBottom ? current : nextScrollState.isAtBottom
+    )
+    setIsAtTop((current) =>
+      current === nextScrollState.isAtTop ? current : nextScrollState.isAtTop
+    )
+
+    if (!nextScrollState.isScrollable || nextScrollState.isAtBottom) {
+      hideScrollToBottomButton()
       return
     }
 
-    const updateTimelineWidth = () => {
-      setTimelineWidth((previousWidth) => {
-        const nextWidth = Math.max(1, timelineElement.getBoundingClientRect().width)
+    if (showScrollButtonTimeoutRef.current != null) {
+      return
+    }
 
-        return Math.abs(previousWidth - nextWidth) < 0.5 ? previousWidth : nextWidth
+    showScrollButtonTimeoutRef.current = setTimeout(() => {
+      showScrollButtonTimeoutRef.current = null
+      setShowScrollToBottom(true)
+    }, SCROLL_TO_BOTTOM_BUTTON_DELAY_MS)
+  }, [hideScrollToBottomButton])
+
+  const updateListEndStateFromEvent = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
+      applyScrollState(
+        getChatScrollStateFromMetrics({
+          scrollOffset: contentOffset.y,
+          contentSize: contentSize.height,
+          viewportSize: layoutMeasurement.height,
+        })
+      )
+    },
+    [applyScrollState]
+  )
+
+  const updateListEndStateFromRef = useCallback(() => {
+    const state = listRef.current?.getState?.()
+    if (!state) {
+      return
+    }
+
+    applyScrollState(
+      getChatScrollStateFromMetrics({
+        scrollOffset: state.scroll,
+        contentSize: state.contentLength,
+        viewportSize: state.scrollLength,
       })
+    )
+  }, [applyScrollState])
+
+  const scrollToEnd = useCallback((animated = false) => {
+    isAtEndRef.current = true
+    setIsAtBottom(true)
+    hideScrollToBottomButton()
+    void listRef.current?.scrollToEnd?.({ animated })
+  }, [hideScrollToBottomButton])
+
+  const renderItem = useCallback(
+    ({ item }: { item: PreparedDisplayBlock }) => (
+      <div className="mx-auto w-full max-w-[784px] px-6">
+        <TimelineDisplayBlockRow
+          preparedBlock={item}
+          childSessions={childSessions}
+          approvalStateByMessageId={approvalStateByMessageId}
+          completedFooterByMessageId={completedFooterByMessageId}
+          latestTurnFooterMessageId={latestTurnFooterMessageId}
+          latestTurnStreamingTextMessageId={latestTurnStreamingTextMessageId}
+          status={status}
+          worktreePath={worktreePath}
+          onOpenImagePreview={onOpenImagePreview}
+        />
+      </div>
+    ),
+    [
+      approvalStateByMessageId,
+      childSessions,
+      completedFooterByMessageId,
+      latestTurnFooterMessageId,
+      latestTurnStreamingTextMessageId,
+      onOpenImagePreview,
+      status,
+      worktreePath,
+    ]
+  )
+
+  useLayoutEffect(() => {
+    isAtEndRef.current = true
+    setIsAtTop(true)
+    setIsAtBottom(true)
+    hideScrollToBottomButton()
+
+    const frameId = requestAnimationFrame(() => {
+      void listRef.current?.scrollToEnd?.({ animated: false })
+      updateListEndStateFromRef()
+    })
+
+    return () => {
+      cancelAnimationFrame(frameId)
     }
+  }, [hideScrollToBottomButton, threadKey, updateListEndStateFromRef])
 
-    updateTimelineWidth()
+  useLayoutEffect(() => {
+    const previousRowCount = previousRowCountRef.current
+    previousRowCountRef.current = preparedDisplayBlocks.length
 
-    if (typeof ResizeObserver === "undefined") {
+    if (previousRowCount === 0 && preparedDisplayBlocks.length > 0) {
+      scrollToEnd(false)
       return
     }
 
-    const observer = new ResizeObserver(updateTimelineWidth)
-    observer.observe(timelineElement)
+    if (!isAtEndRef.current) {
+      return
+    }
 
-    return () => observer.disconnect()
-  }, [timelineElement])
+    const frameId = requestAnimationFrame(() => {
+      void listRef.current?.scrollToEnd?.({ animated: false })
+      updateListEndStateFromRef()
+    })
 
-  const getItemKey = useCallback(
-    (index: number) => {
-      const itemKey = preparedDisplayBlocksRef.current[index]?.key ?? index
+    return () => {
+      cancelAnimationFrame(frameId)
+    }
+  }, [preparedDisplayBlocks, scrollToEnd, updateListEndStateFromRef])
 
-      return `${timelineWidthKey}:${itemKey}`
-    },
-    [timelineWidthKey]
+  useEffect(() => {
+    const lastMessage = messages[messages.length - 1] ?? null
+    const lastMessageId = lastMessage?.info.id ?? null
+    const previousLastMessageId = previousLastMessageIdRef.current
+    const previousStatus = previousStatusRef.current
+    const hasNewMessage = !!lastMessageId && lastMessageId !== previousLastMessageId
+    const userJustSentMessage = hasNewMessage && lastMessage?.info.role === "user"
+    const agentJustStartedResponding = status === "streaming" && previousStatus !== "streaming"
+
+    if (userJustSentMessage || agentJustStartedResponding) {
+      scrollToEnd(false)
+    }
+
+    previousLastMessageIdRef.current = lastMessageId
+    previousStatusRef.current = status
+  }, [messages, scrollToEnd, status])
+
+  useEffect(() => {
+    return () => {
+      cancelShowScrollButton()
+    }
+  }, [cancelShowScrollButton])
+
+  const footer = useMemo(
+    () => (
+      <div className="mx-auto flex w-full max-w-[784px] flex-col gap-3 px-6 pb-10">
+        {orphanChildSessions.length > 0 ? (
+          <div className="space-y-3">
+            {orphanChildSessions.map((childSession) => (
+              <InlineSubagentActivity key={childSession.session.id} childSession={childSession} />
+            ))}
+          </div>
+        ) : null}
+        {shouldRenderLatestTurnFooter ? (
+          <AssistantTurnFooter
+            activityState={status === "connecting" ? "connecting" : "streaming"}
+            startTime={status === "streaming" ? workStartedAt : null}
+            completedDurationMs={latestTurnDurationMs ?? undefined}
+          />
+        ) : null}
+      </div>
+    ),
+    [
+      latestTurnDurationMs,
+      orphanChildSessions,
+      shouldRenderLatestTurnFooter,
+      status,
+      workStartedAt,
+    ]
   )
-  const estimateSize = useCallback(
-    (index: number) => {
-      const preparedBlock = preparedDisplayBlocksRef.current[index]
-      return preparedBlock
-        ? estimateDisplayBlockSize(preparedBlock, timelineWidth)
-        : DEFAULT_ROW_ESTIMATE_PX
-    },
-    [timelineWidth]
-  )
-  const rowVirtualizer = useVirtualizer({
-    count: preparedDisplayBlocks.length,
-    getScrollElement: () => scrollRef.current,
-    estimateSize,
-    getItemKey,
-    overscan: TIMELINE_OVERSCAN_ROWS,
-  })
-  const virtualItems = rowVirtualizer.getVirtualItems()
-
-  useLayoutEffect(() => {
-    rowVirtualizer.measure()
-  }, [rowVirtualizer, timelineWidthKey])
 
   return (
-    <div
-      ref={setTimelineElement}
-      className="relative w-full"
-      style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
-    >
-      {virtualItems.map((virtualItem) => {
-        const preparedBlock = preparedDisplayBlocks[virtualItem.index]
-
-        if (!preparedBlock) {
-          return null
-        }
-
-        return (
-          <div
-            key={virtualItem.key}
-            ref={rowVirtualizer.measureElement}
-            data-index={virtualItem.index}
-            className="absolute left-0 top-0 w-full"
-            style={{ transform: `translateY(${virtualItem.start}px)` }}
-          >
-            <TimelineDisplayBlockRow
-              preparedBlock={preparedBlock}
-              childSessions={childSessions}
-              approvalStateByMessageId={approvalStateByMessageId}
-              completedFooterByMessageId={completedFooterByMessageId}
-              latestTurnFooterMessageId={latestTurnFooterMessageId}
-              latestTurnStreamingTextMessageId={latestTurnStreamingTextMessageId}
-              status={status}
-              worktreePath={worktreePath}
-              onOpenImagePreview={onOpenImagePreview}
-            />
-          </div>
-        )
-      })}
-    </div>
+    <>
+      <LegendList<PreparedDisplayBlock>
+        ref={listRef}
+        data={preparedDisplayBlocks}
+        keyExtractor={(item) => item.key}
+        renderItem={renderItem}
+        estimatedItemSize={DEFAULT_ROW_ESTIMATE_PX}
+        style={{
+          flex: 1,
+          height: "100%",
+          minHeight: 0,
+          overscrollBehaviorY: "contain",
+        }}
+        initialScrollAtEnd
+        maintainScrollAtEnd
+        maintainScrollAtEndThreshold={0.1}
+        maintainVisibleContentPosition
+        onScroll={updateListEndStateFromEvent}
+        className="app-scrollbar"
+        ListHeaderComponent={<div className="h-4" />}
+        ListFooterComponent={footer}
+      />
+      <ConversationEdgeFades isAtTop={isAtTop} isAtBottom={isAtBottom} />
+      <ChatScrollToBottomButton
+        visible={showScrollToBottom}
+        onPress={() => scrollToEnd(true)}
+      />
+    </>
   )
 }
 
@@ -852,48 +870,6 @@ const MemoizedDisplayBlockRow = memo(
     previousProps.worktreePath === nextProps.worktreePath &&
     previousProps.onOpenImagePreview === nextProps.onOpenImagePreview
 )
-
-function ChatAutoScroll({
-  threadKey,
-  messages,
-  status,
-  onThreadPrepared,
-}: {
-  threadKey: string
-  messages: MessageWithParts[]
-  status: "idle" | "connecting" | "streaming" | "error"
-  onThreadPrepared: (threadKey: string) => void
-}) {
-  const { forceScrollToBottom } = useConversationScrollContext()
-  const lastMessage = messages[messages.length - 1] ?? null
-  const lastMessageId = lastMessage?.info.id ?? null
-  const previousLastMessageIdRef = useRef<string | null>(lastMessageId)
-  const previousStatusRef = useRef<typeof status>(status)
-
-  useLayoutEffect(() => {
-    forceScrollToBottom("instant")
-    onThreadPrepared(threadKey)
-  }, [forceScrollToBottom, onThreadPrepared, threadKey])
-
-  useEffect(() => {
-    const previousLastMessageId = previousLastMessageIdRef.current
-    const previousStatus = previousStatusRef.current
-    const hasNewMessage = !!lastMessageId && lastMessageId !== previousLastMessageId
-    const userJustSentMessage = hasNewMessage && lastMessage?.info.role === "user"
-    const agentJustStartedResponding = status === "streaming" && previousStatus !== "streaming"
-
-    if (userJustSentMessage || agentJustStartedResponding) {
-      requestAnimationFrame(() => {
-        forceScrollToBottom("instant")
-      })
-    }
-
-    previousLastMessageIdRef.current = lastMessageId
-    previousStatusRef.current = status
-  }, [forceScrollToBottom, lastMessage?.info.role, lastMessageId, status])
-
-  return null
-}
 
 function AssistantTurnFooter({
   activityState,

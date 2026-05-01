@@ -200,6 +200,27 @@ describe("GitService.getFileDiff", () => {
   })
 })
 
+describe("GitService.getWorkingTreeDiff", () => {
+  test("returns one aggregate patch for tracked working tree changes", async () => {
+    const repoDir = await createRepository()
+
+    try {
+      await appendFile(path.join(repoDir, "a.txt"), "alpha change\n", "utf8")
+      await appendFile(path.join(repoDir, "b.txt"), "beta change\n", "utf8")
+
+      const service = new GitService()
+      const diff = await service.getWorkingTreeDiff(repoDir)
+
+      expect(diff.patch).toContain("diff --git a/a.txt b/a.txt")
+      expect(diff.patch).toContain("diff --git a/b.txt b/b.txt")
+      expect(diff.patch).toContain("+alpha change")
+      expect(diff.patch).toContain("+beta change")
+    } finally {
+      await rm(repoDir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe("GitService.runStackedAction", () => {
   test("commits selected files with a custom message without clearing unrelated staged work", async () => {
     const repoDir = await createRepository()
