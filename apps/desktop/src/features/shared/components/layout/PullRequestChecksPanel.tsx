@@ -1,5 +1,6 @@
 import {
   CaretRight,
+  Check,
   CheckCircle,
   CircleNotch,
   GitCommit,
@@ -201,16 +202,39 @@ function ReviewPathLabel({ path }: { path: string }) {
   )
 }
 
+function PendingCheckSpinner({ className }: { className?: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "inline-block size-4 shrink-0 animate-spin rounded-full border-[3px] border-transparent border-b-current border-r-current border-t-current",
+        feedbackIconClassName("warning"),
+        className
+      )}
+    />
+  )
+}
+
+function PassedCheckIcon({ className }: { className?: string }) {
+  return (
+    <Check
+      size={17}
+      weight="bold"
+      className={cn("size-4 shrink-0", feedbackIconClassName("success"), className)}
+    />
+  )
+}
+
 function CheckStatusIcon({ status }: { status: GitPullRequestCheck["status"] }) {
   const className = cn("size-4 shrink-0", getCheckTone(status))
 
   switch (status) {
     case "pending":
-      return <CircleNotch size={15} className={cn(className, "animate-spin")} />
+      return <PendingCheckSpinner />
     case "failed":
       return <X size={15} className={className} />
     case "passed":
-      return <CheckCircle size={15} className={className} />
+      return <PassedCheckIcon />
     case "cancelled":
       return <Clock size={15} className={className} />
     case "skipped":
@@ -755,16 +779,11 @@ function ChecksBlock({
       summaryToneClass = feedbackIconClassName("destructive")
       break
     case "waiting":
-      summaryIcon = (
-        <CircleNotch
-          size={15}
-          className={cn("size-4 shrink-0", feedbackIconClassName("warning"), "animate-spin")}
-        />
-      )
+      summaryIcon = <PendingCheckSpinner />
       summaryToneClass = feedbackIconClassName("warning")
       break
     case "passed":
-      summaryIcon = <CheckCircle size={15} className={cn("size-4 shrink-0", feedbackIconClassName("success"))} />
+      summaryIcon = <PassedCheckIcon />
       summaryToneClass = feedbackIconClassName("success")
       break
     default:
