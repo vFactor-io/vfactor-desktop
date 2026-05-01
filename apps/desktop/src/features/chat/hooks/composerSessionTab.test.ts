@@ -37,7 +37,11 @@ describe("ensureComposerSessionTab", () => {
     ensureComposerSessionTab("worktree-1", "session-1")
 
     expect(ensureChatSessionTab).toHaveBeenCalledTimes(1)
-    expect(ensureChatSessionTab).toHaveBeenCalledWith("session-1", "Debug auth flow")
+    expect(ensureChatSessionTab).toHaveBeenCalledWith(
+      "session-1",
+      "Debug auth flow",
+      "worktree-1"
+    )
   })
 
   test("falls back safely when the session exists without a title", () => {
@@ -48,7 +52,7 @@ describe("ensureComposerSessionTab", () => {
     ensureComposerSessionTab("worktree-1", "session-1")
 
     expect(ensureChatSessionTab).toHaveBeenCalledTimes(1)
-    expect(ensureChatSessionTab).toHaveBeenCalledWith("session-1", undefined)
+    expect(ensureChatSessionTab).toHaveBeenCalledWith("session-1", undefined, "worktree-1")
   })
 
   test("does nothing when the composer has no resolved worktree or session", () => {

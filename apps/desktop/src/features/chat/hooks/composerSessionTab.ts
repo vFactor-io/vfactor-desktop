@@ -12,5 +12,5 @@ export function ensureComposerSessionTab(
   const projectChat = useChatStore.getState().chatByWorktree[worktreeId]
   const session = projectChat?.sessions.find((candidate) => candidate.id === sessionId) ?? null
 
-  useTabStore.getState().ensureChatSessionTab(sessionId, session?.title)
+  useTabStore.getState().ensureChatSessionTab(sessionId, session?.title, worktreeId)
 }

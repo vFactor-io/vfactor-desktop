@@ -61,4 +61,50 @@ describe("tabStore", () => {
     expect(useTabStore.getState().tabs.filter(isTerminalTab)).toHaveLength(1)
     expect(useTabStore.getState().activeTerminalTabId).toBe(tabId)
   })
+
+  test("ensures chat session tabs in the requested inactive worktree", () => {
+    useTabStore.setState({
+      currentWorktreeId: "worktree-1",
+      tabs: [],
+      activeTabId: null,
+      tabsByWorktree: {
+        "worktree-2": { tabs: [], activeTabId: null, activeTerminalTabId: null },
+      },
+      isInitialized: true,
+    })
+
+    useTabStore.getState().ensureChatSessionTab("session-1", "Debug auth flow", "worktree-2")
+
+    expect(useTabStore.getState().tabs).toEqual([])
+    expect(useTabStore.getState().activeTabId).toBeNull()
+    expect(useTabStore.getState().tabsByWorktree["worktree-2"]?.tabs).toMatchObject([
+      {
+        type: "chat-session",
+        title: "Debug auth flow",
+        sessionId: "session-1",
+      },
+    ])
+    expect(useTabStore.getState().tabsByWorktree["worktree-2"]?.activeTabId).toBe(
+      useTabStore.getState().tabsByWorktree["worktree-2"]?.tabs[0]?.id
+    )
+  })
+
+  test("closes chat session tabs in the requested inactive worktree", () => {
+    useTabStore.setState({
+      currentWorktreeId: "worktree-1",
+      tabs: [],
+      activeTabId: null,
+      tabsByWorktree: {
+        "worktree-2": { tabs: [], activeTabId: null, activeTerminalTabId: null },
+      },
+      isInitialized: true,
+    })
+
+    useTabStore.getState().ensureChatSessionTab("session-1", "Debug auth flow", "worktree-2")
+    useTabStore.getState().closeChatSessionTab("session-1", "worktree-2")
+
+    expect(useTabStore.getState().tabs).toEqual([])
+    expect(useTabStore.getState().tabsByWorktree["worktree-2"]?.tabs).toEqual([])
+    expect(useTabStore.getState().tabsByWorktree["worktree-2"]?.activeTabId).toBeNull()
+  })
 })

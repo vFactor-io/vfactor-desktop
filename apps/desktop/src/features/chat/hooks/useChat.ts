@@ -9,7 +9,10 @@ import { buildWorkspaceSetupScriptEnvironment } from "@/features/workspace/utils
 import { suggestWorkspaceSetup } from "@/features/workspace/utils/workspaceSetup"
 import type { DraftChatAttachment } from "../components/composer/attachments"
 import { useChatStore, type ChildSessionState, type MessageWithParts } from "../store"
-import { ensureComposerSessionTab } from "./composerSessionTab"
+import {
+  executeProjectChatCommand,
+  submitProjectChatTurn,
+} from "../store/projectChatSession"
 import { hasProjectChatSession } from "../store/sessionState"
 import {
   createWorkspaceSetupState,
@@ -179,32 +182,22 @@ export function useChatComposerState({
 } {
   const [draftStateBySessionKey, setDraftStateBySessionKey] = useState<Record<string, ComposerDraftState>>({})
   const {
-    initialize,
     sessionActivityById,
     activePromptBySession,
     queuedMessagesBySession,
-    createSession,
-    createOptimisticSession,
     answerPrompt,
     dismissPrompt,
     removeQueuedMessage,
-    sendMessage,
     abortSession,
-    executeCommand,
   } = useChatStore(
     useShallow((state) => ({
-      initialize: state.initialize,
       sessionActivityById: state.sessionActivityById,
       activePromptBySession: state.activePromptBySession,
       queuedMessagesBySession: state.queuedMessagesBySession,
-      createSession: state.createSession,
-      createOptimisticSession: state.createOptimisticSession,
       answerPrompt: state.answerPrompt,
       dismissPrompt: state.dismissPrompt,
       removeQueuedMessage: state.removeQueuedMessage,
-      sendMessage: state.sendMessage,
       abortSession: state.abortSession,
-      executeCommand: state.executeCommand,
     }))
   )
 
@@ -314,54 +307,37 @@ export function useChatComposerState({
         return false
       }
 
-      let targetSessionId = activeSessionId
-
       if (!selectedProjectId || !selectedWorktreePath || !selectedWorktreeId || !selectedWorktree) {
         return false
       }
 
-      if (!targetSessionId) {
-        let session = createOptimisticSession(selectedWorktreeId, selectedWorktreePath, {
-          harnessId: options?.harnessId,
-          runtimeMode: options?.runtimeMode,
-        })
-        if (!session) {
-          await initialize()
-          session = createOptimisticSession(selectedWorktreeId, selectedWorktreePath, {
-            harnessId: options?.harnessId,
-            runtimeMode: options?.runtimeMode,
-          })
-        }
-
-        if (!session) {
-          return false
-        }
-
-        targetSessionId = session.id
-      }
-
-      setInput("")
-      ensureComposerSessionTab(selectedWorktreeId, targetSessionId)
-      clearDraftState(draftSessionKey)
-      clearDraftState(targetSessionId)
-      await sendMessage(targetSessionId, text, {
-        ...options,
-        attachments: attachmentsToSend,
+      const result = await submitProjectChatTurn({
+        worktreeId: selectedWorktreeId,
+        worktreePath: selectedWorktreePath,
+        activeSessionId,
+        text,
+        options: {
+          ...options,
+          attachments: attachmentsToSend,
+        },
+        onSessionReady: (session) => {
+          setInput("")
+          clearDraftState(draftSessionKey)
+          clearDraftState(session.id)
+        },
       })
-      return true
+
+      return result.ok
     },
     [
       activeSessionId,
       attachments,
       clearDraftState,
-      createOptimisticSession,
       draftSessionKey,
-      initialize,
       selectedProjectId,
       selectedWorktree,
       selectedWorktreeId,
       selectedWorktreePath,
-      sendMessage,
       setInput,
     ]
   )
@@ -395,30 +371,19 @@ export function useChatComposerState({
 
   const handleExecuteCommand = useCallback(
     async (command: string, args?: string) => {
-      let targetSessionId = activeSessionId
+      const result = await executeProjectChatCommand({
+        worktreeId: selectedWorktreeId,
+        worktreePath: selectedWorktreePath,
+        activeSessionId,
+        command,
+        args,
+      })
 
-      if (!targetSessionId) {
-        if (!selectedProjectId || !selectedWorktreePath) {
-          return false
-        }
-
-        const session = await createSession(selectedWorktreeId, selectedWorktreePath)
-        if (!session) {
-          return false
-        }
-
-        targetSessionId = session.id
-      }
-
-      ensureComposerSessionTab(selectedWorktreeId, targetSessionId)
-      await executeCommand(targetSessionId, command, args)
-      return true
+      return result.ok
     },
     [
       activeSessionId,
-      createSession,
-      executeCommand,
-      selectedProjectId,
+      selectedWorktreeId,
       selectedWorktreePath,
     ]
   )
@@ -471,17 +436,11 @@ export function useNewWorkspaceSetupState(): {
   const newWorkspaceSetupProjectId = useProjectStore((state) => state.newWorkspaceSetupProjectId)
   const cancelNewWorkspaceSetup = useProjectStore((state) => state.cancelNewWorkspaceSetup)
   const {
-    loadSessionsForProject,
-    createOptimisticSession,
-    sendMessage,
     setWorkspaceSetupState,
     setWorkspaceSetupIntent,
   } =
     useChatStore(
       useShallow((state) => ({
-        loadSessionsForProject: state.loadSessionsForProject,
-        createOptimisticSession: state.createOptimisticSession,
-        sendMessage: state.sendMessage,
         setWorkspaceSetupState: state.setWorkspaceSetupState,
         setWorkspaceSetupIntent: state.setWorkspaceSetupIntent,
       }))
@@ -674,24 +633,28 @@ export function useNewWorkspaceSetupState(): {
           })
         )
 
-        await loadSessionsForProject(createdWorktree.id, createdWorktree.path)
-        if (!isWorkspaceSetupRunCurrent(setupRunId, setupProjectId)) {
-          return false
-        }
-        const session = createOptimisticSession(createdWorktree.id, createdWorktree.path)
-        if (!session) {
+        const result = await submitProjectChatTurn({
+          worktreeId: createdWorktree.id,
+          worktreePath: createdWorktree.path,
+          text,
+          options,
+          onSessionReady: () => {
+            if (!isWorkspaceSetupRunCurrent(setupRunId, setupProjectId)) {
+              return false
+            }
+
+            clearDraftInput(setupDraftProjectKey)
+            setWorkspaceSetupState(setupProjectId, null)
+            setWorkspaceSetupIntent(setupProjectId, null)
+            cancelNewWorkspaceSetup()
+          },
+        })
+
+        if (!result.ok && result.reason === "session-unavailable") {
           throw new Error("Failed to prepare a chat session for the new workspace.")
         }
-        if (!isWorkspaceSetupRunCurrent(setupRunId, setupProjectId)) {
-          return false
-        }
 
-        clearDraftInput(setupDraftProjectKey)
-        setWorkspaceSetupState(setupProjectId, null)
-        setWorkspaceSetupIntent(setupProjectId, null)
-        cancelNewWorkspaceSetup()
-        await sendMessage(session.id, text, options)
-        return true
+        return result.ok
       } catch (error) {
         if (!isWorkspaceSetupRunCurrent(setupRunId, setupProjectId)) {
           return false
@@ -712,17 +675,13 @@ export function useNewWorkspaceSetupState(): {
     [
       cancelNewWorkspaceSetup,
       clearDraftInput,
-      createOptimisticSession,
       draftProjectKey,
-      invalidateWorkspaceSetupRun,
       isWorkspaceSetupRunCurrent,
       isActive,
-      loadSessionsForProject,
       selectedProject,
       selectedProjectId,
       selectedWorktree?.branchName,
       selectedWorktreePath,
-      sendMessage,
       setWorkspaceSetupIntent,
       setWorkspaceSetupState,
       workspaceSetupModel,

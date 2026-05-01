@@ -26,7 +26,11 @@ interface TabState {
   initialize: () => Promise<void>
   switchProject: (worktreeId: string | null) => void
   openChatSession: (sessionId: string, title?: string | null) => void
-  ensureChatSessionTab: (sessionId: string, title?: string | null) => void
+  ensureChatSessionTab: (
+    sessionId: string,
+    title?: string | null,
+    worktreeId?: string | null
+  ) => void
   updateChatSessionTitle: (sessionId: string, title?: string | null) => void
   openTerminalTab: (worktreeId: string, activate?: boolean) => string
   selectTerminalTab: (worktreeId: string, tabId: string) => void
@@ -36,6 +40,7 @@ interface TabState {
   rebaseWorktreeTabPaths: (worktreeId: string, previousPath: string, nextPath: string) => void
   removeWorktreeTabs: (worktreeId: string) => void
   reorderTabs: (tabIds: string[]) => void
+  closeChatSessionTab: (sessionId: string, worktreeId?: string | null) => void
   closeTab: (tabId: string) => void
   setActiveTab: (tabId: string) => void
 }
@@ -312,19 +317,83 @@ export const useTabStore = create<TabState>((set, get) => ({
     }
   },
 
-  ensureChatSessionTab: (sessionId, title) => {
-    const existingTab = get().tabs.find(
+  ensureChatSessionTab: (sessionId, title, requestedWorktreeId) => {
+    const current = get()
+    const worktreeId = requestedWorktreeId ?? current.currentWorktreeId
+    const baseWorktreeTabs =
+      worktreeId && worktreeId !== current.currentWorktreeId
+        ? normalizeWorktreeTabs(current.tabsByWorktree[worktreeId])
+        : normalizeWorktreeTabs({
+            tabs: current.tabs,
+            activeTabId: current.activeTabId,
+            activeTerminalTabId: current.activeTerminalTabId,
+          })
+    const existingTab = baseWorktreeTabs.tabs.find(
       (tab) => tab.type === "chat-session" && tab.sessionId === sessionId
     )
 
     if (existingTab) {
       if (title && title !== existingTab.title) {
-        get().updateChatSessionTitle(sessionId, title)
+        const nextTitle = title.trim() || "New chat"
+        const nextWorktreeTabs = {
+          ...baseWorktreeTabs,
+          tabs: baseWorktreeTabs.tabs.map((tab) =>
+            tab.id === existingTab.id ? { ...tab, title: nextTitle } : tab
+          ),
+        }
+        const nextTabsByWorktree = worktreeId
+          ? {
+              ...current.tabsByWorktree,
+              [worktreeId]: nextWorktreeTabs,
+            }
+          : current.tabsByWorktree
+
+        set({
+          tabsByWorktree: nextTabsByWorktree,
+          ...(worktreeId === current.currentWorktreeId
+            ? { tabs: nextWorktreeTabs.tabs }
+            : {}),
+        })
+
+        if (worktreeId && current.isInitialized) {
+          void persistTabs(nextTabsByWorktree)
+        }
       }
       return
     }
 
-    get().openChatSession(sessionId, title)
+    const newTab: Tab = {
+      id: crypto.randomUUID(),
+      type: "chat-session",
+      title: title?.trim() || "New chat",
+      sessionId,
+    }
+    const nextWorktreeTabs: WorktreeTabs = {
+      ...baseWorktreeTabs,
+      tabs: [...baseWorktreeTabs.tabs, newTab],
+      activeTabId: newTab.id,
+    }
+    const nextTabsByWorktree = worktreeId
+      ? {
+          ...current.tabsByWorktree,
+          [worktreeId]: nextWorktreeTabs,
+        }
+      : current.tabsByWorktree
+
+    set({
+      tabsByWorktree: nextTabsByWorktree,
+      ...(worktreeId === current.currentWorktreeId
+        ? {
+            tabs: nextWorktreeTabs.tabs,
+            activeTabId: nextWorktreeTabs.activeTabId,
+            activeTerminalTabId: nextWorktreeTabs.activeTerminalTabId,
+          }
+        : {}),
+    })
+
+    if (worktreeId && current.isInitialized) {
+      void persistTabs(nextTabsByWorktree)
+    }
   },
 
   updateChatSessionTitle: (sessionId, title) => {
@@ -637,6 +706,61 @@ export const useTabStore = create<TabState>((set, get) => ({
         [currentWorktreeId]: { tabs: nextTabs, activeTabId, activeTerminalTabId },
       }
       set({ tabsByWorktree: nextTabsByWorktree })
+      void persistTabs(nextTabsByWorktree)
+    }
+  },
+
+  closeChatSessionTab: (sessionId, requestedWorktreeId) => {
+    const current = get()
+    const worktreeId = requestedWorktreeId ?? current.currentWorktreeId
+    const baseWorktreeTabs =
+      worktreeId && worktreeId !== current.currentWorktreeId
+        ? normalizeWorktreeTabs(current.tabsByWorktree[worktreeId])
+        : normalizeWorktreeTabs({
+            tabs: current.tabs,
+            activeTabId: current.activeTabId,
+            activeTerminalTabId: current.activeTerminalTabId,
+          })
+    const tabToClose = baseWorktreeTabs.tabs.find(
+      (tab) => tab.type === "chat-session" && tab.sessionId === sessionId
+    )
+
+    if (!tabToClose) {
+      return
+    }
+
+    const nextTabs = baseWorktreeTabs.tabs.filter((tab) => tab.id !== tabToClose.id)
+    const nextTerminalTabs = nextTabs.filter(isTerminalTab)
+    const nextWorktreeTabs: WorktreeTabs = {
+      tabs: nextTabs,
+      activeTabId:
+        baseWorktreeTabs.activeTabId === tabToClose.id
+          ? nextTabs[nextTabs.length - 1]?.id ?? null
+          : baseWorktreeTabs.activeTabId,
+      activeTerminalTabId:
+        baseWorktreeTabs.activeTerminalTabId === tabToClose.id
+          ? nextTerminalTabs[nextTerminalTabs.length - 1]?.id ?? null
+          : baseWorktreeTabs.activeTerminalTabId,
+    }
+    const nextTabsByWorktree = worktreeId
+      ? {
+          ...current.tabsByWorktree,
+          [worktreeId]: nextWorktreeTabs,
+        }
+      : current.tabsByWorktree
+
+    set({
+      tabsByWorktree: nextTabsByWorktree,
+      ...(worktreeId === current.currentWorktreeId
+        ? {
+            tabs: nextWorktreeTabs.tabs,
+            activeTabId: nextWorktreeTabs.activeTabId,
+            activeTerminalTabId: nextWorktreeTabs.activeTerminalTabId,
+          }
+        : {}),
+    })
+
+    if (worktreeId && current.isInitialized) {
       void persistTabs(nextTabsByWorktree)
     }
   },

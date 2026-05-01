@@ -1,5 +1,6 @@
 import { ChatCircle, Plus, Terminal } from "@/components/icons"
 import { useChatStore } from "@/features/chat/store"
+import { createProjectChatSession } from "@/features/chat/store/projectChatSession"
 import { useTabStore } from "@/features/editor/store"
 import { useCurrentProjectWorktree } from "@/features/shared/hooks"
 import {
@@ -34,10 +35,8 @@ function haveTabIdsChangedOrder(nextTabIds: string[], currentTabs: Tab[]) {
 
 export function TabBar({ tabs, activeTabId, onTabChange, onTabClose }: TabBarProps) {
   const { selectedWorktreeId, selectedWorktreePath } = useCurrentProjectWorktree()
-  const createOptimisticSession = useChatStore((state) => state.createOptimisticSession)
   const getProjectChat = useChatStore((state) => state.getProjectChat)
   const sessionActivityById = useChatStore((state) => state.sessionActivityById)
-  const openChatSession = useTabStore((state) => state.openChatSession)
   const openTerminalTab = useTabStore((state) => state.openTerminalTab)
   const reorderTabs = useTabStore((state) => state.reorderTabs)
 
@@ -130,12 +129,21 @@ export function TabBar({ tabs, activeTabId, onTabChange, onTabClose }: TabBarPro
       return
     }
 
-    const session = createOptimisticSession(selectedWorktreeId, selectedWorktreePath, {
-      harnessId,
+    void createProjectChatSession({
+      worktreeId: selectedWorktreeId,
+      worktreePath: selectedWorktreePath,
+      options: {
+        harnessId,
+      },
     })
-    if (session) {
-      openChatSession(session.id, session.title)
-    }
+      .then((result) => {
+        if (!result.ok) {
+          console.error("[TabBar] Failed to create a chat session:", result.reason)
+        }
+      })
+      .catch((error) => {
+        console.error("[TabBar] Failed to create a chat session:", error)
+      })
   }
 
   const handleCreateTerminalTab = () => {
