@@ -2,6 +2,7 @@ import { create } from "zustand"
 import { nanoid } from "nanoid"
 import { loadDesktopStore, type DesktopStoreHandle } from "@/desktop/client"
 import { useProjectStore } from "@/features/workspace/store"
+import { useLocalChatStore } from "@/features/local-chat/store"
 import { buildHarnessAttachmentText } from "../components/composer/attachments"
 import {
   createUserMessage,
@@ -263,6 +264,8 @@ async function migratePersistedChatState(
   }
 
   const projects = useProjectStore.getState().projects
+  await useLocalChatStore.getState().initialize()
+  const localThreadById = new Map(useLocalChatStore.getState().threads.map((thread) => [thread.id, thread]))
   const projectById = new Map(projects.map((project) => [project.id, project]))
   const worktreeById = new Map(
     projects.flatMap((project) => project.worktrees.map((worktree) => [worktree.id, worktree] as const))
@@ -273,7 +276,8 @@ async function migratePersistedChatState(
       Object.fromEntries(
         Object.entries(persisted.chatByWorktree).flatMap(([worktreeId, projectChat]) => {
           const worktree = worktreeById.get(worktreeId)
-          if (!worktree) {
+          const localThread = localThreadById.get(worktreeId)
+          if (!worktree && !localThread) {
             return []
           }
 
@@ -281,7 +285,7 @@ async function migratePersistedChatState(
             worktreeId,
             {
               ...projectChat,
-              worktreePath: projectChat.worktreePath ?? worktree?.path,
+              worktreePath: projectChat.worktreePath ?? worktree?.path ?? localThread?.path,
             },
           ]]
         })

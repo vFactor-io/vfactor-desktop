@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef, type ReactNode } from "react"
 import { RightSidebarContext, type RightSidebarTab } from "./right-sidebar-context"
 import { useCurrentProjectWorktree } from "@/features/shared/hooks"
 import { useProjectStore } from "@/features/workspace/store"
+import type { AppMode } from "@/features/local-chat/types"
 import { useSidebar } from "./useSidebar"
 import { MIN_MAIN_CONTENT_WIDTH, RIGHT_SIDEBAR_WIDTH_CSS_VAR } from "./layoutSizing"
 
@@ -44,14 +45,20 @@ function clampRightSidebarWidth(width: number, maxWidth: number, activeTab: Righ
   return Math.min(maxWidth, Math.max(getMinRightSidebarWidth(activeTab), width))
 }
 
-export function RightSidebarProvider({ children }: { children: ReactNode }) {
+export function RightSidebarProvider({
+  appMode = "dev",
+  children,
+}: {
+  appMode?: AppMode
+  children: ReactNode
+}) {
   const { focusedProjectId, activeWorktreePath } = useCurrentProjectWorktree()
   const newWorkspaceSetupProjectId = useProjectStore((state) => state.newWorkspaceSetupProjectId)
   const { isCollapsed: isLeftSidebarCollapsed, width: leftSidebarWidth } = useSidebar()
   const hasActiveWorktree = Boolean(activeWorktreePath)
   const isNewWorkspaceSetupActive =
     focusedProjectId != null && newWorkspaceSetupProjectId === focusedProjectId
-  const isAvailable = hasActiveWorktree && !isNewWorkspaceSetupActive
+  const isAvailable = appMode === "chat" ? true : hasActiveWorktree && !isNewWorkspaceSetupActive
   const effectiveLeftSidebarWidth = isLeftSidebarCollapsed
     ? 0
     : leftSidebarWidth
@@ -117,12 +124,16 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
       return
     }
 
+    if (appMode === "chat") {
+      return
+    }
+
     setIsCollapsedState(true)
 
     if (typeof window !== "undefined") {
       window.localStorage.setItem(RIGHT_SIDEBAR_COLLAPSED_STORAGE_KEY, "true")
     }
-  }, [hasActiveWorktree, isNewWorkspaceSetupActive])
+  }, [appMode, hasActiveWorktree, isNewWorkspaceSetupActive])
 
   useEffect(() => {
     if (typeof window === "undefined") {

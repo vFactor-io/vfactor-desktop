@@ -3,6 +3,7 @@ import { useShallow } from "zustand/react/shallow"
 import { useCurrentProjectWorktree } from "@/features/shared/hooks"
 import { useSettingsStore } from "@/features/settings/store/settingsStore"
 import type { Project, ProjectWorktree } from "@/features/workspace/types"
+import type { ChatWorkspaceRef } from "@/features/local-chat/types"
 import { useProjectStore } from "@/features/workspace/store"
 import { runCommandInProjectTerminal } from "@/features/terminal/utils/projectTerminal"
 import { buildWorkspaceSetupScriptEnvironment } from "@/features/workspace/utils/setupScript"
@@ -58,6 +59,14 @@ export function useChatProjectState(): {
   selectedWorktree: ProjectWorktree | null
   activeSessionId: string | null
   workspaceSetupState: WorkspaceSetupState | null
+}
+export function useChatProjectState(workspaceRef?: ChatWorkspaceRef | null): {
+  selectedProjectId: string | null
+  selectedProject: Project | null
+  selectedWorktreeId: string | null
+  selectedWorktree: ProjectWorktree | null
+  activeSessionId: string | null
+  workspaceSetupState: WorkspaceSetupState | null
 } {
   const {
     selectedProjectId,
@@ -73,8 +82,10 @@ export function useChatProjectState(): {
       loadSessionsForProject: state.loadSessionsForProject,
     }))
   )
+  const workspaceId = workspaceRef?.id ?? selectedWorktreeId
+  const workspacePath = workspaceRef?.path ?? selectedWorktreePath
   const projectChat = useChatStore((state) =>
-    selectedWorktreeId ? state.chatByWorktree[selectedWorktreeId] ?? null : null
+    workspaceId ? state.chatByWorktree[workspaceId] ?? null : null
   )
   const workspaceSetupState = useChatStore((state) =>
     selectedProjectId ? state.workspaceSetupByProject[selectedProjectId] ?? null : null
@@ -86,15 +97,15 @@ export function useChatProjectState(): {
   }, [initialize])
 
   useEffect(() => {
-    if (selectedWorktreeId && selectedWorktreePath && isInitialized) {
-      loadSessionsForProject(selectedWorktreeId, selectedWorktreePath)
+    if (workspaceId && workspacePath && isInitialized) {
+      loadSessionsForProject(workspaceId, workspacePath)
     }
-  }, [selectedWorktreeId, selectedWorktreePath, isInitialized, loadSessionsForProject])
+  }, [workspaceId, workspacePath, isInitialized, loadSessionsForProject])
 
   return {
     selectedProjectId,
     selectedProject,
-    selectedWorktreeId,
+    selectedWorktreeId: workspaceRef?.kind === "local" ? workspaceRef.id : selectedWorktreeId,
     selectedWorktree,
     activeSessionId,
     workspaceSetupState,
@@ -145,12 +156,18 @@ export function useChatComposerState({
   selectedWorktreeId,
   selectedWorktree,
   activeSessionId,
+  workspaceRef,
+  ensureWorkspace,
+  defaultRuntimeMode,
 }: {
   selectedProjectId: string | null
   selectedWorktreePath?: string | null
   selectedWorktreeId: string | null
   selectedWorktree: ProjectWorktree | null
   activeSessionId: string | null
+  workspaceRef?: ChatWorkspaceRef | null
+  ensureWorkspace?: (input: { prompt: string }) => Promise<ChatWorkspaceRef | null>
+  defaultRuntimeMode?: RuntimeModeKind
 }): {
   input: string
   setInput: (value: string) => void
@@ -201,8 +218,10 @@ export function useChatComposerState({
     }))
   )
 
+  const effectiveWorkspaceId = workspaceRef?.id ?? selectedWorktreeId
+  const effectiveWorkspacePath = workspaceRef?.path ?? selectedWorktreePath
   const draftSessionKey =
-    activeSessionId ?? (selectedWorktreeId ? `draft:${selectedWorktreeId}` : "draft:no-project")
+    activeSessionId ?? (effectiveWorkspaceId ? `draft:${effectiveWorkspaceId}` : "draft:no-project")
   const draftState = draftStateBySessionKey[draftSessionKey]
   const input = draftState?.input ?? ""
   const attachments = draftState?.attachments ?? []
@@ -307,17 +326,27 @@ export function useChatComposerState({
         return false
       }
 
-      if (!selectedProjectId || !selectedWorktreePath || !selectedWorktreeId || !selectedWorktree) {
+      let submitWorkspaceId = effectiveWorkspaceId
+      let submitWorkspacePath = effectiveWorkspacePath
+
+      if ((!submitWorkspaceId || !submitWorkspacePath) && ensureWorkspace) {
+        const ensuredWorkspace = await ensureWorkspace({ prompt: text })
+        submitWorkspaceId = ensuredWorkspace?.id ?? null
+        submitWorkspacePath = ensuredWorkspace?.path ?? null
+      }
+
+      if (!submitWorkspaceId || !submitWorkspacePath) {
         return false
       }
 
       const result = await submitProjectChatTurn({
-        worktreeId: selectedWorktreeId,
-        worktreePath: selectedWorktreePath,
+        worktreeId: submitWorkspaceId,
+        worktreePath: submitWorkspacePath,
         activeSessionId,
         text,
         options: {
           ...options,
+          runtimeMode: options?.runtimeMode ?? defaultRuntimeMode,
           attachments: attachmentsToSend,
         },
         onSessionReady: (session) => {
@@ -333,11 +362,11 @@ export function useChatComposerState({
       activeSessionId,
       attachments,
       clearDraftState,
+      defaultRuntimeMode,
       draftSessionKey,
-      selectedProjectId,
-      selectedWorktree,
-      selectedWorktreeId,
-      selectedWorktreePath,
+      effectiveWorkspaceId,
+      effectiveWorkspacePath,
+      ensureWorkspace,
       setInput,
     ]
   )
@@ -372,8 +401,8 @@ export function useChatComposerState({
   const handleExecuteCommand = useCallback(
     async (command: string, args?: string) => {
       const result = await executeProjectChatCommand({
-        worktreeId: selectedWorktreeId,
-        worktreePath: selectedWorktreePath,
+        worktreeId: effectiveWorkspaceId,
+        worktreePath: effectiveWorkspacePath,
         activeSessionId,
         command,
         args,
@@ -383,8 +412,8 @@ export function useChatComposerState({
     },
     [
       activeSessionId,
-      selectedWorktreeId,
-      selectedWorktreePath,
+      effectiveWorkspaceId,
+      effectiveWorkspacePath,
     ]
   )
 

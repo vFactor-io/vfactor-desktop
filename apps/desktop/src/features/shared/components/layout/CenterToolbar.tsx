@@ -12,15 +12,22 @@ import { ProjectActionsControl } from "@/features/workspace/components/ProjectAc
 import { prewarmProjectData } from "@/features/shared/utils/prewarmProjectData"
 import { DESKTOP_LEFT_TOGGLE_OFFSET } from "./layoutSizing"
 import { iconTextClassNames } from "@/features/shared/appearance"
+import type { AppMode } from "@/features/local-chat/types"
 
 interface CenterToolbarProps {
   activeView?: "chat" | "settings" | "automations"
+  appMode?: AppMode
+  onSelectAppMode?: (mode: AppMode) => void
 }
 
 const noDragStyle: CSSProperties = { WebkitAppRegion: "no-drag" }
 const dragStyle: CSSProperties = { WebkitAppRegion: "drag" }
 
-export function CenterToolbar({ activeView = "chat" }: CenterToolbarProps) {
+export function CenterToolbar({
+  activeView = "chat",
+  appMode = "dev",
+  onSelectAppMode,
+}: CenterToolbarProps) {
   const { isCollapsed: isLeftCollapsed, toggle: toggleLeft } = useSidebar()
   const {
     isAvailable: isRightSidebarAvailable,
@@ -32,12 +39,17 @@ export function CenterToolbar({ activeView = "chat" }: CenterToolbarProps) {
   const { focusedProjectId, activeWorktreeId, activeWorktreePath, targetBranch } = useCurrentProjectWorktree()
   const isNewWorkspaceSetupActive =
     activeView === "chat" &&
+    appMode === "dev" &&
     focusedProjectId != null &&
     newWorkspaceSetupProjectId === focusedProjectId
 
   const canToggleRightSidebar =
     activeView === "chat" && isRightSidebarAvailable && !isNewWorkspaceSetupActive
   const handleRightSidebarIntent = () => {
+    if (appMode === "chat") {
+      return
+    }
+
     void prewarmProjectData(activeWorktreeId, activeWorktreePath, rightSidebarActiveTab)
   }
   const leftToggleButton = (
@@ -74,11 +86,26 @@ export function CenterToolbar({ activeView = "chat" }: CenterToolbarProps) {
           {leftToggleButton}
         </div>
 
-        <div
-          className="pointer-events-auto hidden min-w-0 shrink-0 items-center md:flex"
-          style={noDragStyle}
-        >
-          {activeView === "chat" && !isNewWorkspaceSetupActive ? (
+        <div className="pointer-events-auto flex min-w-0 shrink-0 items-center gap-1" style={noDragStyle}>
+          <div className="flex h-7 items-center rounded-md bg-sidebar-accent/45 p-0.5">
+            {(["dev", "chat"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => onSelectAppMode?.(mode)}
+                className={cn(
+                  "h-6 rounded px-2 text-xs font-medium capitalize transition",
+                  appMode === mode
+                    ? "bg-[var(--sidebar-item-active)] text-sidebar-accent-foreground"
+                    : "text-sidebar-foreground/54 hover:text-sidebar-foreground"
+                )}
+              >
+                {mode}
+              </button>
+            ))}
+          </div>
+
+          {activeView === "chat" && appMode === "dev" && !isNewWorkspaceSetupActive ? (
             <BranchTargetSelector
               projectId={focusedProjectId}
               projectTargetBranch={targetBranch}
@@ -94,8 +121,8 @@ export function CenterToolbar({ activeView = "chat" }: CenterToolbarProps) {
             className="pointer-events-auto hidden shrink-0 items-center gap-2 md:flex"
             style={noDragStyle}
           >
-            {activeWorktreePath ? <ProjectActionsControl /> : null}
-            {activeWorktreePath ? <SourceControlActionGroup /> : null}
+            {appMode === "dev" && activeWorktreePath ? <ProjectActionsControl /> : null}
+            {appMode === "dev" && activeWorktreePath ? <SourceControlActionGroup /> : null}
             {canToggleRightSidebar ? (
               <Button
                 type="button"

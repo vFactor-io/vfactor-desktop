@@ -3,6 +3,8 @@ import { Reorder } from "framer-motion"
 import { GearSix, GitBranch, Plus } from "@/components/icons"
 import { AutomationsPage } from "@/features/automations/components/AutomationsPage"
 import { ChatContainer, NewWorkspaceSetupView, TabBar } from "@/features/chat/components"
+import { LocalChatMain } from "@/features/local-chat/components"
+import type { AppMode } from "@/features/local-chat/types"
 import { FileViewer, ProjectDiffViewer } from "@/features/editor/components"
 import { SettingsPage } from "@/features/settings/components/SettingsPage"
 import { useTabStore } from "@/features/editor/store"
@@ -95,6 +97,7 @@ function TabContent({ tab }: TabContentProps) {
 }
 interface MainContentProps {
   activeView: "chat" | "settings" | "automations"
+  appMode: AppMode
   activeSettingsSection: SettingsSectionId
   onOpenSettings?: () => void
 }
@@ -362,7 +365,12 @@ function NoWorkspaceSelectedState({
   )
 }
 
-export function MainContent({ activeView, activeSettingsSection, onOpenSettings }: MainContentProps) {
+export function MainContent({
+  activeView,
+  appMode,
+  activeSettingsSection,
+  onOpenSettings,
+}: MainContentProps) {
   const { focusedProjectId, activeWorktreeId, activeWorktreePath } = useCurrentProjectWorktree()
   const { getProjectChat, selectSession } = useChatStore()
   const chatStoreInitialized = useChatStore((state) => state.isInitialized)
@@ -540,6 +548,10 @@ export function MainContent({ activeView, activeSettingsSection, onOpenSettings 
         <AutomationsPage />
       </main>
     )
+  }
+
+  if (appMode === "chat") {
+    return <LocalChatMain />
   }
 
   if (focusedProjectId && newWorkspaceSetupProjectId === focusedProjectId) {

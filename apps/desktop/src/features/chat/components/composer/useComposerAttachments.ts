@@ -29,6 +29,7 @@ export function useComposerAttachments({
   isComposerLocked,
   isPromptActive,
   selectedWorktreePath,
+  stageWithoutGit = false,
   setAttachments,
   focusComposer,
 }: {
@@ -37,6 +38,7 @@ export function useComposerAttachments({
   isComposerLocked: boolean
   isPromptActive: boolean
   selectedWorktreePath?: string | null
+  stageWithoutGit?: boolean
   setAttachments: (attachments: DraftChatAttachment[]) => void
   focusComposer: () => void
 }) {
@@ -110,9 +112,11 @@ export function useComposerAttachments({
       throw new Error("Select a project workspace before adding uploads.")
     }
 
-    await desktop.git.ensureInfoExcludeEntries(selectedWorktreePath, ["/.vfactor/"])
+    if (!stageWithoutGit) {
+      await desktop.git.ensureInfoExcludeEntries(selectedWorktreePath, ["/.vfactor/"])
+    }
     return selectedWorktreePath
-  }, [selectedWorktreePath])
+  }, [selectedWorktreePath, stageWithoutGit])
 
   const readBrowserFileAsDataUrl = useCallback((file: Blob) => {
     return new Promise<string>((resolve, reject) => {

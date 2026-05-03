@@ -53,6 +53,7 @@ import { useCurrentProjectWorktree } from "@/features/shared/hooks"
 import { useChatStore } from "../store"
 import { createProjectChatSession } from "../store/projectChatSession"
 import { createDefaultProjectChat } from "../store/sessionState"
+import type { ProjectChatState } from "../store/storeTypes"
 import { useSettingsStore } from "@/features/settings/store/settingsStore"
 import { useTabStore } from "@/features/editor/store"
 import { runCommandInProjectTerminal } from "@/features/terminal/utils/projectTerminal"
@@ -75,6 +76,11 @@ import { normalizeChatInputAttachments, noopSetChatInputAttachments } from "./ch
 
 interface ChatInputProps {
   sessionId?: string | null
+  workspaceId?: string | null
+  workspacePath?: string | null
+  projectChat?: ProjectChatState | null
+  defaultRuntimeMode?: RuntimeModeKind
+  hideDevCommands?: boolean
   input: string
   setInput: (value: string) => void
   attachments?: DraftChatAttachment[]
@@ -132,6 +138,11 @@ function formatFocusShortcutHint(binding: ReturnType<typeof getShortcutBinding>)
 
 export function ChatInput({
   sessionId = null,
+  workspaceId = null,
+  workspacePath = null,
+  projectChat: projectChatOverride,
+  defaultRuntimeMode,
+  hideDevCommands = false,
   input,
   setInput,
   attachments: rawAttachments,
@@ -153,15 +164,19 @@ export function ChatInput({
 }: ChatInputProps) {
   const attachments = normalizeChatInputAttachments(rawAttachments)
   const { selectedProject, selectedWorktreeId, selectedWorktreePath } = useCurrentProjectWorktree()
+  const effectiveWorkspaceId = workspaceId ?? selectedWorktreeId
+  const effectiveWorkspacePath = workspacePath ?? selectedWorktreePath
   const storedProjectChat = useChatStore((state) =>
-    selectedWorktreeId ? state.chatByWorktree[selectedWorktreeId] ?? null : null
+    effectiveWorkspaceId ? state.chatByWorktree[effectiveWorkspaceId] ?? null : null
   )
   const projectChat = useMemo(
     () =>
-      selectedWorktreeId
-        ? (storedProjectChat ?? createDefaultProjectChat(selectedWorktreePath ?? undefined))
+      effectiveWorkspaceId
+        ? (projectChatOverride ??
+          storedProjectChat ??
+          createDefaultProjectChat(effectiveWorkspacePath ?? undefined))
         : null,
-    [selectedWorktreeId, selectedWorktreePath, storedProjectChat]
+    [effectiveWorkspaceId, effectiveWorkspacePath, projectChatOverride, storedProjectChat]
   )
   const {
     setSessionRuntimeMode,
@@ -219,7 +234,7 @@ export function ChatInput({
     activeSessionModelId,
     isDraftSession,
     persistedHarnessId,
-    selectedWorktreeId,
+    selectedWorktreeId: effectiveWorkspaceId,
   })
   const [isImeComposing, setIsImeComposing] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(0)
@@ -229,7 +244,7 @@ export function ChatInput({
   const [isPlanModeEnabled, setIsPlanModeEnabled] = useState(false)
   const [isComposerFocused, setIsComposerFocused] = useState(false)
   const [runtimeModeOverride, setRuntimeModeOverride] = useState<RuntimeModeKind | null>(null)
-  const runtimeMode = activeSessionRuntimeMode ?? runtimeModeOverride ?? DEFAULT_RUNTIME_MODE
+  const runtimeMode = activeSessionRuntimeMode ?? runtimeModeOverride ?? defaultRuntimeMode ?? DEFAULT_RUNTIME_MODE
   const focusChatInputShortcut = useMemo(() => getShortcutBinding("focus-chat-input"), [])
   const focusChatInputHint = useMemo(
     () => formatFocusShortcutHint(focusChatInputShortcut),
@@ -253,7 +268,7 @@ export function ChatInput({
   const { commitComposerInput, liveInput, liveInputRef, pendingLocalInputRef } =
     useDeferredComposerInput({
       input,
-      resetKey: `${selectedWorktreeId ?? "no-worktree"}:${sessionId ?? "draft"}`,
+      resetKey: `${effectiveWorkspaceId ?? "no-worktree"}:${sessionId ?? "draft"}`,
       setInput,
     })
   const composerTextInput = useMemo(() => getComposerTextInput(liveInput), [liveInput])
@@ -283,8 +298,8 @@ export function ChatInput({
 
   const { commands, isLoading: isLoadingCommands } = useCommands(
     deferredHarnessId,
-    selectedProject?.actions ?? [],
-    selectedWorktreePath
+    hideDevCommands ? [] : selectedProject?.actions ?? [],
+    effectiveWorkspacePath
   )
   const { agents, isLoading: isLoadingAgents } = useAgents(deferredHarnessId)
   const { results: fileResults, isLoading: isLoadingFiles, search: searchFiles, clear: clearFiles } = useFileSearch()
@@ -351,7 +366,8 @@ export function ChatInput({
     focusComposer,
     isComposerLocked,
     isPromptActive,
-    selectedWorktreePath,
+    selectedWorktreePath: effectiveWorkspacePath,
+    stageWithoutGit: hideDevCommands,
     setAttachments,
   })
   const atMenuKey = composerTextInput.startsWith("@") ? `at:${composerTextInput}` : null
@@ -383,7 +399,7 @@ export function ChatInput({
 
   useEffect(() => {
     setRuntimeModeOverride(null)
-  }, [activeSession?.id, selectedWorktreeId])
+  }, [activeSession?.id, effectiveWorkspaceId])
 
   useEffect(() => {
     if (!isPlanModeAvailable) {
@@ -587,13 +603,16 @@ export function ChatInput({
       }
 
       if (command.action === "new-chat") {
-        if (!selectedWorktreeId || !selectedWorktreePath) {
+        if (!effectiveWorkspaceId || !effectiveWorkspacePath) {
           return
         }
 
         void createProjectChatSession({
-          worktreeId: selectedWorktreeId,
-          worktreePath: selectedWorktreePath,
+          worktreeId: effectiveWorkspaceId,
+          worktreePath: effectiveWorkspacePath,
+          options: {
+            runtimeMode: defaultRuntimeMode,
+          },
         })
           .then((result) => {
             if (!result.ok) {
@@ -611,19 +630,19 @@ export function ChatInput({
       }
 
       if (command.action === "new-terminal") {
-        if (!selectedWorktreeId) {
+        if (hideDevCommands || !effectiveWorkspaceId) {
           return
         }
 
         commitComposerInput("")
         setDismissedMenuKey(null)
         setIsSlashMenuDismissed(false)
-        openTerminalTab(selectedWorktreeId)
+        openTerminalTab(effectiveWorkspaceId)
         return
       }
 
       if (command.projectAction) {
-        if (!selectedWorktreeId || !selectedWorktreePath) {
+        if (hideDevCommands || !effectiveWorkspaceId || !effectiveWorkspacePath) {
           return
         }
 
@@ -637,8 +656,8 @@ export function ChatInput({
         setIsSlashMenuDismissed(false)
 
         void runCommandInProjectTerminal({
-          projectId: selectedWorktreeId,
-          cwd: selectedWorktreePath,
+          projectId: effectiveWorkspaceId,
+          cwd: effectiveWorkspacePath,
           command: commandLines.join("\n"),
         }).catch((error) => {
           console.error(`Failed to run project action "${command.projectAction?.name}":`, error)
@@ -649,8 +668,10 @@ export function ChatInput({
       openTerminalTab,
       openThemeSlashMenu,
       selectedProject,
-      selectedWorktreeId,
-      selectedWorktreePath,
+      effectiveWorkspaceId,
+      effectiveWorkspacePath,
+      defaultRuntimeMode,
+      hideDevCommands,
       commitComposerInput,
     ]
   )

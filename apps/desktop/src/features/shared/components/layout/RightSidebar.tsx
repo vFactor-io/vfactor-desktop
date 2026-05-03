@@ -18,6 +18,8 @@ import {
 } from "./pullRequestChecks"
 import { useRightSidebar } from "./useRightSidebar"
 import { SidebarShell } from "./SidebarShell"
+import { WorkbenchSidebar } from "@/features/local-chat/components"
+import type { AppMode } from "@/features/local-chat/types"
 import { RightSidebarEmptyState } from "./RightSidebarEmptyState"
 import { useResizablePanel } from "./useResizablePanel"
 import { HorizontalOverflowFade } from "@/features/shared/components/ui"
@@ -27,6 +29,7 @@ import { RIGHT_SIDEBAR_WIDTH_CSS_VAR } from "./layoutSizing"
 
 interface RightSidebarProps {
   activeView?: "chat" | "settings" | "automations"
+  appMode?: AppMode
 }
 
 const RIGHT_SIDEBAR_TABS: Array<{
@@ -43,7 +46,7 @@ const FILES_TREE_PANEL_WIDTH_CSS_VAR = "--files-tree-panel-width"
 const FILES_TREE_PANEL_MIN_WIDTH = 180
 const FILES_PREVIEW_PANEL_MIN_WIDTH = 260
 
-export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
+export function RightSidebar({ activeView = "chat", appMode = "dev" }: RightSidebarProps) {
   const [pendingFileTreePath, setPendingFileTreePath] = useState<string | null>(null)
   const [fileImportError, setFileImportError] = useState<string | null>(null)
   const [isImportingFiles, setIsImportingFiles] = useState(false)
@@ -69,7 +72,7 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
     setActiveProjectPath,
     refreshActiveProject,
   } = useFileTreeStore()
-  const isChatSidebarVisible = activeView === "chat"
+  const isChatSidebarVisible = activeView === "chat" && appMode === "dev"
   const { branchData } = useProjectGitBranches(selectedWorktreePath, {
     enabled: Boolean(selectedWorktreePath) && isChatSidebarVisible,
   })
@@ -291,6 +294,10 @@ export function RightSidebar({ activeView = "chat" }: RightSidebarProps) {
     },
     [activeTab]
   )
+
+  if (activeView === "chat" && appMode === "chat") {
+    return <WorkbenchSidebar />
+  }
 
   if (!isAvailable || activeView !== "chat") {
     return null

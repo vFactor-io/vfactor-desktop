@@ -5,6 +5,7 @@ import { RightSidebar } from "./RightSidebar"
 import { SidebarProvider } from "./SidebarContext"
 import { RightSidebarProvider } from "./RightSidebarContext"
 import { CenterToolbar } from "./CenterToolbar"
+import type { AppMode } from "@/features/local-chat/types"
 import type { SettingsSectionId } from "@/features/settings/config"
 import { AppUpdateBootstrap } from "@/features/updates/components/AppUpdateBootstrap"
 import { UpdateBlockedDialog } from "@/features/updates/components/UpdateBlockedDialog"
@@ -20,14 +21,18 @@ import { useSidebar } from "./useSidebar"
 
 function AppLayoutFrame({
   activeView,
+  appMode,
   activeSettingsSection,
+  onSelectAppMode,
   onOpenChat,
   onOpenAutomations,
   onOpenSettings,
   onSelectSettingsSection,
 }: {
   activeView: "chat" | "settings" | "automations"
+  appMode: AppMode
   activeSettingsSection: SettingsSectionId
+  onSelectAppMode: (mode: AppMode) => void
   onOpenChat: () => void
   onOpenAutomations: () => void
   onOpenSettings: () => void
@@ -46,7 +51,11 @@ function AppLayoutFrame({
       style={{ gridTemplateRows: "2.75rem minmax(0, 1fr)" }}
     >
       <div className="min-w-0 overflow-hidden" style={{ gridRow: 1 }}>
-        <CenterToolbar activeView={activeView} />
+        <CenterToolbar
+          activeView={activeView}
+          appMode={appMode}
+          onSelectAppMode={onSelectAppMode}
+        />
       </div>
 
       <div className="relative min-h-0 min-w-0 overflow-hidden" style={{ gridRow: 2 }}>
@@ -60,6 +69,7 @@ function AppLayoutFrame({
         >
           <LeftSidebar
             activeView={activeView}
+            appMode={appMode}
             activeSettingsSection={activeSettingsSection}
             onOpenChat={onOpenChat}
             onOpenAutomations={onOpenAutomations}
@@ -79,11 +89,12 @@ function AppLayoutFrame({
           <div className="flex flex-1 flex-col" style={{ minWidth: `${MIN_MAIN_CONTENT_WIDTH}px` }}>
             <MainContent
               activeView={activeView}
+              appMode={appMode}
               activeSettingsSection={activeSettingsSection}
               onOpenSettings={onOpenSettings}
             />
           </div>
-          <RightSidebar activeView={activeView} />
+          <RightSidebar activeView={activeView} appMode={appMode} />
         </div>
       </div>
     </div>
@@ -92,16 +103,22 @@ function AppLayoutFrame({
 
 export function AppLayout() {
   const [activeView, setActiveView] = useState<"chat" | "settings" | "automations">("chat")
+  const [appMode, setAppMode] = useState<AppMode>("dev")
   const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionId>("git")
 
   return (
     <SidebarProvider>
-      <RightSidebarProvider>
+      <RightSidebarProvider appMode={appMode}>
         <HarnessBootstrap />
         <AppUpdateBootstrap />
         <AppLayoutFrame
           activeView={activeView}
+          appMode={appMode}
           activeSettingsSection={activeSettingsSection}
+          onSelectAppMode={(mode) => {
+            setAppMode(mode)
+            setActiveView("chat")
+          }}
           onOpenChat={() => setActiveView("chat")}
           onOpenAutomations={() => setActiveView("automations")}
           onOpenSettings={() => setActiveView("settings")}

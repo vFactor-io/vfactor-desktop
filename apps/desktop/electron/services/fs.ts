@@ -68,12 +68,21 @@ export class DesktopFsService {
   async readDir(path: string): Promise<DesktopDirEntry[]> {
     const entries = await readdir(path, { withFileTypes: true })
 
-    return entries.map((entry) => ({
-      name: entry.name,
-      path: `${path}/${entry.name}`,
-      isDirectory: entry.isDirectory(),
-      isFile: entry.isFile(),
-    }))
+    return Promise.all(
+      entries.map(async (entry) => {
+        const entryPath = `${path}/${entry.name}`
+        const entryStats = await stat(entryPath).catch(() => null)
+
+        return {
+          name: entry.name,
+          path: entryPath,
+          isDirectory: entry.isDirectory(),
+          isFile: entry.isFile(),
+          sizeBytes: entryStats?.isFile() ? entryStats.size : undefined,
+          modifiedAt: entryStats?.mtimeMs,
+        }
+      })
+    )
   }
 
   async mkdir(path: string, options?: { recursive?: boolean }): Promise<void> {

@@ -397,6 +397,8 @@ export interface DesktopDirEntry {
   path: string
   isDirectory: boolean
   isFile: boolean
+  sizeBytes?: number
+  modifiedAt?: number
 }
 
 export interface WriteTextFileOptions {

@@ -44,6 +44,9 @@ import { openFolderPicker } from "@/features/workspace/utils/folderDialog"
 import { useSidebar } from "./useSidebar"
 import { useRightSidebar } from "./useRightSidebar"
 import { SidebarShell } from "./SidebarShell"
+import { LocalChatSidebar } from "@/features/local-chat/components"
+import { useLocalChatStore } from "@/features/local-chat/store"
+import type { AppMode } from "@/features/local-chat/types"
 import { cn } from "@/lib/utils"
 import type { Project, ProjectWorktree } from "@/features/workspace/types"
 import {
@@ -67,6 +70,7 @@ const LEFT_SIDEBAR_MAX_WIDTH = 420
 
 interface LeftSidebarProps {
   activeView?: "chat" | "settings" | "automations"
+  appMode?: AppMode
   activeSettingsSection?: SettingsSectionId
   onOpenChat?: () => void
   onOpenAutomations?: () => void
@@ -190,6 +194,7 @@ function ReorderableProjectItem(props: {
 
 export function LeftSidebar({
   activeView = "chat",
+  appMode = "dev",
   activeSettingsSection = "git",
   onOpenChat,
   onOpenAutomations,
@@ -210,6 +215,7 @@ export function LeftSidebar({
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
   const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>([])
   const { isCollapsed, width, setWidth, expand } = useSidebar()
+  const activeLocalThreadId = useLocalChatStore((state) => state.activeThreadId)
   const { activeTab: rightSidebarActiveTab, isCollapsed: isRightSidebarCollapsed } = useRightSidebar()
   const {
     projects,
@@ -759,10 +765,15 @@ export function LeftSidebar({
   const sidebarBody = (
     <>
       {/* Body */}
-      {isLoading ? (
+      {isLoading && appMode === "dev" ? (
         <div className="flex flex-1 items-center justify-center">
           <span className="text-sm text-muted-foreground">Loading...</span>
         </div>
+      ) : activeView === "chat" && appMode === "chat" ? (
+        <LocalChatSidebar
+          activeThreadId={activeLocalThreadId}
+          onOpenSettings={onOpenSettings}
+        />
       ) : activeView === "settings" ? (
         <div className="flex-1 overflow-y-auto">
           <div className="space-y-2 px-2 pb-2 pt-4">

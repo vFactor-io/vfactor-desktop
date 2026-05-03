@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState } from "react"
 import { GitBranch } from "@/components/icons"
 import { ProjectIcon } from "@/features/workspace/components/ProjectIcon"
+import type { ChatWorkspaceRef } from "@/features/local-chat/types"
 import {
   useChatHasContent,
   useChatComposerState,
@@ -11,6 +12,7 @@ import { useChatStore } from "../store"
 import { ChatMessages } from "./ChatMessages"
 import { ChatInput } from "./ChatInput"
 import { resolveChatContainerSessionId } from "./chatContainerSession"
+import type { RuntimeModeKind } from "../types"
 
 function ChatTimelinePane({
   threadKey,
@@ -46,12 +48,20 @@ function ChatComposerPane({
   selectedWorktreePath,
   selectedWorktreeId,
   selectedWorktree,
+  workspaceRef,
+  ensureWorkspace,
+  defaultRuntimeMode,
+  hideDevCommands,
 }: {
   activeSessionId: string | null
   selectedProjectId: string | null
   selectedWorktreePath?: string | null
   selectedWorktreeId: string | null
   selectedWorktree: ReturnType<typeof useChatProjectState>["selectedWorktree"]
+  workspaceRef?: ChatWorkspaceRef | null
+  ensureWorkspace?: (input: { prompt: string }) => Promise<ChatWorkspaceRef | null>
+  defaultRuntimeMode?: RuntimeModeKind
+  hideDevCommands?: boolean
 }) {
   const {
     input,
@@ -74,11 +84,24 @@ function ChatComposerPane({
     selectedWorktreeId,
     selectedWorktree,
     activeSessionId,
+    workspaceRef,
+    ensureWorkspace,
+    defaultRuntimeMode,
   })
+  const effectiveWorkspaceId = workspaceRef?.id ?? selectedWorktreeId
+  const effectiveWorkspacePath = workspaceRef?.path ?? selectedWorktreePath
+  const projectChat = useChatStore((state) =>
+    effectiveWorkspaceId ? state.chatByWorktree[effectiveWorkspaceId] ?? null : null
+  )
 
   return (
     <ChatInput
       sessionId={activeSessionId}
+      workspaceId={effectiveWorkspaceId}
+      workspacePath={effectiveWorkspacePath}
+      projectChat={projectChat}
+      defaultRuntimeMode={defaultRuntimeMode}
+      hideDevCommands={hideDevCommands}
       input={input}
       setInput={setInput}
       attachments={attachments}
@@ -108,33 +131,60 @@ const MemoizedChatComposerPane = memo(
     previousProps.selectedProjectId === nextProps.selectedProjectId &&
     previousProps.selectedWorktreeId === nextProps.selectedWorktreeId &&
     previousProps.selectedWorktreePath === nextProps.selectedWorktreePath &&
+    previousProps.workspaceRef?.id === nextProps.workspaceRef?.id &&
+    previousProps.workspaceRef?.path === nextProps.workspaceRef?.path &&
     previousProps.selectedWorktree?.id === nextProps.selectedWorktree?.id &&
     previousProps.selectedWorktree?.path === nextProps.selectedWorktree?.path &&
     previousProps.selectedWorktree?.branchName === nextProps.selectedWorktree?.branchName
 )
 
-export function ChatContainer({ sessionId = null }: ChatContainerContentProps) {
-  return <ChatContainerContent sessionId={sessionId} />
+export function ChatContainer({
+  sessionId = null,
+  workspaceRef = null,
+  ensureWorkspace,
+  defaultRuntimeMode,
+  hideDevCommands = false,
+}: ChatContainerContentProps) {
+  return (
+    <ChatContainerContent
+      sessionId={sessionId}
+      workspaceRef={workspaceRef}
+      ensureWorkspace={ensureWorkspace}
+      defaultRuntimeMode={defaultRuntimeMode}
+      hideDevCommands={hideDevCommands}
+    />
+  )
 }
 
 interface ChatContainerContentProps {
   sessionId?: string | null
+  workspaceRef?: ChatWorkspaceRef | null
+  ensureWorkspace?: (input: { prompt: string }) => Promise<ChatWorkspaceRef | null>
+  defaultRuntimeMode?: RuntimeModeKind
+  hideDevCommands?: boolean
 }
 
-export function ChatContainerContent({ sessionId = null }: ChatContainerContentProps) {
+export function ChatContainerContent({
+  sessionId = null,
+  workspaceRef = null,
+  ensureWorkspace,
+  defaultRuntimeMode,
+  hideDevCommands = false,
+}: ChatContainerContentProps) {
   const {
     selectedProject,
     selectedProjectId,
     selectedWorktreeId,
     selectedWorktree,
     activeSessionId,
-  } = useChatProjectState()
+  } = useChatProjectState(workspaceRef)
+  const effectiveWorkspaceId = workspaceRef?.id ?? selectedWorktreeId
   const projectChat = useChatStore((state) =>
-    selectedWorktreeId ? state.chatByWorktree[selectedWorktreeId] ?? null : null
+    effectiveWorkspaceId ? state.chatByWorktree[effectiveWorkspaceId] ?? null : null
   )
   const resolvedSessionId = resolveChatContainerSessionId(projectChat, sessionId, activeSessionId)
   const hasContent = useChatHasContent(resolvedSessionId)
-  const threadKey = `${selectedWorktreeId ?? selectedProject?.id ?? "no-project"}:${resolvedSessionId ?? "draft"}`
+  const threadKey = `${effectiveWorkspaceId ?? selectedProject?.id ?? "no-project"}:${resolvedSessionId ?? "draft"}`
   const prevHasContentRef = useRef(hasContent)
   const [transition, setTransition] = useState<"settle" | "rise" | null>(null)
 
@@ -148,7 +198,7 @@ export function ChatContainerContent({ sessionId = null }: ChatContainerContentP
   }, [hasContent])
 
   if (!hasContent) {
-    const projectName = selectedProject?.name ?? null
+    const projectName = workspaceRef?.title ?? selectedProject?.name ?? null
     const branchName = selectedWorktree?.branchName ?? null
 
     return (
@@ -159,12 +209,12 @@ export function ChatContainerContent({ sessionId = null }: ChatContainerContentP
         >
           {projectName ? (
             <div className="flex items-center gap-3.5 px-6">
-              <ProjectIcon project={selectedProject} size={36} />
+              {selectedProject ? <ProjectIcon project={selectedProject} size={36} /> : null}
               <div className="flex flex-col gap-0.5">
                 <h3 className="text-sm font-medium text-foreground/90">
                   {projectName}
                 </h3>
-                {branchName ? (
+                {branchName && workspaceRef?.kind !== "local" ? (
                   <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground/70">
                     <GitBranch size={12} />
                     <span className="font-mono">{branchName}</span>
@@ -179,8 +229,12 @@ export function ChatContainerContent({ sessionId = null }: ChatContainerContentP
             activeSessionId={resolvedSessionId}
             selectedProjectId={selectedProjectId}
             selectedWorktreePath={selectedWorktree?.path ?? null}
-            selectedWorktreeId={selectedWorktreeId}
+            selectedWorktreeId={effectiveWorkspaceId}
             selectedWorktree={selectedWorktree}
+            workspaceRef={workspaceRef}
+            ensureWorkspace={ensureWorkspace}
+            defaultRuntimeMode={defaultRuntimeMode}
+            hideDevCommands={hideDevCommands}
           />
         </div>
       </div>
@@ -206,8 +260,12 @@ export function ChatContainerContent({ sessionId = null }: ChatContainerContentP
             activeSessionId={resolvedSessionId}
             selectedProjectId={selectedProjectId}
             selectedWorktreePath={selectedWorktree?.path ?? null}
-            selectedWorktreeId={selectedWorktreeId}
+            selectedWorktreeId={effectiveWorkspaceId}
             selectedWorktree={selectedWorktree}
+            workspaceRef={workspaceRef}
+            ensureWorkspace={ensureWorkspace}
+            defaultRuntimeMode={defaultRuntimeMode}
+            hideDevCommands={hideDevCommands}
           />
         </div>
       </div>
