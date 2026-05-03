@@ -115,6 +115,7 @@ describe("getChatScrollStateFromMetrics", () => {
       isScrollable: false,
       isAtTop: true,
       isAtBottom: true,
+      distanceFromBottom: 0,
     })
   })
 
@@ -129,6 +130,7 @@ describe("getChatScrollStateFromMetrics", () => {
       isScrollable: true,
       isAtTop: true,
       isAtBottom: false,
+      distanceFromBottom: 300,
     })
   })
 
@@ -143,6 +145,7 @@ describe("getChatScrollStateFromMetrics", () => {
       isScrollable: true,
       isAtTop: false,
       isAtBottom: false,
+      distanceFromBottom: 140,
     })
   })
 
@@ -157,6 +160,7 @@ describe("getChatScrollStateFromMetrics", () => {
       isScrollable: true,
       isAtTop: false,
       isAtBottom: true,
+      distanceFromBottom: 6,
     })
   })
 })

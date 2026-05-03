@@ -1,7 +1,9 @@
 import {
+  createContext,
   useEffect,
   useLayoutEffect,
   useCallback,
+  useContext,
   memo,
   useMemo,
   useRef,
@@ -72,7 +74,25 @@ interface LatestTurnDropdownBlock {
   messages: MessageWithParts[]
 }
 
-type DisplayBlock = TimelineBlock | LatestTurnDropdownBlock
+interface LatestTurnFooterBlock {
+  type: "latestTurnFooter"
+  key: string
+  activityState: "connecting" | "streaming"
+  startTime: number | null
+  completedDurationMs?: number
+}
+
+interface OrphanChildSessionsBlock {
+  type: "orphanChildSessions"
+  key: string
+  childSessions: ChildSessionData[]
+}
+
+type DisplayBlock =
+  | TimelineBlock
+  | LatestTurnDropdownBlock
+  | LatestTurnFooterBlock
+  | OrphanChildSessionsBlock
 
 interface CompletedFooterState {
   durationMs: number
@@ -85,6 +105,13 @@ interface PreparedDisplayBlock {
   block: DisplayBlock
   key: string
   paddingTop: number
+  approvalState: RuntimeApprovalDisplayState | null
+  groupApprovalStateByMessageId?: Map<string, RuntimeApprovalDisplayState>
+  completedFooter: CompletedFooterState | null
+  isLatestTurnFooterMessage: boolean
+  isLatestTurnStreamingTextMessage: boolean
+  isStreamingMessage: boolean
+  shouldRenderCompletedFooter: boolean
 }
 
 interface StablePreparedDisplayBlocksState {
@@ -97,6 +124,18 @@ const ROLE_CHANGE_BLOCK_GAP_PX = 28
 const DEFAULT_ROW_ESTIMATE_PX = 104
 const EMPTY_APPROVAL_STATE_BY_MESSAGE_ID = new Map<string, RuntimeApprovalDisplayState>()
 const SCROLL_TO_BOTTOM_BUTTON_DELAY_MS = 150
+
+interface TimelineRowSharedState {
+  childSessions?: Map<string, ChildSessionData>
+  worktreePath?: string | null
+  onOpenImagePreview?: (preview: ChatImagePreviewRequest) => void
+}
+
+const TimelineRowSharedStateContext = createContext<TimelineRowSharedState>({
+  childSessions: undefined,
+  worktreePath: null,
+  onOpenImagePreview: undefined,
+})
 
 function getMessageText(message: MessageWithParts): string {
   return getMessageTextContent(message.parts)
@@ -193,6 +232,109 @@ function areMessageListsEqualById(
   )
 }
 
+function areFileChangeEntriesEqual(
+  currentEntries: TimelineFileChangeSummary["entries"][number]["changes"],
+  nextEntries: TimelineFileChangeSummary["entries"][number]["changes"]
+): boolean {
+  if (currentEntries === nextEntries) {
+    return true
+  }
+
+  if (currentEntries.length !== nextEntries.length) {
+    return false
+  }
+
+  return currentEntries.every((entry, index) => {
+    const nextEntry = nextEntries[index]
+    return (
+      nextEntry != null &&
+      entry.path === nextEntry.path &&
+      entry.kind === nextEntry.kind &&
+      entry.diff === nextEntry.diff
+    )
+  })
+}
+
+function areFileChangeSummariesEqual(
+  currentSummary: TimelineFileChangeSummary | null,
+  nextSummary: TimelineFileChangeSummary | null
+): boolean {
+  if (currentSummary === nextSummary) {
+    return true
+  }
+
+  if (currentSummary == null || nextSummary == null) {
+    return false
+  }
+
+  if (
+    currentSummary.fileCount !== nextSummary.fileCount ||
+    currentSummary.label !== nextSummary.label ||
+    currentSummary.added !== nextSummary.added ||
+    currentSummary.removed !== nextSummary.removed ||
+    currentSummary.entries.length !== nextSummary.entries.length
+  ) {
+    return false
+  }
+
+  return currentSummary.entries.every((entry, index) => {
+    const nextEntry = nextSummary.entries[index]
+    return (
+      nextEntry != null &&
+      entry.path === nextEntry.path &&
+      entry.label === nextEntry.label &&
+      entry.added === nextEntry.added &&
+      entry.removed === nextEntry.removed &&
+      areFileChangeEntriesEqual(entry.changes, nextEntry.changes)
+    )
+  })
+}
+
+function areCompletedFootersEqual(
+  currentFooter: CompletedFooterState | null,
+  nextFooter: CompletedFooterState | null
+): boolean {
+  if (currentFooter === nextFooter) {
+    return true
+  }
+
+  if (currentFooter == null || nextFooter == null) {
+    return false
+  }
+
+  return (
+    currentFooter.durationMs === nextFooter.durationMs &&
+    areFileChangeSummariesEqual(
+      currentFooter.changedFilesSummary,
+      nextFooter.changedFilesSummary
+    )
+  )
+}
+
+function areChildSessionDataListsEqual(
+  currentSessions: ChildSessionData[],
+  nextSessions: ChildSessionData[]
+): boolean {
+  if (currentSessions === nextSessions) {
+    return true
+  }
+
+  if (currentSessions.length !== nextSessions.length) {
+    return false
+  }
+
+  return currentSessions.every((currentSession, index) => {
+    const nextSession = nextSessions[index]
+
+    return (
+      nextSession != null &&
+      currentSession.session === nextSession.session &&
+      currentSession.toolParts === nextSession.toolParts &&
+      currentSession.isActive === nextSession.isActive
+    )
+  })
+}
+
 function isPreparedDisplayBlockUnchanged(
   currentBlock: PreparedDisplayBlock,
   nextBlock: PreparedDisplayBlock
@@ -200,7 +342,14 @@ function isPreparedDisplayBlockUnchanged(
   if (
     currentBlock.key !== nextBlock.key ||
     currentBlock.paddingTop !== nextBlock.paddingTop ||
-    currentBlock.block.type !== nextBlock.block.type
+    currentBlock.block.type !== nextBlock.block.type ||
+    currentBlock.approvalState !== nextBlock.approvalState ||
+    currentBlock.groupApprovalStateByMessageId !== nextBlock.groupApprovalStateByMessageId ||
+    currentBlock.isLatestTurnFooterMessage !== nextBlock.isLatestTurnFooterMessage ||
+    currentBlock.isLatestTurnStreamingTextMessage !== nextBlock.isLatestTurnStreamingTextMessage ||
+    currentBlock.isStreamingMessage !== nextBlock.isStreamingMessage ||
+    currentBlock.shouldRenderCompletedFooter !== nextBlock.shouldRenderCompletedFooter ||
+    !areCompletedFootersEqual(currentBlock.completedFooter, nextBlock.completedFooter)
   ) {
     return false
   }
@@ -209,6 +358,25 @@ function isPreparedDisplayBlockUnchanged(
     return (
       nextBlock.block.type === "turnStepsDropdown" &&
       areMessageListsEqualById(currentBlock.block.messages, nextBlock.block.messages)
+    )
+  }
+
+  if (currentBlock.block.type === "latestTurnFooter") {
+    return (
+      nextBlock.block.type === "latestTurnFooter" &&
+      currentBlock.block.activityState === nextBlock.block.activityState &&
+      currentBlock.block.startTime === nextBlock.block.startTime &&
+      currentBlock.block.completedDurationMs === nextBlock.block.completedDurationMs
+    )
+  }
+
+  if (currentBlock.block.type === "orphanChildSessions") {
+    return (
+      nextBlock.block.type === "orphanChildSessions" &&
+      areChildSessionDataListsEqual(
+        currentBlock.block.childSessions,
+        nextBlock.block.childSessions
+      )
     )
   }
 
@@ -242,6 +410,10 @@ function computeStablePreparedDisplayBlocks(
   })
 
   return didChange ? { byKey: nextByKey, result } : previousState
+}
+
+function keyExtractor(item: PreparedDisplayBlock): string {
+  return item.key
 }
 
 export function ChatMessages({
@@ -339,22 +511,83 @@ export function ChatMessages({
     () => getTurnCollapsedMessagesByFooterId(renderedMessages, status),
     [renderedMessages, status]
   )
-  const displayBlocks = useMemo(
+  const timelineDisplayBlocks = useMemo(
     () => buildDisplayBlocks(timelineBlocks, collapsedMessagesByFooterId)
       .filter((block) => block.type !== "message" || hasRenderableMessageContent(block.message)),
     [collapsedMessagesByFooterId, timelineBlocks]
   )
+  const displayBlocks = useMemo(() => {
+    const nextBlocks: DisplayBlock[] = [...timelineDisplayBlocks]
+
+    if (orphanChildSessions.length > 0) {
+      nextBlocks.push({
+        type: "orphanChildSessions",
+        key: "orphan-child-sessions",
+        childSessions: orphanChildSessions,
+      })
+    }
+
+    if (shouldRenderLatestTurnFooter) {
+      nextBlocks.push({
+        type: "latestTurnFooter",
+        key: "latest-turn-footer",
+        activityState: status === "connecting" ? "connecting" : "streaming",
+        startTime: status === "streaming" ? workStartedAt : null,
+        ...(latestTurnDurationMs != null ? { completedDurationMs: latestTurnDurationMs } : {}),
+      })
+    }
+
+    return nextBlocks
+  }, [
+    latestTurnDurationMs,
+    orphanChildSessions,
+    shouldRenderLatestTurnFooter,
+    status,
+    timelineDisplayBlocks,
+    workStartedAt,
+  ])
+  const stableApprovalStateByMessageId =
+    approvalStateByMessageId.size === 0
+      ? EMPTY_APPROVAL_STATE_BY_MESSAGE_ID
+      : approvalStateByMessageId
   const preparedDisplayBlocks = useMemo(
     () =>
-      displayBlocks.map((block, index) => ({
-        block,
-        key: block.type === "message" ? block.key : block.key,
-        paddingTop: getDisplayBlockPaddingTop(
-          index > 0 ? displayBlocks[index - 1] ?? null : null,
-          block
-        ),
-      })),
-    [displayBlocks]
+      displayBlocks.map((block, index) => {
+        const message = block.type === "message" ? block.message : null
+        const isLatestTurnFooterMessage =
+          message != null && message.info.id === latestTurnFooterMessageId
+        const isLatestTurnStreamingTextMessage =
+          message != null && message.info.id === latestTurnStreamingTextMessageId
+        const completedFooter =
+          message == null ? null : resolvedCompletedFooterByMessageId.get(message.info.id) ?? null
+
+        return {
+          block,
+          key: block.key,
+          paddingTop: getDisplayBlockPaddingTop(
+            index > 0 ? displayBlocks[index - 1] ?? null : null,
+            block
+          ),
+          approvalState:
+            message == null ? null : stableApprovalStateByMessageId.get(message.info.id) ?? null,
+          groupApprovalStateByMessageId:
+            block.type === "turnStepsDropdown" ? stableApprovalStateByMessageId : undefined,
+          completedFooter,
+          isLatestTurnFooterMessage,
+          isLatestTurnStreamingTextMessage,
+          isStreamingMessage: status === "streaming" && isLatestTurnStreamingTextMessage,
+          shouldRenderCompletedFooter:
+            completedFooter != null && !(status === "streaming" && isLatestTurnFooterMessage),
+        }
+      }),
+    [
+      displayBlocks,
+      latestTurnFooterMessageId,
+      latestTurnStreamingTextMessageId,
+      resolvedCompletedFooterByMessageId,
+      stableApprovalStateByMessageId,
+      status,
+    ]
   )
   const stablePreparedDisplayBlocks = useStablePreparedDisplayBlocks(preparedDisplayBlocks)
   const handleOpenImagePreview = useMemo(
@@ -378,17 +611,9 @@ export function ChatMessages({
         threadKey={threadKey}
         preparedDisplayBlocks={stablePreparedDisplayBlocks}
         childSessions={childSessionData}
-        approvalStateByMessageId={approvalStateByMessageId}
-        completedFooterByMessageId={resolvedCompletedFooterByMessageId}
-        latestTurnFooterMessageId={latestTurnFooterMessageId}
-        latestTurnStreamingTextMessageId={latestTurnStreamingTextMessageId}
         status={status}
         messages={messages}
         worktreePath={selectedWorktree?.path ?? null}
-        orphanChildSessions={orphanChildSessions}
-        shouldRenderLatestTurnFooter={shouldRenderLatestTurnFooter}
-        latestTurnDurationMs={latestTurnDurationMs}
-        workStartedAt={workStartedAt}
         onOpenImagePreview={handleOpenImagePreview}
       />
       <ChatImagePreviewModal
@@ -457,47 +682,17 @@ function ChatScrollToBottomButton({
 
 function TimelineDisplayBlockRow({
   preparedBlock,
-  childSessions,
-  approvalStateByMessageId,
-  completedFooterByMessageId,
-  latestTurnFooterMessageId,
-  latestTurnStreamingTextMessageId,
-  status,
-  worktreePath,
-  onOpenImagePreview,
 }: {
   preparedBlock: PreparedDisplayBlock
-  childSessions?: Map<string, ChildSessionData>
-  approvalStateByMessageId: Map<string, RuntimeApprovalDisplayState>
-  completedFooterByMessageId: CompletedFooterStateByMessageId
-  latestTurnFooterMessageId: string | null
-  latestTurnStreamingTextMessageId: string | null
-  status: "idle" | "connecting" | "streaming" | "error"
-  worktreePath?: string | null
-  onOpenImagePreview?: (preview: ChatImagePreviewRequest) => void
 }) {
-  const message = preparedBlock.block.type === "message" ? preparedBlock.block.message : null
-  const completedFooter =
-    message == null ? null : completedFooterByMessageId.get(message.info.id) ?? null
-  const approvalState =
-    message == null ? null : approvalStateByMessageId.get(message.info.id) ?? null
-  const isLatestTurnFooterMessage =
-    message != null && message.info.id === latestTurnFooterMessageId
-  const isLatestTurnStreamingTextMessage =
-    message != null && message.info.id === latestTurnStreamingTextMessageId
-  const groupApprovalStateByMessageId =
-    preparedBlock.block.type === "turnStepsDropdown" ? approvalStateByMessageId : undefined
+  const { childSessions, worktreePath, onOpenImagePreview } = useContext(
+    TimelineRowSharedStateContext
+  )
 
   return (
     <MemoizedDisplayBlockRow
       preparedBlock={preparedBlock}
       childSessions={childSessions}
-      approvalState={approvalState}
-      groupApprovalStateByMessageId={groupApprovalStateByMessageId}
-      completedFooter={completedFooter}
-      isLatestTurnFooterMessage={isLatestTurnFooterMessage}
-      isLatestTurnStreamingTextMessage={isLatestTurnStreamingTextMessage}
-      status={status}
       worktreePath={worktreePath}
       onOpenImagePreview={onOpenImagePreview}
     />
@@ -508,33 +703,17 @@ function MessagesTimelineList({
   threadKey,
   preparedDisplayBlocks,
   childSessions,
-  approvalStateByMessageId,
-  completedFooterByMessageId,
-  latestTurnFooterMessageId,
-  latestTurnStreamingTextMessageId,
   status,
   messages,
   worktreePath,
-  orphanChildSessions,
-  shouldRenderLatestTurnFooter,
-  latestTurnDurationMs,
-  workStartedAt,
   onOpenImagePreview,
 }: {
   threadKey: string
   preparedDisplayBlocks: PreparedDisplayBlock[]
   childSessions?: Map<string, ChildSessionData>
-  approvalStateByMessageId: Map<string, RuntimeApprovalDisplayState>
-  completedFooterByMessageId: CompletedFooterStateByMessageId
-  latestTurnFooterMessageId: string | null
-  latestTurnStreamingTextMessageId: string | null
   status: "idle" | "connecting" | "streaming" | "error"
   messages: MessageWithParts[]
   worktreePath?: string | null
-  orphanChildSessions: ChildSessionData[]
-  shouldRenderLatestTurnFooter: boolean
-  latestTurnDurationMs: number | null
-  workStartedAt: number | null
   onOpenImagePreview?: (preview: ChatImagePreviewRequest) => void
 }) {
   const listRef = useRef<LegendListRef | null>(null)
@@ -588,13 +767,12 @@ function MessagesTimelineList({
   const updateListEndStateFromEvent = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
-      applyScrollState(
-        getChatScrollStateFromMetrics({
-          scrollOffset: contentOffset.y,
-          contentSize: contentSize.height,
-          viewportSize: layoutMeasurement.height,
-        })
-      )
+      const nextScrollState = getChatScrollStateFromMetrics({
+        scrollOffset: contentOffset.y,
+        contentSize: contentSize.height,
+        viewportSize: layoutMeasurement.height,
+      })
+      applyScrollState(nextScrollState)
     },
     [applyScrollState]
   )
@@ -621,32 +799,22 @@ function MessagesTimelineList({
     void listRef.current?.scrollToEnd?.({ animated })
   }, [hideScrollToBottomButton])
 
+  const sharedState = useMemo<TimelineRowSharedState>(
+    () => ({
+      childSessions,
+      worktreePath,
+      onOpenImagePreview,
+    }),
+    [childSessions, onOpenImagePreview, worktreePath]
+  )
+
   const renderItem = useCallback(
     ({ item }: { item: PreparedDisplayBlock }) => (
       <div className="mx-auto w-full max-w-[784px] px-6">
-        <TimelineDisplayBlockRow
-          preparedBlock={item}
-          childSessions={childSessions}
-          approvalStateByMessageId={approvalStateByMessageId}
-          completedFooterByMessageId={completedFooterByMessageId}
-          latestTurnFooterMessageId={latestTurnFooterMessageId}
-          latestTurnStreamingTextMessageId={latestTurnStreamingTextMessageId}
-          status={status}
-          worktreePath={worktreePath}
-          onOpenImagePreview={onOpenImagePreview}
-        />
+        <TimelineDisplayBlockRow preparedBlock={item} />
       </div>
     ),
-    [
-      approvalStateByMessageId,
-      childSessions,
-      completedFooterByMessageId,
-      latestTurnFooterMessageId,
-      latestTurnStreamingTextMessageId,
-      onOpenImagePreview,
-      status,
-      worktreePath,
-    ]
+    []
   )
 
   useLayoutEffect(() => {
@@ -671,22 +839,8 @@ function MessagesTimelineList({
 
     if (previousRowCount === 0 && preparedDisplayBlocks.length > 0) {
       scrollToEnd(false)
-      return
     }
-
-    if (!isAtEndRef.current) {
-      return
-    }
-
-    const frameId = requestAnimationFrame(() => {
-      void listRef.current?.scrollToEnd?.({ animated: false })
-      updateListEndStateFromRef()
-    })
-
-    return () => {
-      cancelAnimationFrame(frameId)
-    }
-  }, [preparedDisplayBlocks, scrollToEnd, updateListEndStateFromRef])
+  }, [preparedDisplayBlocks.length, scrollToEnd])
 
   useEffect(() => {
     const lastMessage = messages[messages.length - 1] ?? null
@@ -697,7 +851,7 @@ function MessagesTimelineList({
     const userJustSentMessage = hasNewMessage && lastMessage?.info.role === "user"
     const agentJustStartedResponding = status === "streaming" && previousStatus !== "streaming"
 
-    if (userJustSentMessage || agentJustStartedResponding) {
+    if (userJustSentMessage || (agentJustStartedResponding && isAtEndRef.current)) {
       scrollToEnd(false)
     }
 
@@ -711,63 +865,37 @@ function MessagesTimelineList({
     }
   }, [cancelShowScrollButton])
 
-  const footer = useMemo(
-    () => (
-      <div className="mx-auto flex w-full max-w-[784px] flex-col gap-3 px-6 pb-10">
-        {orphanChildSessions.length > 0 ? (
-          <div className="space-y-3">
-            {orphanChildSessions.map((childSession) => (
-              <InlineSubagentActivity key={childSession.session.id} childSession={childSession} />
-            ))}
-          </div>
-        ) : null}
-        {shouldRenderLatestTurnFooter ? (
-          <AssistantTurnFooter
-            activityState={status === "connecting" ? "connecting" : "streaming"}
-            startTime={status === "streaming" ? workStartedAt : null}
-            completedDurationMs={latestTurnDurationMs ?? undefined}
-          />
-        ) : null}
-      </div>
-    ),
-    [
-      latestTurnDurationMs,
-      orphanChildSessions,
-      shouldRenderLatestTurnFooter,
-      status,
-      workStartedAt,
-    ]
-  )
-
   return (
-    <>
-      <LegendList<PreparedDisplayBlock>
-        ref={listRef}
-        data={preparedDisplayBlocks}
-        keyExtractor={(item) => item.key}
-        renderItem={renderItem}
-        estimatedItemSize={DEFAULT_ROW_ESTIMATE_PX}
-        style={{
-          flex: 1,
-          height: "100%",
-          minHeight: 0,
-          overscrollBehaviorY: "contain",
-        }}
-        initialScrollAtEnd
-        maintainScrollAtEnd
-        maintainScrollAtEndThreshold={0.1}
-        maintainVisibleContentPosition
-        onScroll={updateListEndStateFromEvent}
-        className="app-scrollbar"
-        ListHeaderComponent={<div className="h-4" />}
-        ListFooterComponent={footer}
-      />
+    <div className="h-full w-full">
+      <TimelineRowSharedStateContext.Provider value={sharedState}>
+        <LegendList<PreparedDisplayBlock>
+          ref={listRef}
+          data={preparedDisplayBlocks}
+          keyExtractor={keyExtractor}
+          renderItem={renderItem}
+          estimatedItemSize={DEFAULT_ROW_ESTIMATE_PX}
+          style={{
+            flex: 1,
+            height: "100%",
+            minHeight: 0,
+            overscrollBehaviorY: "contain",
+          }}
+          initialScrollAtEnd
+          maintainScrollAtEnd
+          maintainScrollAtEndThreshold={0.1}
+          maintainVisibleContentPosition
+          onScroll={updateListEndStateFromEvent}
+          className="app-scrollbar"
+          ListHeaderComponent={<div className="h-4" />}
+          ListFooterComponent={<div className="h-10" />}
+        />
+      </TimelineRowSharedStateContext.Provider>
       <ConversationEdgeFades isAtTop={isAtTop} isAtBottom={isAtBottom} />
       <ChatScrollToBottomButton
         visible={showScrollToBottom}
         onPress={() => scrollToEnd(true)}
       />
-    </>
+    </div>
   )
 }
 
@@ -792,23 +920,11 @@ function useStablePreparedDisplayBlocks(
 function DisplayBlockRow({
   preparedBlock,
   childSessions,
-  approvalState,
-  groupApprovalStateByMessageId,
-  completedFooter,
-  isLatestTurnFooterMessage,
-  isLatestTurnStreamingTextMessage,
-  status,
   worktreePath,
   onOpenImagePreview,
 }: {
   preparedBlock: PreparedDisplayBlock
   childSessions?: Map<string, ChildSessionData>
-  approvalState: RuntimeApprovalDisplayState | null
-  groupApprovalStateByMessageId?: Map<string, RuntimeApprovalDisplayState>
-  completedFooter: CompletedFooterState | null
-  isLatestTurnFooterMessage: boolean
-  isLatestTurnStreamingTextMessage: boolean
-  status: "idle" | "connecting" | "streaming" | "error"
   worktreePath?: string | null
   onOpenImagePreview?: (preview: ChatImagePreviewRequest) => void
 }) {
@@ -823,30 +939,40 @@ function DisplayBlockRow({
         <TurnStepsDropdown
           messages={block.messages}
           childSessions={childSessions}
-          approvalStateByMessageId={groupApprovalStateByMessageId ?? EMPTY_APPROVAL_STATE_BY_MESSAGE_ID}
+          approvalStateByMessageId={
+            preparedBlock.groupApprovalStateByMessageId ?? EMPTY_APPROVAL_STATE_BY_MESSAGE_ID
+          }
           worktreePath={worktreePath}
           onOpenImagePreview={onOpenImagePreview}
+        />
+      ) : block.type === "orphanChildSessions" ? (
+        <div className="space-y-3">
+          {block.childSessions.map((childSession) => (
+            <InlineSubagentActivity key={childSession.session.id} childSession={childSession} />
+          ))}
+        </div>
+      ) : block.type === "latestTurnFooter" ? (
+        <AssistantTurnFooter
+          activityState={block.activityState}
+          startTime={block.startTime}
+          completedDurationMs={block.completedDurationMs}
         />
       ) : (
         <>
           <ChatTimelineItem
             message={block.message}
             childSessions={childSessions}
-            approvalState={approvalState}
-            isStreaming={
-              status === "streaming" &&
-              isLatestTurnStreamingTextMessage
-            }
+            approvalState={preparedBlock.approvalState}
+            isStreaming={preparedBlock.isStreamingMessage}
             worktreePath={worktreePath}
             onOpenImagePreview={onOpenImagePreview}
           />
-          {completedFooter != null &&
-          !(status === "streaming" && isLatestTurnFooterMessage) ? (
+          {preparedBlock.shouldRenderCompletedFooter && preparedBlock.completedFooter != null ? (
             <AssistantTurnFooter
               startTime={null}
-              completedDurationMs={completedFooter.durationMs}
+              completedDurationMs={preparedBlock.completedFooter.durationMs}
               copyText={getMessageText(block.message)}
-              changedFilesSummary={completedFooter.changedFilesSummary}
+              changedFilesSummary={preparedBlock.completedFooter.changedFilesSummary}
             />
           ) : null}
         </>
@@ -860,13 +986,6 @@ const MemoizedDisplayBlockRow = memo(
   (previousProps, nextProps) =>
     previousProps.preparedBlock === nextProps.preparedBlock &&
     previousProps.childSessions === nextProps.childSessions &&
-    previousProps.approvalState === nextProps.approvalState &&
-    previousProps.groupApprovalStateByMessageId === nextProps.groupApprovalStateByMessageId &&
-    previousProps.completedFooter === nextProps.completedFooter &&
-    previousProps.isLatestTurnFooterMessage === nextProps.isLatestTurnFooterMessage &&
-    previousProps.isLatestTurnStreamingTextMessage ===
-      nextProps.isLatestTurnStreamingTextMessage &&
-    previousProps.status === nextProps.status &&
     previousProps.worktreePath === nextProps.worktreePath &&
     previousProps.onOpenImagePreview === nextProps.onOpenImagePreview
 )

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 
 import type { MessageWithParts } from "../types"
-import { dedupeMessages } from "./runtimeMessages"
+import { dedupeMessages, preserveExistingMessageMetadata } from "./runtimeMessages"
 
 function createAssistantTextMessage(id: string, text: string): MessageWithParts {
   return {
@@ -78,5 +78,49 @@ describe("dedupeMessages", () => {
       "msg-user-1",
       "msg-user-2",
     ])
+  })
+})
+
+describe("preserveExistingMessageMetadata", () => {
+  test("reuses unchanged message references during streaming merges", () => {
+    const previous = createAssistantTextMessage("msg-1", "Done")
+    const incoming = createAssistantTextMessage("msg-1", "Done")
+    incoming.info.createdAt = 999
+
+    const [result] = preserveExistingMessageMetadata([previous], [incoming])
+
+    expect(result).toBe(previous)
+  })
+
+  test("keeps changed streamed messages as new references", () => {
+    const previous = createAssistantTextMessage("msg-1", "I")
+    const incoming = createAssistantTextMessage("msg-1", "I'm creating")
+    incoming.info.createdAt = 999
+
+    const [result] = preserveExistingMessageMetadata([previous], [incoming])
+
+    expect(result).not.toBe(previous)
+    expect(result?.info.createdAt).toBe(previous.info.createdAt)
+    expect(result?.parts).toEqual([
+      expect.objectContaining({
+        type: "text",
+        text: "I'm creating",
+      }),
+    ])
+  })
+
+  test("does not reuse messages when delimiter-like text changes the parts shape", () => {
+    const previous = createAssistantTextMessage("msg-1", "a|text:b")
+    const incoming = createAssistantTextMessage("msg-1", "a")
+    incoming.parts.push({
+      id: "msg-1:text-2",
+      type: "text",
+      text: "b",
+    })
+
+    const [result] = preserveExistingMessageMetadata([previous], [incoming])
+
+    expect(result).not.toBe(previous)
+    expect(result?.parts).toHaveLength(2)
   })
 })

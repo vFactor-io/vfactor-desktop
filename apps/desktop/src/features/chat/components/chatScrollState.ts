@@ -11,6 +11,7 @@ export interface ChatScrollState {
   isScrollable: boolean
   isAtTop: boolean
   isAtBottom: boolean
+  distanceFromBottom: number
 }
 
 function normalizeFiniteNumber(value: number): number {
@@ -40,5 +41,6 @@ export function getChatScrollStateFromMetrics({
     isScrollable,
     isAtTop: !isScrollable || normalizedScrollOffset <= SCROLL_EDGE_THRESHOLD_PX,
     isAtBottom: !isScrollable || distanceFromBottom <= SCROLL_BOTTOM_THRESHOLD_PX,
+    distanceFromBottom,
   }
 }
