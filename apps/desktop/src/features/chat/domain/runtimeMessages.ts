@@ -157,19 +157,27 @@ function areMessagesEquivalent(
 }
 
 function getMessagePartsSignature(message: MessageWithParts): string {
-  return message.parts
-    .map((part) => {
+  return JSON.stringify(
+    message.parts.map((part) => {
       if (part.type === "text") {
-        return `text:${part.text}`
+        return ["text", part.text]
       }
 
       if (part.type === "attachment") {
-        return `attachment:${part.kind}:${part.relativePath}:${part.label}`
+        return [
+          "attachment",
+          part.kind,
+          part.label,
+          part.relativePath,
+          part.absolutePath,
+          part.mediaType ?? null,
+          part.sizeBytes ?? null,
+        ]
       }
 
-      return `tool:${part.tool}:${JSON.stringify(part.state)}`
+      return ["tool", part.tool, part.state]
     })
-    .join("|")
+  )
 }
 
 function isProvisionalMessageId(messageId: string): boolean {

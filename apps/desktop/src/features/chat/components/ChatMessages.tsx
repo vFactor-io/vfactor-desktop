@@ -232,6 +232,29 @@ function areMessageListsEqualById(
   )
 }
 
+function areFileChangeEntriesEqual(
+  currentEntries: TimelineFileChangeSummary["entries"][number]["changes"],
+  nextEntries: TimelineFileChangeSummary["entries"][number]["changes"]
+): boolean {
+  if (currentEntries === nextEntries) {
+    return true
+  }
+
+  if (currentEntries.length !== nextEntries.length) {
+    return false
+  }
+
+  return currentEntries.every((entry, index) => {
+    const nextEntry = nextEntries[index]
+    return (
+      nextEntry != null &&
+      entry.path === nextEntry.path &&
+      entry.kind === nextEntry.kind &&
+      entry.diff === nextEntry.diff
+    )
+  })
+}
+
 function areFileChangeSummariesEqual(
   currentSummary: TimelineFileChangeSummary | null,
   nextSummary: TimelineFileChangeSummary | null
@@ -262,7 +285,7 @@ function areFileChangeSummariesEqual(
       entry.label === nextEntry.label &&
       entry.added === nextEntry.added &&
       entry.removed === nextEntry.removed &&
-      entry.changes.length === nextEntry.changes.length
+      areFileChangeEntriesEqual(entry.changes, nextEntry.changes)
     )
   })
 }

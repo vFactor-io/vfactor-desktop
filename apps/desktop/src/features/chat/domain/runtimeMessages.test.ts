@@ -95,6 +95,7 @@ describe("preserveExistingMessageMetadata", () => {
   test("keeps changed streamed messages as new references", () => {
     const previous = createAssistantTextMessage("msg-1", "I")
     const incoming = createAssistantTextMessage("msg-1", "I'm creating")
+    incoming.info.createdAt = 999
 
     const [result] = preserveExistingMessageMetadata([previous], [incoming])
 
@@ -106,5 +107,20 @@ describe("preserveExistingMessageMetadata", () => {
         text: "I'm creating",
       }),
     ])
+  })
+
+  test("does not reuse messages when delimiter-like text changes the parts shape", () => {
+    const previous = createAssistantTextMessage("msg-1", "a|text:b")
+    const incoming = createAssistantTextMessage("msg-1", "a")
+    incoming.parts.push({
+      id: "msg-1:text-2",
+      type: "text",
+      text: "b",
+    })
+
+    const [result] = preserveExistingMessageMetadata([previous], [incoming])
+
+    expect(result).not.toBe(previous)
+    expect(result?.parts).toHaveLength(2)
   })
 })
