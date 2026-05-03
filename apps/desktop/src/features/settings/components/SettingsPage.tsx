@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion"
-import { ChevronDownIcon } from "@/components/icons"
+import { ChevronDownIcon, Play } from "@/components/icons"
 import { cn } from "@/lib/utils"
 import { Button } from "@/features/shared/components/ui/button"
 import { Badge } from "@/features/shared/components/ui/badge"
@@ -48,6 +48,10 @@ import {
 } from "@/features/chat/components/chatInputModelSelection"
 import type { SettingsSectionId } from "@/features/settings/config"
 import { useSettingsStore } from "@/features/settings/store/settingsStore"
+import {
+  AGENT_FINISH_SOUND_OPTIONS,
+  playAgentFinishSound,
+} from "@/features/notifications/agentFinishSounds"
 import { UpdatesSection } from "@/features/updates/components/UpdatesSection"
 import {
   GIT_RESOLVE_REASONS,
@@ -554,6 +558,146 @@ function AppearanceSettingsSection() {
   )
 }
 
+function NotificationsSettingsSection() {
+  const agentFinishNotificationsEnabled = useSettingsStore(
+    (state) => state.agentFinishNotificationsEnabled
+  )
+  const agentFinishSoundEnabled = useSettingsStore((state) => state.agentFinishSoundEnabled)
+  const agentFinishSoundId = useSettingsStore((state) => state.agentFinishSoundId)
+  const hasLoaded = useSettingsStore((state) => state.hasLoaded)
+  const initialize = useSettingsStore((state) => state.initialize)
+  const setAgentFinishNotificationsEnabled = useSettingsStore(
+    (state) => state.setAgentFinishNotificationsEnabled
+  )
+  const setAgentFinishSoundEnabled = useSettingsStore(
+    (state) => state.setAgentFinishSoundEnabled
+  )
+  const setAgentFinishSoundId = useSettingsStore((state) => state.setAgentFinishSoundId)
+  const resetAgentFinishNotifications = useSettingsStore(
+    (state) => state.resetAgentFinishNotifications
+  )
+  const [isPreviewingSound, setIsPreviewingSound] = useState(false)
+
+  useEffect(() => {
+    void initialize()
+  }, [initialize])
+
+  const isSettingsLoading = !hasLoaded
+  const selectedSound =
+    AGENT_FINISH_SOUND_OPTIONS.find((option) => option.id === agentFinishSoundId) ??
+    AGENT_FINISH_SOUND_OPTIONS[0]
+
+  const previewSound = async () => {
+    setIsPreviewingSound(true)
+
+    try {
+      await playAgentFinishSound(agentFinishSoundId)
+    } catch (error) {
+      console.warn("[settings] Failed to preview agent finish sound:", error)
+    } finally {
+      setIsPreviewingSound(false)
+    }
+  }
+
+  return (
+    <section className="rounded-xl border border-border/80 bg-card text-card-foreground shadow-sm">
+      <div className="space-y-5 px-4 py-4">
+        <div className="space-y-1">
+          <h2 className="text-sm font-medium text-card-foreground">Agent finish notifications</h2>
+          <p className="text-sm text-muted-foreground">
+            Show a native notification and play your selected sound when an agent finishes while vFactor is not focused.
+          </p>
+        </div>
+
+        <FieldGroup className="gap-4">
+          <Field orientation="horizontal" className="justify-between gap-4">
+            <div className="min-w-0 space-y-1">
+              <FieldTitle>System notification</FieldTitle>
+              <FieldDescription>
+                Notify you when an agent finishes in the background.
+              </FieldDescription>
+            </div>
+            <Switch
+              checked={agentFinishNotificationsEnabled}
+              onCheckedChange={setAgentFinishNotificationsEnabled}
+              disabled={isSettingsLoading}
+              aria-label="Toggle agent finish notifications"
+            />
+          </Field>
+
+          <Field orientation="horizontal" className="justify-between gap-4">
+            <div className="min-w-0 space-y-1">
+              <FieldTitle>Completion sound</FieldTitle>
+              <FieldDescription>
+                Play the selected sound alongside the background notification.
+              </FieldDescription>
+            </div>
+            <Switch
+              checked={agentFinishSoundEnabled}
+              onCheckedChange={setAgentFinishSoundEnabled}
+              disabled={isSettingsLoading || !agentFinishNotificationsEnabled}
+              aria-label="Toggle agent finish sound"
+            />
+          </Field>
+
+          <Field>
+            <FieldTitle>Sound</FieldTitle>
+            <FieldDescription>{selectedSound.description}</FieldDescription>
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+              <Select
+                value={agentFinishSoundId}
+                onValueChange={setAgentFinishSoundId}
+              >
+                <SelectTrigger
+                  className="w-full sm:flex-1"
+                  disabled={
+                    isSettingsLoading ||
+                    !agentFinishNotificationsEnabled ||
+                    !agentFinishSoundEnabled
+                  }
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="start">
+                  {AGENT_FINISH_SOUND_OPTIONS.map((option) => (
+                    <SelectItem key={option.id} value={option.id}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={previewSound}
+                disabled={isSettingsLoading || isPreviewingSound}
+                className="gap-1.5 sm:w-auto"
+              >
+                <Play size={14} />
+                Preview
+              </Button>
+            </div>
+          </Field>
+        </FieldGroup>
+
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={resetAgentFinishNotifications}
+            disabled={isSettingsLoading}
+          >
+            Reset notifications
+          </Button>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function HarnessSettingsSection({ harnessId }: { harnessId: HarnessId }) {
   const harnessDefinition = getHarnessDefinition(harnessId)
   const harnessLabel = harnessDefinition.label
@@ -1026,6 +1170,10 @@ function getSettingsSectionTitle(activeSection: SettingsSectionId): string {
     return "Appearance"
   }
 
+  if (activeSection === "notifications") {
+    return "Notifications"
+  }
+
   if (activeSection === "git") {
     return "Git"
   }
@@ -1040,6 +1188,10 @@ function getSettingsSectionTitle(activeSection: SettingsSectionId): string {
 function renderSettingsSection(activeSection: SettingsSectionId) {
   if (activeSection === "appearance") {
     return <AppearanceSettingsSection />
+  }
+
+  if (activeSection === "notifications") {
+    return <NotificationsSettingsSection />
   }
 
   if (activeSection === "git") {

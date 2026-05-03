@@ -1,5 +1,7 @@
 import type * as React from "react"
 import type {
+  AgentFinishNotificationInput,
+  AgentFinishNotificationResult,
   AppUpdateActionResult,
   AppUpdateCheckResult,
   AppUpdateState,
@@ -70,6 +72,9 @@ declare global {
         installUpdate: (options?: { force?: boolean }) => Promise<AppUpdateActionResult>
         dismissUpdate: () => Promise<AppUpdateState>
         syncWindowTheme: (input: AppWindowThemeSyncInput) => Promise<void>
+        notifyAgentFinished: (
+          input: AgentFinishNotificationInput
+        ) => Promise<AgentFinishNotificationResult>
         onUpdateState: (listener: (state: AppUpdateState) => void) => () => void
       }
       dialog: {

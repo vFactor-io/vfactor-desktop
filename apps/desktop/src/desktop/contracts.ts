@@ -377,6 +377,17 @@ export interface AppWindowThemeSyncInput {
   backgroundColor: string
 }
 
+export interface AgentFinishNotificationInput {
+  turnId: string
+  sessionId: string
+  harnessLabel: string
+  sessionTitle?: string | null
+}
+
+export interface AgentFinishNotificationResult {
+  shown: boolean
+}
+
 export interface ManagedSkill {
   id: string
   name: string

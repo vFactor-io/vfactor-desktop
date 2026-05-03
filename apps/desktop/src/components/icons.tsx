@@ -8,6 +8,7 @@ import {
   ArrowRight as PhosphorArrowRight,
   ArrowSquareOut as PhosphorArrowSquareOut,
   ArrowUp as PhosphorArrowUp,
+  Bell as PhosphorBell,
   BookOpen as PhosphorBookOpen,
   BracketsCurly as PhosphorBracketsCurly,
   Brain as PhosphorBrain,
@@ -166,6 +167,7 @@ export const ArrowUp02 = createIcon("ArrowUp02", PhosphorArrowUp)
 export const ArrowMoveDownLeft = createIcon("ArrowMoveDownLeft", PhosphorArrowLineDownLeft)
 export const ArrowRight = createIcon("ArrowRight", PhosphorArrowRight)
 export const ArrowSquareOut = createIcon("ArrowSquareOut", PhosphorArrowSquareOut)
+export const Bell = createIcon("Bell", PhosphorBell)
 export const BracketsCurly = createIcon("BracketsCurly", PhosphorBracketsCurly)
 export const BookOpen = createIcon("BookOpen", PhosphorBookOpen)
 export const Brain = createIcon("Brain", PhosphorBrain)

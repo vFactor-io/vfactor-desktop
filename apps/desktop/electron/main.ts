@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
-import { app, BrowserWindow, ipcMain, nativeImage, nativeTheme, shell } from "electron"
+import { app, BrowserWindow, Notification, ipcMain, nativeImage, nativeTheme, shell } from "electron"
 import { basename, dirname, join } from "node:path"
 import { EVENT_CHANNELS, IPC_CHANNELS } from "./ipc/channels"
 import { JsonStoreService } from "./services/store"
@@ -30,7 +30,11 @@ import {
   registerElectronCrashTelemetry,
   registerProcessCrashTelemetry,
 } from "./services/crashTelemetry"
-import type { AppWindowThemeSyncInput, GitPullRequestChecksOptions } from "../src/desktop/contracts"
+import type {
+  AgentFinishNotificationInput,
+  AppWindowThemeSyncInput,
+  GitPullRequestChecksOptions,
+} from "../src/desktop/contracts"
 import {
   APPEARANCE_THEME_ID_KEY,
   areWindowThemeStatesEqual,
@@ -144,6 +148,43 @@ function sendToRenderer(channel: string, payload: unknown): void {
   }
 
   mainWindow.webContents.send(channel, payload)
+}
+
+function notifyAgentFinished(input: AgentFinishNotificationInput): { shown: boolean } {
+  if (!Notification.isSupported()) {
+    return { shown: false }
+  }
+
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused()) {
+    return { shown: false }
+  }
+
+  const sessionTitle = input.sessionTitle?.trim()
+  const icon = nativeImage.createFromPath(
+    getAppIconPath(process.platform === "win32" ? "icon.ico" : "icon.png")
+  )
+  const notification = new Notification({
+    title: "Agent finished",
+    body: sessionTitle ? sessionTitle : "Your agent finished running.",
+    icon: icon.isEmpty() ? undefined : icon,
+    silent: true,
+  })
+
+  notification.on("click", () => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      mainWindow = createWindow()
+    }
+
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore()
+    }
+
+    mainWindow.show()
+    mainWindow.focus()
+  })
+
+  notification.show()
+  return { shown: true }
 }
 
 const fsService = new DesktopFsService()
@@ -362,6 +403,9 @@ function registerIpcHandlers(storeService: JsonStoreService): void {
       normalizeWindowThemeState(input, nativeTheme.shouldUseDarkColors)
     )
   })
+  ipcMain.handle(IPC_CHANNELS.appNotifyAgentFinished, (_event, input: AgentFinishNotificationInput) =>
+    notifyAgentFinished(input)
+  )
 
   ipcMain.handle(IPC_CHANNELS.dialogOpenProjectFolder, () => {
     if (!mainWindow) {

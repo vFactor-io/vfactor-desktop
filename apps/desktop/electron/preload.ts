@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron"
 import { EVENT_CHANNELS, IPC_CHANNELS } from "./ipc/channels"
 import type {
+  AgentFinishNotificationInput,
+  AgentFinishNotificationResult,
   AppUpdateState,
   AppWindowThemeSyncInput,
   CopyPathsIntoDirectoryOptions,
@@ -72,6 +74,11 @@ contextBridge.exposeInMainWorld("vfactor", {
     dismissUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.appDismissUpdate) as Promise<unknown>,
     syncWindowTheme: (input: AppWindowThemeSyncInput) =>
       ipcRenderer.invoke(IPC_CHANNELS.appSyncWindowTheme, input) as Promise<void>,
+    notifyAgentFinished: (input: AgentFinishNotificationInput) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.appNotifyAgentFinished,
+        input
+      ) as Promise<AgentFinishNotificationResult>,
     onUpdateState: (listener: (state: AppUpdateState) => void) =>
       subscribe(EVENT_CHANNELS.appUpdateState, listener),
   },

@@ -74,6 +74,30 @@ function resetSettingsStore() {
       },
     },
     favoriteModels: [],
+    providerSettings: {
+      codex: {
+        enabled: true,
+        binaryPath: "codex",
+        homePath: "",
+        customModels: [],
+      },
+      "claude-code": {
+        enabled: true,
+        binaryPath: "claude",
+        launchArgs: "",
+        customModels: [],
+      },
+      opencode: {
+        enabled: true,
+        binaryPath: "opencode",
+        serverUrl: "",
+        serverPassword: "",
+        customModels: [],
+      },
+    },
+    agentFinishNotificationsEnabled: true,
+    agentFinishSoundEnabled: true,
+    agentFinishSoundId: "magic-ring",
     hasLoaded: false,
   })
 }
@@ -137,6 +161,20 @@ describe("settingsStore resolve prompts", () => {
     expect(useSettingsStore.getState().appearanceTextSizePx).toBe(16)
     expect(useSettingsStore.getState().appearanceCornerStyle).toBe("rounded")
     expect(useSettingsStore.getState().terminalLinkTarget).toBe("system-browser")
+  })
+
+  test("persists agent finish notification settings", async () => {
+    await useSettingsStore.getState().initialize()
+
+    useSettingsStore.getState().setAgentFinishNotificationsEnabled(false)
+    useSettingsStore.getState().setAgentFinishSoundEnabled(false)
+    useSettingsStore.getState().setAgentFinishSoundId("quick-tone")
+
+    await Bun.sleep(350)
+
+    expect(storeData.get("agentFinishNotificationsEnabled")).toBe(false)
+    expect(storeData.get("agentFinishSoundEnabled")).toBe(false)
+    expect(storeData.get("agentFinishSoundId")).toBe("quick-tone")
   })
 
   test("persists appearance settings after edits", async () => {

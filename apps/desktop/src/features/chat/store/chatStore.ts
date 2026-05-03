@@ -21,6 +21,7 @@ import {
   isRuntimeApprovalPrompt,
 } from "../domain/runtimePrompts"
 import { createRuntimeNoticeMessages } from "../domain/runtimeNotices"
+import { notifyAgentFinished } from "@/features/notifications/agentFinishNotifications"
 import {
   createDefaultProjectChat,
   createOptimisticRuntimeSession,
@@ -1375,6 +1376,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
           error: null,
         }
       })
+
+      void notifyAgentFinished({
+        turnId: `prompt:${activePrompt.prompt.id}`,
+        sessionId,
+        harnessId: session.harnessId,
+        sessionTitle: session.title,
+      })
     } catch (error) {
       if (!getProjectSessionMatch(get().chatByWorktree, worktreeId, sessionId)) {
         return
@@ -1664,6 +1672,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
         })
 
         emitFileChanges(get().fileChangeListeners, result.messages ?? [])
+        void notifyAgentFinished({
+          turnId,
+          sessionId,
+          harnessId: nextSession.harnessId,
+          sessionTitle: nextSession.title,
+        })
       }
 
       const runSend = async (sessionToSend: RuntimeSession) =>

@@ -10,10 +10,11 @@
   "main": "out/main/main.js",
   "private": true,
   "scripts": {
-    "dev": "bun run prepare:icons dev && electron-vite dev",
+    "dev": "bun run prepare:icons dev && bun run prepare:dev-electron && electron-vite dev",
     "preview": "electron-vite preview",
     "build": "bun run prepare:icons prod && electron-vite build",
     "prepare:icons": "bun run ../../scripts/prepare-desktop-icons.ts",
+    "prepare:dev-electron": "bun run ../../scripts/prepare-desktop-dev-electron.ts",
     "prepare:runtime-env": "bun run ../../scripts/write-desktop-runtime-env.ts",
     "dist": "bun run build && bun run prepare:runtime-env && electron-builder",
     "dist:local": "bun run build && bun run prepare:runtime-env && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir --mac -c.mac.identity=-",
