@@ -1,4 +1,6 @@
 import type {
+  AgentFinishNotificationInput,
+  AgentFinishNotificationResult,
   AppUpdateActionResult,
   AppUpdateCheckResult,
   AppUpdateState,
@@ -150,6 +152,16 @@ export const desktop = {
       }
 
       return syncWindowTheme(input)
+    },
+    notifyAgentFinished: (
+      input: AgentFinishNotificationInput
+    ): Promise<AgentFinishNotificationResult> => {
+      const notifyAgentFinished = window.vfactor.app.notifyAgentFinished
+      if (typeof notifyAgentFinished !== "function") {
+        return Promise.resolve({ shown: false })
+      }
+
+      return notifyAgentFinished(input)
     },
     onUpdateState: (listener: (state: AppUpdateState) => void) =>
       window.vfactor.app.onUpdateState(listener),

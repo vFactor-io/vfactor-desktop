@@ -19,6 +19,11 @@ import {
   normalizeGitResolvePrompts,
   type GitResolvePrompts,
 } from "@/features/shared/components/layout/gitResolve"
+import {
+  DEFAULT_AGENT_FINISH_SOUND_ID,
+  normalizeAgentFinishSoundId,
+  type AgentFinishSoundId,
+} from "@/features/notifications/agentFinishSounds"
 
 const STORE_FILE = "settings.json"
 const APPEARANCE_THEME_ID_KEY = "appearanceThemeId"
@@ -31,6 +36,9 @@ const WORKSPACE_SETUP_MODEL_KEY = "workspaceSetupModel"
 const HARNESS_DEFAULTS_KEY = "harnessDefaults"
 const PROVIDER_SETTINGS_KEY = "providerSettings"
 const FAVORITE_MODELS_KEY = "favoriteModels"
+const AGENT_FINISH_NOTIFICATIONS_ENABLED_KEY = "agentFinishNotificationsEnabled"
+const AGENT_FINISH_SOUND_ENABLED_KEY = "agentFinishSoundEnabled"
+const AGENT_FINISH_SOUND_ID_KEY = "agentFinishSoundId"
 const CODEX_DEFAULT_MODEL_KEY = "codexDefaultModel"
 const CODEX_DEFAULT_REASONING_EFFORT_KEY = "codexDefaultReasoningEffort"
 const CODEX_DEFAULT_FAST_MODE_KEY = "codexDefaultFastMode"
@@ -61,6 +69,9 @@ interface PersistedSettings {
   harnessDefaults: HarnessDefaultsRecord
   providerSettings: RuntimeProviderSettingsRecord
   favoriteModels: string[]
+  agentFinishNotificationsEnabled: boolean
+  agentFinishSoundEnabled: boolean
+  agentFinishSoundId: AgentFinishSoundId
 }
 
 interface SettingsState extends PersistedSettings {
@@ -95,6 +106,10 @@ interface SettingsState extends PersistedSettings {
   setOpenCodeServerUrl: (serverUrl: string) => void
   setOpenCodeServerPassword: (serverPassword: string) => void
   toggleFavoriteModel: (modelKey: string) => void
+  setAgentFinishNotificationsEnabled: (enabled: boolean) => void
+  setAgentFinishSoundEnabled: (enabled: boolean) => void
+  setAgentFinishSoundId: (soundId: string) => void
+  resetAgentFinishNotifications: () => void
 }
 
 let storeInstance: DesktopStoreHandle | null = null
@@ -147,6 +162,9 @@ const DEFAULT_PERSISTED_SETTINGS: PersistedSettings = {
   harnessDefaults: DEFAULT_HARNESS_DEFAULTS,
   providerSettings: DEFAULT_PROVIDER_SETTINGS,
   favoriteModels: [],
+  agentFinishNotificationsEnabled: true,
+  agentFinishSoundEnabled: true,
+  agentFinishSoundId: DEFAULT_AGENT_FINISH_SOUND_ID,
 }
 
 export function normalizeFavoriteModels(value: string[] | null | undefined): string[] {
@@ -303,6 +321,9 @@ function buildPersistedSettings(source: Partial<PersistedSettings>): PersistedSe
     harnessDefaults: normalizeHarnessDefaults(source.harnessDefaults),
     providerSettings: normalizeProviderSettings(source.providerSettings),
     favoriteModels: normalizeFavoriteModels(source.favoriteModels),
+    agentFinishNotificationsEnabled: source.agentFinishNotificationsEnabled !== false,
+    agentFinishSoundEnabled: source.agentFinishSoundEnabled !== false,
+    agentFinishSoundId: normalizeAgentFinishSoundId(source.agentFinishSoundId),
   }
 }
 
@@ -320,6 +341,9 @@ function selectPersistedSettings(
     harnessDefaults: state.harnessDefaults,
     providerSettings: state.providerSettings,
     favoriteModels: state.favoriteModels,
+    agentFinishNotificationsEnabled: state.agentFinishNotificationsEnabled,
+    agentFinishSoundEnabled: state.agentFinishSoundEnabled,
+    agentFinishSoundId: state.agentFinishSoundId,
   })
 }
 
@@ -344,6 +368,12 @@ function schedulePersist(settings: PersistedSettings): void {
         await store.set(HARNESS_DEFAULTS_KEY, settings.harnessDefaults)
         await store.set(PROVIDER_SETTINGS_KEY, settings.providerSettings)
         await store.set(FAVORITE_MODELS_KEY, settings.favoriteModels)
+        await store.set(
+          AGENT_FINISH_NOTIFICATIONS_ENABLED_KEY,
+          settings.agentFinishNotificationsEnabled
+        )
+        await store.set(AGENT_FINISH_SOUND_ENABLED_KEY, settings.agentFinishSoundEnabled)
+        await store.set(AGENT_FINISH_SOUND_ID_KEY, settings.agentFinishSoundId)
         await store.delete(CODEX_DEFAULT_MODEL_KEY)
         await store.delete(CODEX_DEFAULT_REASONING_EFFORT_KEY)
         await store.delete(CODEX_DEFAULT_FAST_MODE_KEY)
@@ -404,6 +434,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
               PROVIDER_SETTINGS_KEY
             )
           const savedFavoriteModels = await store.get<string[]>(FAVORITE_MODELS_KEY)
+          const savedAgentFinishNotificationsEnabled = await store.get<boolean>(
+            AGENT_FINISH_NOTIFICATIONS_ENABLED_KEY
+          )
+          const savedAgentFinishSoundEnabled = await store.get<boolean>(
+            AGENT_FINISH_SOUND_ENABLED_KEY
+          )
+          const savedAgentFinishSoundId = await store.get<string>(AGENT_FINISH_SOUND_ID_KEY)
           const savedCodexDefaultModel = await store.get<string>(CODEX_DEFAULT_MODEL_KEY)
           const savedCodexDefaultReasoningEffort = await store.get<string>(
             CODEX_DEFAULT_REASONING_EFFORT_KEY
@@ -424,6 +461,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
             gitResolvePrompts: savedResolvePrompts,
             workspaceSetupModel: savedWorkspaceSetupModel,
             favoriteModels: normalizeFavoriteModels(savedFavoriteModels),
+            agentFinishNotificationsEnabled: savedAgentFinishNotificationsEnabled ?? true,
+            agentFinishSoundEnabled: savedAgentFinishSoundEnabled ?? true,
+            agentFinishSoundId: normalizeAgentFinishSoundId(savedAgentFinishSoundId),
             providerSettings: normalizeProviderSettings(savedProviderSettings),
             harnessDefaults: normalizeHarnessDefaults({
               ...savedHarnessDefaults,
@@ -756,6 +796,37 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
 
       set({ favoriteModels: nextFavoriteModels })
       persistWith({ favoriteModels: nextFavoriteModels })
+    },
+
+    setAgentFinishNotificationsEnabled: (enabled) => {
+      set({ agentFinishNotificationsEnabled: enabled })
+      persistWith({ agentFinishNotificationsEnabled: enabled })
+    },
+
+    setAgentFinishSoundEnabled: (enabled) => {
+      set({ agentFinishSoundEnabled: enabled })
+      persistWith({ agentFinishSoundEnabled: enabled })
+    },
+
+    setAgentFinishSoundId: (soundId) => {
+      const normalizedSoundId = normalizeAgentFinishSoundId(soundId)
+      set({ agentFinishSoundId: normalizedSoundId })
+      persistWith({ agentFinishSoundId: normalizedSoundId })
+    },
+
+    resetAgentFinishNotifications: () => {
+      set({
+        agentFinishNotificationsEnabled:
+          DEFAULT_PERSISTED_SETTINGS.agentFinishNotificationsEnabled,
+        agentFinishSoundEnabled: DEFAULT_PERSISTED_SETTINGS.agentFinishSoundEnabled,
+        agentFinishSoundId: DEFAULT_PERSISTED_SETTINGS.agentFinishSoundId,
+      })
+      persistWith({
+        agentFinishNotificationsEnabled:
+          DEFAULT_PERSISTED_SETTINGS.agentFinishNotificationsEnabled,
+        agentFinishSoundEnabled: DEFAULT_PERSISTED_SETTINGS.agentFinishSoundEnabled,
+        agentFinishSoundId: DEFAULT_PERSISTED_SETTINGS.agentFinishSoundId,
+      })
     },
   }
 })
